@@ -39,6 +39,17 @@ public struct ReminderReconciler: Sendable {
 
     @discardableResult
     public func apply(_ desired: [LocalNotification]) async -> ReminderReconciliation {
+        await apply(desired, while: { true })
+    }
+
+    /// Same as `apply(_:)`, but stops as soon as `isCurrent` returns false (checked before and after every
+    /// scheduling call): a superseded application schedules nothing more, withdraws the request it has just
+    /// scheduled (the platform may register it after a concurrent removal) and leaves the stored fingerprints
+    /// untouched.
+    func apply(
+        _ desired: [LocalNotification],
+        while isCurrent: @Sendable () async -> Bool
+    ) async -> ReminderReconciliation {
         let prefix = ReminderPlanner.identifierPrefix
         var unique: [LocalNotification] = []
         var desiredIds = Set<String>()
@@ -74,8 +85,13 @@ public struct ReminderReconciler: Sendable {
 
         var fingerprints = stored.filter { desiredIds.contains($0.key) && pending.contains($0.key) }
         for item in toAdd {
+            guard await isCurrent() else { return result }
             do {
                 try await scheduler.add(item.notification)
+                guard await isCurrent() else {
+                    await scheduler.removePending(ids: [item.notification.id])
+                    return result
+                }
                 fingerprints[item.notification.id] = item.fingerprint
                 if item.isReplacement {
                     result.replaced.append(item.notification.id)
@@ -88,6 +104,7 @@ public struct ReminderReconciler: Sendable {
             }
         }
 
+        guard await isCurrent() else { return result }
         if fingerprints != stored {
             store.setValue(fingerprints, forKey: Self.fingerprintsKey)
         }
@@ -106,12 +123,22 @@ public struct ReminderReconciler: Sendable {
 /// Plans and applies the due-date reminders in one call (app launch, "Mes tâches" reload, lead time
 /// change, background refresh). Reads the lead time from the store; when notifications are not
 /// authorized, every pending reminder is removed (they would not be shown anyway).
-public struct ReminderSynchronizer: Sendable {
-    public var planner: ReminderPlanner
+///
+/// Create one instance and share it app-wide: synchronizations run one at a time (they would otherwise
+/// interleave their scheduling calls and leave fingerprints that no longer describe the pending requests),
+/// and `removeAll()` supersedes every synchronization started before it, even one still waiting for the
+/// platform: that one schedules nothing more and withdraws what it has just scheduled.
+public actor ReminderSynchronizer {
+    public nonisolated let planner: ReminderPlanner
     private let reconciler: ReminderReconciler
     private let scheduler: any NotificationScheduler
     private let store: any KeyValueStore
     private let now: NowProvider
+
+    /// Bumped by `removeAll()`.
+    private var epoch = 0
+    private var isBusy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     public init(
         scheduler: any NotificationScheduler,
@@ -131,21 +158,51 @@ public struct ReminderSynchronizer: Sendable {
         self.init(scheduler: platform.notifications, store: platform.store, calendar: platform.calendar, now: platform.now)
     }
 
-    /// Reconciles the pending reminders with `myTasks` (tasks assigned to `userId`).
+    /// Reconciles the pending reminders with `myTasks` (tasks assigned to `userId`). Waits for the
+    /// synchronization in progress, then reads the lead time; does nothing if `removeAll()` was called since.
     @discardableResult
     public func synchronize(myTasks: [TaskItem], userId: UUID) async -> ReminderReconciliation {
+        let started = epoch
+        await acquire()
+        defer { release() }
+        guard epoch == started else { return ReminderReconciliation() }
+
         let leadTime = ReminderLeadTime.load(from: store)
         let authorized = await scheduler.authorizationStatus() == .authorized
         let desired = authorized
             ? planner.plan(tasks: myTasks, userId: userId, leadTime: leadTime, now: now())
             : []
-        return await reconciler.apply(desired)
+        return await reconciler.apply(desired, while: { await self.isCurrent(started) })
     }
 
-    /// Removes every pending reminder (sign-out, account deletion).
+    /// Removes every pending reminder (sign-out, account deletion). Does not wait for a synchronization in
+    /// progress (it may be blocked in the platform): that one is superseded and withdraws its late requests.
     @discardableResult
     public func removeAll() async -> ReminderReconciliation {
-        await reconciler.apply([])
+        epoch += 1
+        return await reconciler.apply([])
+    }
+
+    private func isCurrent(_ started: Int) -> Bool {
+        epoch == started
+    }
+
+    // MARK: - Serialization
+
+    private func acquire() async {
+        if !isBusy {
+            isBusy = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    private func release() {
+        if waiters.isEmpty {
+            isBusy = false
+        } else {
+            waiters.removeFirst().resume()
+        }
     }
 }
 

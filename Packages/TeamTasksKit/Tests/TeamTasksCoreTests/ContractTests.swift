@@ -15,6 +15,13 @@ import Testing
         #expect(InviteCode(input) == nil)
     }
 
+    /// CODE-1: SQL drops non-`[A-Z0-9]` code points one by one (`L` + U+0301 keeps the `L`), so must `normalize`.
+    @Test func normalizationDropsCodePointsLikeSQL() {
+        #expect(InviteCode.normalize("L\u{301}YLAS234") == "LYLAS234")
+        #expect(InviteCode("l\u{301}ylas-234")?.value == "LYLAS234")
+        #expect(InviteCode.normalize("straße") == "STRASSE") // full case mapping, like SQL upper()
+    }
+
     @Test func alphabetHas32UnambiguousCharacters() {
         #expect(InviteCode.alphabet.count == 32)
         for ambiguous in "01IO" {
@@ -40,6 +47,22 @@ import Testing
     @Test func fallsBackToHTTPStatus() {
         #expect(BackendErrorMapper.map(code: nil, message: nil, httpStatus: 401) == .notAuthenticated)
         #expect(BackendErrorMapper.map(code: nil, message: "boom", httpStatus: 500) == .unknown("boom"))
+    }
+
+    /// CORE-401: PostgREST answers a call without a user JWT with HTTP 401
+    /// `{"code":"42501","message":"permission denied for …"}`.
+    @Test func signedOutPermissionErrorMapsToNotAuthenticated() {
+        #expect(BackendErrorMapper.map(code: "42501", message: "permission denied for table group_members", httpStatus: 401) == .notAuthenticated)
+        #expect(BackendErrorMapper.map(code: "42501", message: "permission denied for function create_group", httpStatus: 401) == .notAuthenticated)
+        // Our own permission errors keep their meaning.
+        #expect(BackendErrorMapper.map(code: "42501", message: "forbidden", httpStatus: 403) == .forbidden)
+        #expect(BackendErrorMapper.map(code: "42501", message: "forbidden_fields", httpStatus: 403) == .forbiddenFields)
+    }
+
+    @Test func mapsValidationErrorsAddedByTheReview() {
+        #expect(BackendErrorMapper.map(code: "P0001", message: "invalid_due_at", httpStatus: 400) == .invalidInput)
+        #expect(BackendErrorMapper.map(code: "23502", message: "invalid_input", httpStatus: 400) == .invalidInput)
+        #expect(BackendErrorMapper.map(code: "22P05", message: "unsupported Unicode escape sequence", httpStatus: 400) == .invalidInput)
     }
 
     @Test func everyCaseHasAFrenchMessage() {

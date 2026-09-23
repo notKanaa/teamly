@@ -172,9 +172,10 @@ struct MockTaskService: TaskService {
 struct MockRealtimeService: RealtimeService {
     let session: MockSession
 
-    /// Emits `.connected` immediately, then the change signals of docs/CONTRACTS.md §6 for `userId`.
+    /// Emits `.connected` immediately, then the change signals of docs/CONTRACTS.md §6 for `userId`, as far as
+    /// this client's session may see them (nothing while signed out).
     func events(userId: UUID, groupIds: [UUID]) -> AsyncStream<RealtimeEvent> {
-        session.backend.subscribe(userId: userId, groupIds: groupIds)
+        session.backend.subscribe(clientId: session.clientId, userId: userId, groupIds: groupIds)
     }
 }
 

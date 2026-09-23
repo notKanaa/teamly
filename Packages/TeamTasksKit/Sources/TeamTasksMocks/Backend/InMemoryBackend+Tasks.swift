@@ -77,6 +77,7 @@ extension InMemoryBackend {
             guard transaction.data.isMember(me, of: groupId) else { throw AppError.forbidden }
             let title = try InputRules.title(draft.title)
             let details = try InputRules.details(draft.details)
+            let dueAt = try InputRules.dueDate(draft.dueAt)
             try InputRules.assignees(draft.assigneeIds, groupId: groupId, in: transaction.data)
             let task = TaskRecord(
                 id: UUID(),
@@ -85,7 +86,7 @@ extension InMemoryBackend {
                 details: details,
                 status: .todo,
                 priority: draft.priority,
-                dueAt: draft.dueAt,
+                dueAt: dueAt,
                 createdBy: me,
                 createdAt: transaction.now,
                 updatedAt: transaction.now,
@@ -101,16 +102,18 @@ extension InMemoryBackend {
     }
 
     /// `update_task`: full edit (fields + assignees), admin or creator only. A nil due date clears it.
+    /// The row is always updated (group bump), `updatedAt` only moves when a field changes.
     func updateTask(clientId: UUID, taskId: UUID, draft: TaskDraft) throws -> TaskItem {
         try write(as: clientId) { transaction, me in
-            guard var task = transaction.data.visibleTask(taskId, to: me) else { throw AppError.notFound }
-            guard transaction.data.canEdit(task, userId: me) else { throw AppError.forbidden }
+            guard let stored = transaction.data.visibleTask(taskId, to: me) else { throw AppError.notFound }
+            guard transaction.data.canEdit(stored, userId: me) else { throw AppError.forbidden }
+            var task = stored
             task.title = try InputRules.title(draft.title)
             task.details = try InputRules.details(draft.details)
+            task.dueAt = try InputRules.dueDate(draft.dueAt)
             try InputRules.assignees(draft.assigneeIds, groupId: task.groupId, in: transaction.data)
             task.priority = draft.priority
-            task.dueAt = draft.dueAt
-            task.updatedAt = transaction.now
+            task.touch(from: stored, at: transaction.now)
             transaction.data.tasks[task.id] = task
             transaction.bump(task.groupId)
             transaction.replaceAssignees(of: task, with: draft.assigneeIds, by: me)
@@ -119,18 +122,19 @@ extension InMemoryBackend {
     }
 
     /// `set_task_status`: admin, creator or assignee. `completed_at` is set when the task becomes done
-    /// (kept if it already was) and cleared otherwise.
+    /// (kept if it already was) and cleared otherwise; `updatedAt` only moves when the status changes.
     func setStatus(clientId: UUID, taskId: UUID, status: TaskStatus) throws -> TaskItem {
         try write(as: clientId) { transaction, me in
-            guard var task = transaction.data.visibleTask(taskId, to: me) else { throw AppError.notFound }
-            guard transaction.data.canChangeStatus(task, userId: me) else { throw AppError.forbidden }
+            guard let stored = transaction.data.visibleTask(taskId, to: me) else { throw AppError.notFound }
+            guard transaction.data.canChangeStatus(stored, userId: me) else { throw AppError.forbidden }
+            var task = stored
             if status == .done {
                 if task.status != .done { task.completedAt = transaction.now }
             } else {
                 task.completedAt = nil
             }
             task.status = status
-            task.updatedAt = transaction.now
+            task.touch(from: stored, at: transaction.now)
             transaction.data.tasks[task.id] = task
             transaction.bump(task.groupId)
             return transaction.data.taskItem(task)

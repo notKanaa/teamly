@@ -4,12 +4,46 @@ import TeamTasksMocks
 import Testing
 
 @Suite struct MockAuthTests {
-    @Test(arguments: ["", "   ", "camille", "camille@", "@example.com", "cam ille@example.com", "camille@example", "camille@.fr", "a@b@c.fr"])
+    /// Supabase Auth (GoTrue) accepts the HTML5 e-mail syntax: ASCII only, domain labels starting and ending with
+    /// a letter or digit (probes: `xxxxx@-example.com`, `xxxxx@example..com`, `üxxxxx@example.com` → invalid format).
+    @Test(arguments: [
+        "", "   ", "camille", "camille@", "@example.com", "cam ille@example.com", "camille@.fr", "a@b@c.fr",
+        "üxxxxx@example.com", "xxxxx@-example.com", "xxxxx@example-.com", "xxxxx@example..com", "xxxxx@example.com.",
+        "camille@exämple.com",
+    ])
     func signUpRejectsMalformedEmails(email: String) async {
         let services = InMemoryBackend().services(for: nil)
         await #expect(throws: AppError.invalidEmail) {
             try await services.auth.signUp(email: email, password: "motdepasse123", displayName: "Nom")
         }
+    }
+
+    /// Accepted by GoTrue (probes), so accepted by the mock too.
+    @Test(arguments: ["user@localhost", ".xxxxx@example.com", "a..xxxxx@example.com", "camille@example", "o'neil+tag@sub-domain.example.fr"])
+    func signUpAcceptsWhatSupabaseAuthAccepts(email: String) async throws {
+        let services = InMemoryBackend().services(for: nil)
+        #expect(try await services.auth.signUp(email: email, password: "motdepasse123", displayName: "Nom") == .signedIn)
+        #expect(await services.auth.currentUser()?.email == email.lowercased())
+    }
+
+    /// GoTrue measures passwords in UTF-8 bytes: at least 8 (`minimum_password_length`), at most 72 (bcrypt).
+    @Test func passwordLengthIsCountedInBytes() async throws {
+        let backend = InMemoryBackend()
+        let services = backend.services(for: nil)
+        #expect(try await services.auth.signUp(email: "octets@example.com", password: "éééé", displayName: "Octets") == .signedIn)
+        #expect(try await backend.services(for: nil).auth.signUp(email: "emoji@example.com", password: "😀😀", displayName: "Emoji") == .signedIn)
+        await #expect(throws: AppError.weakPassword) {
+            try await backend.services(for: nil).auth.signUp(email: "court@example.com", password: "ééé1", displayName: "Court")
+        }
+        let longest = String(repeating: "a", count: 72)
+        #expect(try await backend.services(for: nil).auth.signUp(email: "long@example.com", password: longest, displayName: "Long") == .signedIn)
+        await #expect(throws: AppError.invalidInput) {
+            try await backend.services(for: nil).auth.signUp(email: "trop@example.com", password: longest + "a", displayName: "Trop")
+        }
+        await #expect(throws: AppError.invalidInput) {
+            try await services.auth.updatePassword(String(repeating: "é", count: 37))
+        }
+        try await services.auth.updatePassword(String(repeating: "é", count: 36))
     }
 
     @Test func signUpValidation() async throws {

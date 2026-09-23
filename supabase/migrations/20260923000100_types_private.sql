@@ -18,8 +18,10 @@ revoke all on schema private from anon, authenticated;
 alter default privileges in schema private revoke execute on functions from public;
 
 -- Text normalization -------------------------------------------------------------------------------
--- Trims leading/trailing whitespace and newlines, mirroring Swift's
--- `trimmingCharacters(in: .whitespacesAndNewlines)` (ASCII whitespace, NEL and Unicode Z* spaces).
+-- Trims leading/trailing whitespace and newlines exactly like Swift's
+-- `trimmingCharacters(in: .whitespacesAndNewlines)` (CoreFoundation set): U+0009–U+000D, U+0020, U+0085,
+-- U+00A0, U+1680, U+2000–U+200B, U+2028, U+2029, U+202F, U+205F, U+3000. An explicit list rather than `\s`,
+-- whose locale-dependent class also matches U+001C–U+001F (kept by Swift) and misses U+200B.
 
 create function private.clean_text(p_value text)
 returns text
@@ -30,7 +32,7 @@ set search_path = ''
 as $$
   select pg_catalog.regexp_replace(
     p_value,
-    '^[\s\u0085   -     　]+|[\s\u0085   -     　]+$',
+    '^[\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200b\u2028\u2029\u202f\u205f\u3000]+|[\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200b\u2028\u2029\u202f\u205f\u3000]+$',
     '',
     'g'
   );
@@ -39,6 +41,9 @@ $$;
 -- Business error helpers -----------------------------------------------------------------------------
 
 -- Returns the caller's user id or raises `not_authenticated` (P0001).
+-- A JWT stays valid until it expires after its account was deleted (e.g. from another device): a caller
+-- without a profile (profiles follow auth.users) is not authenticated either. The invoker task RPCs
+-- repeat this check inline (they cannot call into `private`).
 create function private.require_uid()
 returns uuid
 language plpgsql
@@ -48,7 +53,7 @@ as $$
 declare
   v_uid uuid := auth.uid();
 begin
-  if v_uid is null then
+  if v_uid is null or not exists (select 1 from public.profiles p where p.id = v_uid) then
     raise exception using errcode = 'P0001', message = 'not_authenticated';
   end if;
   return v_uid;

@@ -1,7 +1,7 @@
 -- delete_my_account (group deletion / oldest member promotion / SET NULL references) and
 -- enable_push / disable_push.
 begin;
-select plan(39);
+select plan(55);
 
 -- Test helpers (created inside this transaction, rolled back at the end) ----------------------------
 -- tests.as_user(name) = `set local role authenticated` + the JWT claims PostgREST would set;
@@ -159,6 +159,41 @@ select is((select count(*)::int from public.push_subscriptions where user_id = t
   'the push subscription is deleted');
 select is((select count(*)::int from private.join_attempts where user_id = tests.id('x')), 0,
   'join attempts are deleted');
+
+-- Another device of the deleted account still holds a valid JWT (until it expires): every RPC treats it as
+-- not_authenticated, before any other check.
+insert into tests.results values ('G5 code', to_jsonb((select code from public.group_invites where group_id = tests.id('G5'))));
+select tests.as_user('x');
+select throws_ok($$ select public.create_group('Fantôme') $$, 'P0001', 'not_authenticated',
+  'stale JWT of a deleted account: create_group');
+select throws_ok(format($$ select public.join_group_by_code(%L) $$, (select value #>> '{}' from tests.results where name = 'G5 code')),
+  'P0001', 'not_authenticated', 'stale JWT: join_group_by_code (valid code)');
+select throws_ok(format($$ select public.regenerate_invite_code(%L) $$, tests.id('G2')), 'P0001', 'not_authenticated',
+  'stale JWT: regenerate_invite_code');
+select throws_ok(format($$ select public.rename_group(%L, 'Fantôme') $$, tests.id('G2')), 'P0001', 'not_authenticated',
+  'stale JWT: rename_group');
+select throws_ok(format($$ select public.delete_group(%L) $$, tests.id('G2')), 'P0001', 'not_authenticated',
+  'stale JWT: delete_group');
+select throws_ok(format($$ select public.set_member_role(%L, %L, 'member') $$, tests.id('G2'), tests.id('y')),
+  'P0001', 'not_authenticated', 'stale JWT: set_member_role');
+select throws_ok(format($$ select public.remove_member(%L, %L) $$, tests.id('G2'), tests.id('z')),
+  'P0001', 'not_authenticated', 'stale JWT: remove_member');
+select throws_ok(format($$ select public.leave_group(%L) $$, tests.id('G2')), 'P0001', 'not_authenticated',
+  'stale JWT: leave_group');
+select throws_ok(format($$ select public.create_task(%L, 'Fantôme') $$, tests.id('G2')), 'P0001', 'not_authenticated',
+  'stale JWT: create_task');
+select throws_ok(format($$ select public.update_task(%L, 'Fantôme', null, 'low', null, null) $$, tests.id('Tâche de x')),
+  'P0001', 'not_authenticated', 'stale JWT: update_task');
+select throws_ok(format($$ select public.set_task_status(%L, 'done') $$, tests.id('Tâche de x')), 'P0001', 'not_authenticated',
+  'stale JWT: set_task_status');
+select throws_ok(format($$ select public.delete_task(%L) $$, tests.id('Tâche de x')), 'P0001', 'not_authenticated',
+  'stale JWT: delete_task');
+select throws_ok(format($$ select public.set_task_assignees(%L, '{}') $$, tests.id('Tâche de x')), 'P0001', 'not_authenticated',
+  'stale JWT: set_task_assignees');
+select throws_ok($$ select public.enable_push() $$, 'P0001', 'not_authenticated', 'stale JWT: enable_push');
+select throws_ok($$ select public.disable_push() $$, 'P0001', 'not_authenticated', 'stale JWT: disable_push');
+select throws_ok($$ select public.delete_my_account() $$, 'P0001', 'not_authenticated', 'stale JWT: delete_my_account');
+select tests.as_postgres();
 
 -- The last admin who is alone in every group can also delete their account.
 select tests.create_user('solo');

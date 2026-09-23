@@ -114,13 +114,40 @@ import Testing
         #expect(titles(TaskSort.dueDate.sorted(tasks)) == ["arrosage", "eau", "Éclairage", "fenêtre", "Zinc"])
     }
 
-    @Test func stableForFullyEqualTasks() {
-        let due = F.date(2026, 9, 25)
-        let tasks = (1...20).map { F.task($0, title: "Même titre", due: due) }
-        for sort in TaskSort.allCases {
-            #expect(sort.sorted(tasks).map(\.id) == tasks.map(\.id))
-            #expect(sort.sorted(tasks.reversed()).map(\.id) == tasks.reversed().map(\.id))
+    /// PostgREST reads have no ORDER BY: distinct tasks equal on every visible criterion must still get one
+    /// order whatever the input order (creation date, then id).
+    @Test func distinctTasksSortIndependentlyOfInputOrder() {
+        let due = F.date(2026, 9, 25, 20, 0)
+        let older = F.task(2, title: "Sortir les poubelles", due: due, createdAt: F.date(2026, 9, 1))
+        let newer = F.task(1, title: "Sortir les poubelles", due: due, createdAt: F.date(2026, 9, 2))
+        let twin = F.task(3, title: "Sortir les poubelles", due: due, createdAt: F.date(2026, 9, 2))
+        for sort in [TaskSort.dueDate, .priority] {
+            #expect(sort.sorted([older, newer, twin]).map(\.id) == [older, newer, twin].map(\.id), "\(sort)")
+            #expect(sort.sorted([twin, newer, older]).map(\.id) == [older, newer, twin].map(\.id), "\(sort)")
         }
+        #expect(TaskSort.recentlyCreated.sorted([older, twin, newer]).map(\.id) == [newer, twin, older].map(\.id))
+        #expect(TaskSort.recentlyCreated.sorted([twin, older, newer]).map(\.id) == [newer, twin, older].map(\.id))
+        #expect(TaskSort.dueDate.areInIncreasingOrder(newer, twin))
+    }
+
+    /// Only two copies of the same task (same id) keep their input order.
+    @Test func sameTaskTwiceKeepsTheInputOrder() {
+        let task = F.task(1, title: "Même tâche", due: F.date(2026, 9, 25))
+        var copy = task
+        copy.status = .inProgress
+        for sort in TaskSort.allCases {
+            #expect(sort.sorted([task, copy]).map(\.status) == [.todo, .inProgress])
+            #expect(sort.sorted([copy, task]).map(\.status) == [.inProgress, .todo])
+        }
+    }
+
+    /// French alphabetical order reads « œ » as « oe » and « æ » as « ae ».
+    @Test func ligaturesSortAsTwoLetters() {
+        let tasks = ["Payer le loyer", "Œufs pour la fête", "Nettoyer la cuisine", "Zinc", "Ænéide", "Adresse", "Afficher"]
+            .enumerated().map { index, title in F.task(index + 1, title: title) }
+        #expect(titles(TaskSort.dueDate.sorted(tasks)) == [
+            "Adresse", "Ænéide", "Afficher", "Nettoyer la cuisine", "Œufs pour la fête", "Payer le loyer", "Zinc",
+        ])
     }
 
     @Test func deterministicWhateverTheInputOrder() {

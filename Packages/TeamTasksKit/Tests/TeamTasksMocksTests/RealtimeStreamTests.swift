@@ -36,13 +36,55 @@ import Testing
         #expect(await events.next() == .groupActivity(groupId: DemoData.lilasGroupId))
     }
 
-    @Test func onlyTheFirstHundredGroupIdsAreWatched() async throws {
-        let filter = (0..<100).map { _ in UUID() } + [DemoData.lilasGroupId]
+    /// The real Realtime server fails the whole channel from about 70 ids in one `id=in.(…)` filter (index row
+    /// size limit), so only the first `maxRealtimeGroups` (60) ids are watched.
+    @Test func onlyTheFirstSixtyGroupIdsAreWatched() async throws {
+        #expect(InMemoryBackend.maxRealtimeGroups == 60)
+        let filter = (0..<60).map { _ in UUID() } + [DemoData.lilasGroupId]
         var events = camille.realtime.events(userId: DemoData.camille.id, groupIds: filter).makeAsyncIterator()
         #expect(await events.next() == .connected)
         _ = try await ines.tasks.create(groupId: DemoData.lilasGroupId, draft: TaskDraft(title: "Ignorée"))
         try await lucas.groups.setRole(groupId: DemoData.sportGroupId, userId: DemoData.camille.id, role: .admin)
         #expect(await events.next() == .membershipsChanged)
+
+        let sixty = (0..<59).map { _ in UUID() } + [DemoData.lilasGroupId]
+        var watched = camille.realtime.events(userId: DemoData.camille.id, groupIds: sixty).makeAsyncIterator()
+        #expect(await watched.next() == .connected)
+        _ = try await ines.tasks.create(groupId: DemoData.lilasGroupId, draft: TaskDraft(title: "Suivie"))
+        #expect(await watched.next() == .groupActivity(groupId: DemoData.lilasGroupId))
+    }
+
+    /// Realtime rows follow the RLS of the SESSION user: a signed-out client (anon role) receives nothing,
+    /// whatever `userId` it passes. Signing in later makes the channel deliver again (the token is updated).
+    @Test func realtimeIsBoundToTheSessionUser() async throws {
+        let device = backend.services(for: nil)
+        var events = device.realtime.events(userId: DemoData.camille.id, groupIds: [DemoData.sportGroupId]).makeAsyncIterator()
+        #expect(await events.next() == .connected)
+        _ = try await lucas.tasks.create(
+            groupId: DemoData.sportGroupId, draft: TaskDraft(title: "Privée", assigneeIds: [DemoData.camille.id])
+        )
+        _ = try await lucas.groups.rename(groupId: DemoData.sportGroupId, name: "Projet Asso Sport 2026")
+
+        // Sentinel: once signed in as Camille, the next change is delivered; nothing may precede it.
+        try await device.auth.signIn(email: DemoData.camille.email, password: DemoData.password)
+        try await lucas.groups.setRole(groupId: DemoData.sportGroupId, userId: DemoData.camille.id, role: .admin)
+        #expect(await events.next() == .groupActivity(groupId: DemoData.sportGroupId))
+        #expect(await events.next() == .membershipsChanged)
+    }
+
+    /// Filters use the `userId` argument, visibility uses the session user (like RLS on the real server).
+    @Test func filtersUseTheUserIdButVisibilityTheSession() async throws {
+        // Inès's device subscribes with Camille's id: Camille's assignments in Lilas are visible to Inès (member),
+        // those in Sport are not.
+        var events = ines.realtime.events(userId: DemoData.camille.id, groupIds: []).makeAsyncIterator()
+        #expect(await events.next() == .connected)
+        _ = try await lucas.tasks.create(
+            groupId: DemoData.sportGroupId, draft: TaskDraft(title: "Sport", assigneeIds: [DemoData.camille.id])
+        )
+        let lilasTask = try await lucas.tasks.create(
+            groupId: DemoData.lilasGroupId, draft: TaskDraft(title: "Lilas", assigneeIds: [DemoData.camille.id])
+        )
+        #expect(await events.next() == .assigned(taskId: lilasTask.id, groupId: DemoData.lilasGroupId, assignedBy: DemoData.lucas.id))
     }
 
     @Test func membershipsChangedForTheUsersOwnMemberships() async throws {

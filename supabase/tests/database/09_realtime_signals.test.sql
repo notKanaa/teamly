@@ -1,7 +1,7 @@
 -- Realtime change signals: groups.last_activity_at and profiles.memberships_changed_at are bumped by
 -- AFTER triggers, at most once per row per transaction; cascades (group deletion) keep working.
 begin;
-select plan(29);
+select plan(30);
 
 -- Test helpers (created inside this transaction, rolled back at the end) ----------------------------
 -- tests.as_user(name) = `set local role authenticated` + the JWT claims PostgREST would set;
@@ -118,6 +118,12 @@ select set_eq(
 select is(
   (select count(*)::int from pg_publication_tables where pubname = 'supabase_realtime'),
   3, 'publication: nothing else is published');
+-- Realtime does not apply RLS to DELETE (and TRUNCATE) events: publishing them would send the primary keys
+-- of other groups' rows to any authenticated subscriber. Clients only consume INSERT and UPDATE.
+select results_eq(
+  $$ select pubinsert, pubupdate, pubdelete, pubtruncate from pg_publication where pubname = 'supabase_realtime' $$,
+  $$ values (true, true, false, false) $$,
+  'publication: INSERT and UPDATE events only (no DELETE/TRUNCATE)');
 
 -- Tasks and assignees bump the group once per transaction ----------------------------------------------------------
 select tests.rewind();

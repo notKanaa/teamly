@@ -13,7 +13,11 @@ Changing anything here requires updating **all** implementations and their tests
 
 ## 1. Validation
 
-All strings are trimmed (`btrim` / `trimmingCharacters(in: .whitespacesAndNewlines)`) before validation and storage.
+All strings are trimmed before validation and storage. The trim set is pinned code point by code point (it is
+neither Postgres `btrim` nor Apple's `.whitespacesAndNewlines`, which differ between platforms):
+U+0009–000D, U+0020, U+0085, U+00A0, U+1680, U+2000–200B, U+2028, U+2029, U+202F, U+205F, U+3000.
+SQL: `private.clean_text`; Swift: `InputValidation.trimmed` (TeamTasksCore). Lengths count code points (`char_length`).
+U+0000 is refused in every text field (Postgres cannot store it) with that field's error.
 
 | Field | Rule | Error (message code → `AppError`) |
 |---|---|---|
@@ -21,11 +25,19 @@ All strings are trimmed (`btrim` / `trimmingCharacters(in: .whitespacesAndNewlin
 | `groups.name` | 1–60 chars | `invalid_name` → `.invalidName` |
 | `tasks.title` | 1–200 chars | `invalid_title` → `.invalidTitle` |
 | `tasks.details` | ≤ 5000 chars, empty string stored as NULL | `invalid_details` → `.invalidDetails` |
-| password | ≥ 8 chars (Supabase Auth `minimum_password_length`) | `.weakPassword` |
-| invite code | 8 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`; input normalized by uppercasing and dropping every non-`[A-Z0-9]` char | `invalid_code` → `.invalidCode` |
-| assignees | ≤ 20 distinct users, all members of the task's group | `too_many_assignees`, `assignee_not_member` |
+| `tasks.due_at` | NULL or in [1970-01-01, 10000-01-01) UTC (no ±infinity, no BC) | `invalid_due_at` → `.invalidInput` |
+| password | 8–72 UTF-8 **bytes** (Supabase Auth counts bytes; bcrypt limit 72) | `.weakPassword` (< 8), `.invalidInput` (> 72) |
+| e-mail | trimmed + lowercased by the client, then HTML5 e-mail syntax | `.invalidEmail` |
+| invite code | 8 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`; input normalized **per Unicode scalar**: uppercase (full case mapping, `ß` → `SS`), then drop every scalar outside `[A-Z0-9]` | `invalid_code` → `.invalidCode` |
+| assignees | ≤ 20 distinct users (checked first), all members of the task's group | `too_many_assignees`, `assignee_not_member` |
 
-`Limits` (Swift) mirrors these numbers.
+Check order inside one call: permission → title → details → due date → assignees count → assignees membership.
+`Limits` (Swift) mirrors these numbers; `InputValidation` (Swift) implements the rules above and is used by the mocks
+and by the Supabase adapters **before** calling the server.
+
+Sign-up: `AuthService.signUp` validates on the client with `InputValidation.signUp(email:password:displayName:)`
+(e-mail, then password, then display name) because the server trigger `handle_new_user` never fails (it truncates
+long names and falls back to the e-mail local part). Every e-mail sent to Auth is normalized first.
 
 ## 2. Roles & permissions
 
@@ -71,6 +83,10 @@ Enums: `member_role ('admin','member')`, `task_status ('todo','in_progress','don
 
 Server-maintained fields: `created_by` (= `auth.uid()` on insert), `created_at`, `updated_at`, `completed_at` (set to `now()` when status becomes `done`, NULL otherwise), `last_activity_at`, `memberships_changed_at`.
 
+- `tasks.updated_at` moves **only** when `title`, `details`, `status`, `priority` or `due_at` actually changes. It is kept on an assignee-only edit, an edit with identical (trimmed) values, a same-status `set_task_status`, and when `created_by` becomes NULL (account deletion).
+- `completed_at` is set when the status **becomes** `done`; `done` → `done` keeps it.
+- `id`, `group_id`, `created_at` are immutable; `created_by` can only become NULL (`42501 immutable_field` → `.forbidden`).
+
 ## 4. API surface
 
 Clients only use: PostgREST reads listed below, the RPCs below, `PATCH profiles` for the display name, Auth, and Realtime.
@@ -81,7 +97,7 @@ All RPCs are `POST /rest/v1/rpc/<name>` with named JSON params (`p_…`). Only r
 | RPC | Security | Returns | Behaviour | Errors |
 |---|---|---|---|---|
 | `create_group(p_name text)` | definer | `groups` row | creates group + caller as admin + invite code | `not_authenticated`, `invalid_name` |
-| `join_group_by_code(p_code text)` | definer | `jsonb {status, group_id, group_name}` with `status ∈ joined, already_member, invalid_code` | normalizes code; logs attempt; > 10 failed attempts by the caller in the last hour → error | `not_authenticated`, `rate_limited` |
+| `join_group_by_code(p_code text)` | definer | `jsonb {status, group_id, group_name}` with `status ∈ joined, already_member, invalid_code` | normalizes code; logs attempt; if the caller already has **≥ 10 failed attempts with `attempted_at >= now() - 1 hour`** (inclusive), every further attempt raises `rate_limited` **before** the code lookup, valid codes included, and is not logged (so the 11th attempt after 10 failures is refused); `already_member` counts as a success | `not_authenticated`, `rate_limited` |
 | `regenerate_invite_code(p_group_id uuid)` | definer | `text` (new code) | admin only | `forbidden` |
 | `rename_group(p_group_id uuid, p_name text)` | definer | `groups` row | admin only | `forbidden`, `invalid_name`, `group_not_found` |
 | `delete_group(p_group_id uuid)` | definer | void | admin only; cascades | `forbidden`, `group_not_found` |
@@ -100,11 +116,22 @@ All RPCs are `POST /rest/v1/rpc/<name>` with named JSON params (`p_…`). Only r
 
 `task_not_found` is raised when the task does not exist **or is not visible** to the caller (non-member); `forbidden` when visible but not allowed.
 
+Resolved precedences and edge cases (SQL, mocks and scenarios agree):
+- `rename_group` / `delete_group`: unknown group → `group_not_found`; existing group + non-admin (non-members included) → `forbidden`; then name validation.
+- `regenerate_invite_code`, `set_member_role`, `remove_member` on an unknown group → `forbidden`.
+- `set_member_role` order: `forbidden` → `not_member` → (unchanged role: return, no write, no signal) → `last_admin`. A NULL `p_role` → `23502 invalid_input` → `.invalidInput`.
+- `remove_member` order: `forbidden` → `cannot_remove_self` → `not_member`.
+- `update_task`: NULL `p_assignee_ids` leaves the assignees unchanged, `'{}'` clears them; NULL `p_priority` keeps the priority; NULL `p_due_at` clears the due date. (The Swift client always sends the full draft.)
+- Every RPC raises `not_authenticated` when `auth.uid()` is NULL **or no longer exists** (stale JWT of a deleted account).
+- The rows returned by `create_task`, `update_task`, `set_task_status` are bare `tasks` rows: adapters complete the `TaskItem` with its sorted `assigneeIds` so it equals a later `task(id:)` read.
+
 ### 4.2 Error convention
 
 - Business errors: `raise exception using errcode = 'P0001', message = '<code>'` → PostgREST HTTP 400 `{"code":"P0001","message":"<code>"}`.
 - Permission errors raised by our code: `errcode = '42501', message = 'forbidden' | 'forbidden_fields'` → HTTP 403.
 - Swift: `BackendErrorMapper.map(code:message:httpStatus:)` maps by message first, then SQLSTATE, then HTTP status.
+- A request without a valid user session is answered by PostgREST with HTTP **401** + `42501` → `.notAuthenticated` (our own `42501` errors are HTTP 403). Adapters also throw `.notAuthenticated` themselves when no local session exists.
+- `22P05` (U+0000 in JSON) and `23502 invalid_input` → `.invalidInput`.
 
 ### 4.3 Reads (PostgREST)
 
@@ -121,13 +148,22 @@ All RPCs are `POST /rest/v1/rpc/<name>` with named JSON params (`p_…`). Only r
 | Push topic | `GET push_subscriptions?select=topic&user_id=eq.<me>` |
 | Update display name | `PATCH profiles?id=eq.<me>` body `{"display_name": …}` with `Prefer: return=representation` (0 rows → `.forbidden`) |
 
-Timestamps are ISO-8601 with fractional seconds and offset. Assignee ids are returned sorted by the client (`assigneeIds` is sorted by `uuidString`).
+Timestamps are ISO-8601 with an offset and **0 to 6** fractional digits (omitted when zero): decoders must accept all of them. Assignee ids are returned sorted by the client (`assigneeIds` is sorted by `uuidString`).
+
+Read details:
+- Timestamp **filter values** are sent in UTC with **6 fractional digits** (microseconds; supabase-swift's default `Date` filter value truncates to milliseconds — do not use it) and percent-encoded (`+` would read as a space).
+- `assignments(since:)` is **exclusive** (`gt`).
+- Old done tasks: cutoff = `now − 30 × 86 400 s` (not calendar days), inclusive (`gte`).
+- Row order of `tasks` / `myTasks` reads is unspecified: clients sort with `TaskSort`.
+- `myGroups`: `last_activity_at` desc, ties by `NameOrder` (fr_FR, case- and diacritic-insensitive, then exact) then `id.uuidString`. `members`: admins first, then `NameOrder` on the display name, then `id.uuidString`. `NameOrder` lives in TeamTasksCore so every implementation sorts identically.
 
 ## 5. RLS summary
 
 All tables have RLS enabled; policies are `to authenticated` only; `anon` has no table privilege.
 Helpers live in schema `private` (not exposed), are `security definer`, `set search_path = ''`, `stable`:
 `my_group_ids()`, `my_admin_group_ids()`, `my_assigned_task_ids()`, `co_member_ids()`, `is_group_member(uuid)`, `is_group_admin(uuid)`.
+`authenticated` has EXECUTE on these helpers (policies run with the caller's privileges) but no USAGE on schema
+`private`, so they cannot be called by name through the API.
 
 | Table | SELECT | INSERT | UPDATE | DELETE |
 |---|---|---|---|---|
@@ -152,19 +188,28 @@ Pitfalls (keep in mind everywhere):
 
 ## 6. Realtime (change signals)
 
-Publication `supabase_realtime` contains exactly: `groups`, `profiles`, `task_assignees`.
+Publication `supabase_realtime` contains exactly: `groups`, `profiles`, `task_assignees`, with
+`publish = 'insert, update'`: DELETE and TRUNCATE events are **not** published (Realtime delivers them to every
+subscriber without RLS, leaking primary keys).
 
 | Binding | Filter | Meaning → `RealtimeEvent` |
 |---|---|---|
-| UPDATE `public.groups` | `id=in.(<my group ids>)` (≤ 100) | `.groupActivity(groupId)` |
+| UPDATE `public.groups` | `id=in.(<my group ids>)`, **at most 60 ids** (the server fails the whole channel at ~70); `in.()` is accepted | `.groupActivity(groupId)` |
 | UPDATE `public.profiles` | `id=eq.<me>` | `.membershipsChanged` |
 | INSERT `public.task_assignees` | `user_id=eq.<me>` | `.assigned(taskId, groupId, assignedBy)` |
 
-Server-side signal bumps (AFTER triggers, at most once per group per transaction):
-- any INSERT/UPDATE/DELETE on `tasks`, `task_assignees`, `group_members` of group G, and `rename_group` → `groups.last_activity_at = now()` for G;
-- any INSERT/UPDATE/DELETE on `group_members` for user U → `profiles.memberships_changed_at = now()` for U.
+Server-side signal bumps (AFTER triggers, at most once per group per transaction) — "write" means an actual row write:
+- any INSERT/UPDATE/DELETE on `tasks`, `task_assignees`, `group_members` of group G, and `rename_group` → `groups.last_activity_at = now()` for G. A same-status `set_task_status` or an identical `update_task` still writes the row, so it bumps;
+- any INSERT/UPDATE/DELETE on `group_members` for user U → `profiles.memberships_changed_at = now()` for U;
+- **no write, no signal**: `set_member_role` with an unchanged role, a join that returns `already_member`, `regenerate_invite_code`;
+- a display-name `PATCH profiles` is also an UPDATE of `profiles` → `.membershipsChanged` for that user.
 
-Clients never listen to DELETE events (they bypass RLS). On `.connected` they reload everything.
+Client obligations:
+- `events(userId:)`: `userId` is the session user; visibility follows the session (a signed-out client receives nothing).
+- Emit `.connected` only on the `system` message with status `ok` ("Subscribed to PostgreSQL"), not on the join reply; a `system` error means the subscription failed.
+- Changes committed shortly **before** the subscription may still be delivered after `.connected`: scenarios use a barrier event before taking a mark.
+- Pass refreshed access tokens to the Realtime client (`setAuth`) so channels survive the JWT expiry (3600 s).
+- Never listen to DELETE events. On `.connected`, reload everything.
 
 ## 7. Notifications
 
@@ -173,6 +218,10 @@ Clients never listen to DELETE events (they bypass RLS). On `.connected` they re
 - Reminders: only tasks assigned to me, not done, with a due date; fire at `dueAt - leadTime` if in the future; at most 60 pending (`ReminderPlanner`).
 - Lead time options: at due time, 15 min, 1 h (default), 1 day, off.
 - Deep link: `equipe://task/<groupId>/<taskId>` (ntfy `Click` header, notification taps).
+- `summary-<epochSeconds>` uses device time; two summaries in the same second replace each other (accepted).
+- iOS scheduler adapter: a fire date that has passed between planning and `add()` is skipped (a time-interval trigger ≤ 0 s throws; a calendar trigger in the past never fires).
+- App wiring: one `AssignmentNotifier` and one `ReminderSynchronizer` per signed-in user per process (also used by the background refresh), because their serialization is per instance. `synchronize(myTasks:)` is only called with a **successfully loaded** list (an empty list after a network error would remove every reminder). On sign-out: stop the `RealtimeCoordinator`, `removeAll()` reminders, `reset()` the notifier.
+- The app injects `Calendar` with the French Gregorian rules and `TimeZone.autoupdatingCurrent`, and refreshes date-dependent UI on significant time changes.
 - ntfy push (opt-in): on INSERT into `task_assignees` where `assigned_by is distinct from user_id` and the assignee has a `push_subscriptions` row, the DB (pg_net) POSTs to `https://ntfy.sh/<topic>` with title `Équipe`, message `Nouvelle tâche assignée dans « <group name> »`, header `Click: equipe://task/<groupId>/<taskId>`. No task title is sent.
 
 ## 8. Demo data (mocks & `supabase/seed.sql`)
@@ -192,3 +241,16 @@ Demo password for every seeded user: `motdepasse123`.
 
 Tasks (group « Coloc' rue des Lilas »): « Sortir les poubelles » (U1, high, due today 20:00, todo), « Faire les courses » (U2 + U1, medium, due tomorrow, in_progress), « Payer le loyer » (U3, high, overdue by 1 day, todo), « Réparer la fuite du lavabo » (unassigned, low, no due date, todo), « Nettoyer la cuisine » (U1, medium, done yesterday).
 Tasks (group « Projet Asso Sport »): « Réserver le gymnase » (U1, high, due in 3 days, todo), « Créer l'affiche du tournoi » (U2, low, due in 7 days, in_progress).
+
+`supabase/seed.sql` is **canonical** for everything this table leaves open; `TeamTasksMocks/DemoData` copies it:
+- ids: users U1 `11111111-1111-4111-8111-111111111111`, U2 `22222222-2222-4222-8222-222222222222`, U3 `33333333-3333-4333-8333-333333333333`; groups `a0000000-0000-4000-8000-00000000000{1,2}`; tasks `b0000000-0000-4000-8000-00000000000{1…7}` in the order above;
+- creators (= assigners): poubelles, loyer → U1; courses, cuisine → U2; lavabo → U3; both Asso Sport tasks → U2;
+- due times in Europe/Paris: today 20:00, tomorrow 18:00, loyer = now − 24 h, +3 days 18:00, +7 days 12:00; cuisine `completed_at` = now − 24 h;
+- mock scenario `emptyGroups` adds one extra account (not seeded): Alex Moreau, `alex@example.com`, id `c0000000-0000-4000-8000-000000000004`, member of no group.
+
+## 9. Adapter obligations (phase 2B)
+
+- Validate every input with `InputValidation` before calling the server (§1), normalize e-mails.
+- `signOut` uses the **local** scope (only this device), like the mocks.
+- `updatePassword` with the current password: Supabase Auth answers `422 same_password`; the adapter treats it as success (the requested end state holds).
+- View models ignore `CancellationError` (a cancelled SwiftUI `.task` must not surface « annulé »).

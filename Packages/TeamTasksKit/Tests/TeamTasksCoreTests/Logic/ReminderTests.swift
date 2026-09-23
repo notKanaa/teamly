@@ -443,6 +443,61 @@ import Testing
         #expect(scheduler.pendingIds.isEmpty)
     }
 
+    /// Sign-out (`removeAll`) while a "Mes tâches" reload is still scheduling: the in-flight request that the
+    /// platform registers late must not stay pending.
+    @MainActor @Test func removeAllDuringAnInFlightSynchronizeLeavesNoReminder() async {
+        let scheduler = LogicGatedScheduler(gatedCalls: [1])
+        let date = now
+        let synchronizer = ReminderSynchronizer(
+            scheduler: scheduler, store: InMemoryKeyValueStore(), calendar: LogicFixtures.parisCalendar, now: { date }
+        )
+        let tasks = [F.task(1, title: "Payer le loyer", due: F.date(2026, 9, 25, 10, 0))]
+        let inFlight = Task { await synchronizer.synchronize(myTasks: tasks, userId: F.me) }
+        await LogicWait.until("first add held") { scheduler.waitingCalls == [1] }
+
+        await synchronizer.removeAll()
+        scheduler.open(1)
+        _ = await inFlight.value
+
+        #expect(scheduler.pending.isEmpty, "still pending after sign-out: \(scheduler.pending.values.map(\.body))")
+        // A later synchronization works normally.
+        await synchronizer.synchronize(myTasks: tasks, userId: F.me)
+        #expect(scheduler.pending.count == 1)
+    }
+
+    /// Lead time changed (1 h → 15 min) while a reload is still scheduling: the two synchronizations must not
+    /// interleave, otherwise the stored fingerprints stop describing the pending requests and later
+    /// synchronizations never repair them.
+    @MainActor @Test func overlappingSynchronizationsConverge() async {
+        let scheduler = LogicGatedScheduler(gatedCalls: [2, 5])
+        let store = InMemoryKeyValueStore()
+        let date = now
+        let synchronizer = ReminderSynchronizer(scheduler: scheduler, store: store, calendar: LogicFixtures.parisCalendar, now: { date })
+        let t1 = F.task(1, due: F.date(2026, 9, 24, 15, 0))
+        let t2 = F.task(2, due: F.date(2026, 9, 24, 16, 0))
+        let t3 = F.task(3, due: F.date(2026, 9, 24, 17, 0))
+
+        ReminderLeadTime.oneHour.save(to: store)
+        let first = Task { await synchronizer.synchronize(myTasks: [t1, t2], userId: F.me) }
+        await LogicWait.until("first synchronization held on its 2nd add") { scheduler.waitingCalls == [2] }
+
+        ReminderLeadTime.fifteenMinutes.save(to: store)
+        let second = Task { await synchronizer.synchronize(myTasks: [t1, t2, t3], userId: F.me) }
+        await LogicWait.settle()
+        scheduler.open(2)
+        _ = await first.value
+        await LogicWait.until("5th add held") { scheduler.waitingCalls == [5] }
+        scheduler.open(5)
+        _ = await second.value
+
+        await synchronizer.synchronize(myTasks: [t1, t2, t3], userId: F.me)
+        await synchronizer.synchronize(myTasks: [t1, t2, t3], userId: F.me)
+        for (task, fire) in [(t1, F.date(2026, 9, 24, 14, 45)), (t2, F.date(2026, 9, 24, 15, 45)), (t3, F.date(2026, 9, 24, 16, 45))] {
+            let id = ReminderPlanner.identifier(taskId: task.id, dueAt: task.dueAt!)
+            #expect(scheduler.pending[id]?.fireDate == fire, "\(task.title) fires at \(String(describing: scheduler.pending[id]?.fireDate))")
+        }
+    }
+
     @Test func platformInitializerUsesPlatformServices() async {
         let scheduler = LogicFakeScheduler()
         let date = now

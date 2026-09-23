@@ -42,13 +42,16 @@ extension ContractScenarios {
         ContractScenario("task.validation") { harness in
             let alice = try await harness.user("Alice")
             let group = try await alice.makeGroup()
-            for invalid in ["", "   ", Fixed.text(201)] {
-                try await Verify.fails(with: .invalidTitle, "create with a title of \(invalid.count) characters") {
+            // U+0000: Postgres text cannot hold it; adapters reject it like the mocks.
+            for invalid in ["", "   ", Fixed.text(201), "a\u{0}b"] {
+                try await Verify.fails(with: .invalidTitle, "create with the title \(invalid.debugDescription)") {
                     try await alice.tasks.create(groupId: group.id, draft: TaskDraft(title: invalid))
                 }
             }
-            try await Verify.fails(with: .invalidDetails, "create with 5001-character details") {
-                try await alice.tasks.create(groupId: group.id, draft: TaskDraft(title: "Titre", details: Fixed.text(5001)))
+            for invalid in [Fixed.text(5001), "d\u{0}"] {
+                try await Verify.fails(with: .invalidDetails, "create with the details \(invalid.debugDescription)") {
+                    try await alice.tasks.create(groupId: group.id, draft: TaskDraft(title: "Titre", details: invalid))
+                }
             }
             let none = try await alice.tasks.tasks(groupId: group.id, includeOldDone: true)
             try Verify.that(none.isEmpty, "failed creations create nothing, got \(none)")
@@ -183,6 +186,35 @@ extension ContractScenarios {
             try Verify.equal(reopened.completedAt, nil, "completedAt cleared when reopened")
             let redone = try await alice.tasks.setStatus(taskId: task.id, status: .done)
             try Verify.that(redone.completedAt != nil, "completedAt set again")
+        },
+
+        // tasks_before_update: updatedAt only moves when title, details, status, priority or due date change.
+        ContractScenario("task.updatedAtTracksFieldChanges") { harness in
+            let alice = try await harness.user("Alice")
+            let bob = try await harness.user("Bob")
+            let group = try await alice.makeGroup(joinedBy: [bob])
+            let created = try await alice.tasks.create(
+                groupId: group.id,
+                draft: TaskDraft(title: "Suivi", details: "Détails", priority: .high, dueAt: Fixed.dueA, assigneeIds: [alice.id])
+            )
+            let reassigned = try await alice.reassign(created, to: [alice, bob])
+            try Verify.equal(reassigned.assigneeIds, sortedIDs([alice, bob]), "assignees replaced")
+            try Verify.equal(reassigned.updatedAt, created.updatedAt, "an assignee-only edit keeps updatedAt")
+            let padded = try await alice.tasks.update(
+                taskId: created.id,
+                draft: TaskDraft(title: "  Suivi  ", details: " Détails ", priority: .high, dueAt: Fixed.dueA, assigneeIds: [alice.id, bob.id])
+            )
+            try Verify.equal(padded.updatedAt, created.updatedAt, "identical (trimmed) fields keep updatedAt")
+            let todo = try await alice.tasks.setStatus(taskId: created.id, status: .todo)
+            try Verify.equal(todo.updatedAt, created.updatedAt, "an unchanged status keeps updatedAt")
+
+            let done = try await alice.tasks.setStatus(taskId: created.id, status: .done)
+            try Verify.that(done.updatedAt > created.updatedAt, "a status change moves updatedAt")
+            let doneAgain = try await bob.tasks.setStatus(taskId: created.id, status: .done)
+            try Verify.equal(doneAgain.updatedAt, done.updatedAt, "done → done keeps updatedAt")
+            try Verify.equal(doneAgain.completedAt, done.completedAt, "done → done keeps completedAt")
+            let fetched = try await bob.tasks.task(id: created.id)
+            try Verify.equal(fetched, doneAgain, "task(id:) returns what setStatus returned")
         },
 
         ContractScenario("task.unknownTask") { harness in

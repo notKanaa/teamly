@@ -61,6 +61,15 @@ struct TaskRecord: Sendable {
     var completedAt: Date?
 }
 
+extension TaskRecord {
+    /// `tasks_before_update`: `updated_at` moves only when title, details, status, priority or due date changed.
+    mutating func touch(from stored: TaskRecord, at now: Date) {
+        let changed = title != stored.title || details != stored.details || status != stored.status
+            || priority != stored.priority || dueAt != stored.dueAt
+        updatedAt = changed ? now : stored.updatedAt
+    }
+}
+
 struct AssigneeRecord: Sendable {
     var taskId: UUID
     var groupId: UUID
@@ -136,6 +145,11 @@ extension BackendData {
 
     func assigneeIds(of taskId: UUID) -> [UUID] {
         Array((assignees[taskId] ?? [:]).keys).sortedByUUIDString()
+    }
+
+    /// `profiles` SELECT policy: self or co-member.
+    func canSeeProfile(of userId: UUID, as viewer: UUID) -> Bool {
+        viewer == userId || members.values.contains { $0[viewer] != nil && $0[userId] != nil }
     }
 
     /// Visibility rule of the `tasks` SELECT policy: members of the task's group.
@@ -232,20 +246,5 @@ extension Sequence where Element == UUID {
     /// Sorted by `uuidString` (the order used for `TaskItem.assigneeIds`).
     func sortedByUUIDString() -> [UUID] {
         sorted { $0.uuidString < $1.uuidString }
-    }
-}
-
-/// Display-name order used for member lists: case- and diacritic-insensitive, then exact, then id.
-enum NameOrder {
-    static func key(_ name: String) -> String {
-        name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "fr_FR"))
-    }
-
-    static func precedes(_ lhs: String, _ rhs: String) -> Bool? {
-        let left = key(lhs)
-        let right = key(rhs)
-        if left != right { return left < right }
-        if lhs != rhs { return lhs < rhs }
-        return nil
     }
 }

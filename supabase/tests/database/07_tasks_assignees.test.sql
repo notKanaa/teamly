@@ -1,7 +1,7 @@
 -- Tasks: validation, server-maintained fields (created_by, completed_at, updated_at), assignees
 -- (≤ 20, members only, retained rows keep assigned_at/assigned_by), update_task semantics.
 begin;
-select plan(57);
+select plan(72);
 
 -- Test helpers (created inside this transaction, rolled back at the end) ----------------------------
 -- tests.as_user(name) = `set local role authenticated` + the JWT claims PostgREST would set;
@@ -113,6 +113,39 @@ select tests.as_user('outsider');
 select throws_ok(format($$ select public.create_task(%L, '') $$, tests.id('G')), '42501', 'forbidden',
   'membership is checked before validation');
 
+-- Trimming mirrors Swift's `whitespacesAndNewlines`: U+001C–U+001F are kept, U+200B is trimmed.
+select tests.as_user('creator');
+select is((public.create_task(tests.id('G'), E'\x1FTitre\x1C')).title, E'\x1FTitre\x1C',
+  'U+001C–U+001F are not trimmed (as in Swift)');
+select throws_ok(format($$ select public.create_task(%L, %L) $$, tests.id('G'), U&'\200B\3000'), 'P0001', 'invalid_title',
+  'a title made of a zero-width space and an ideographic space is blank');
+
+-- Due date: NULL or a finite instant in [1970-01-01, 10000-01-01) UTC. PostgREST renders ±infinity and BC
+-- dates as strings that the clients' ISO-8601 decoder rejects, which would break every list containing the task.
+select throws_ok(format($$ select public.create_task(%L, 'Infini', null, 'low', 'infinity') $$, tests.id('G')),
+  'P0001', 'invalid_due_at', 'due date infinity');
+select throws_ok(format($$ select public.create_task(%L, 'Moins infini', null, 'low', '-infinity') $$, tests.id('G')),
+  'P0001', 'invalid_due_at', 'due date -infinity');
+select throws_ok(format($$ select public.create_task(%L, 'Antique', null, 'low', '0044-03-15 00:00:00+00 BC') $$, tests.id('G')),
+  'P0001', 'invalid_due_at', 'due date before Christ');
+select throws_ok(format($$ select public.create_task(%L, 'Trop tôt', null, 'low', '1969-12-31 23:59:59.999999+00') $$,
+    tests.id('G')),
+  'P0001', 'invalid_due_at', 'due date before 1970');
+select throws_ok(format($$ select public.create_task(%L, 'Trop tard', null, 'low', '10000-01-01 00:00:00+00') $$, tests.id('G')),
+  'P0001', 'invalid_due_at', 'due date in year 10000');
+select lives_ok(format($$ select public.create_task(%L, 'Borne basse', null, 'low', '1970-01-01 00:00:00+00') $$, tests.id('G')),
+  'due date 1970-01-01T00:00:00Z is accepted');
+select lives_ok(format($$ select public.create_task(%L, 'Borne haute', null, 'low', '9999-12-31 23:59:59.999999+00') $$,
+    tests.id('G')),
+  'due date 9999-12-31T23:59:59.999999Z is accepted');
+select throws_ok(format($$ select public.create_task(%L, '', null, 'low', 'infinity') $$, tests.id('G')),
+  'P0001', 'invalid_title', 'the title is validated before the due date');
+select throws_ok(format($$ select public.create_task(%L, 'Infini', null, 'low', 'infinity', array[%L]::uuid[]) $$,
+    tests.id('G'), tests.id('outsider')),
+  'P0001', 'invalid_due_at', 'the due date is validated before the assignees');
+select throws_ok(format($$ insert into public.tasks (group_id, title, due_at) values (%L, 'Directe', 'infinity') $$, tests.id('G')),
+  'P0001', 'invalid_due_at', 'direct inserts are validated too');
+
 select tests.as_user('creator');
 insert into tests.ids select 'C1', id from public.create_task(tests.id('G'), '  Titre  ', E'  Détails\n ');
 insert into tests.ids select 'C2', id from public.create_task(tests.id('G'), 'Sans détails', '   ', null);
@@ -202,6 +235,8 @@ select throws_ok(format($$ select public.update_task(%L, '  ', null, 'low', null
   'P0001', 'invalid_title', 'update_task validates the title');
 select throws_ok(format($$ select public.update_task(%L, 'Ok', %L, 'low', null, '{}') $$, tests.id('C20'), repeat('d', 5001)),
   'P0001', 'invalid_details', 'update_task validates the details');
+select throws_ok(format($$ select public.update_task(%L, 'Ok', null, 'low', 'infinity', null) $$, tests.id('C20')),
+  'P0001', 'invalid_due_at', 'update_task validates the due date');
 select throws_ok(format($$ select public.update_task(%L, 'Changé', null, 'high', null, array[%L]::uuid[]) $$,
     tests.id('C20'), tests.id('outsider')),
   'P0001', 'assignee_not_member', 'update_task validates the assignees');
@@ -225,6 +260,8 @@ select is(tests.affected(format($$ update public.tasks set status = 'done' where
 select is((tests.task('C1')).completed_at, now(), 'the trigger also sets completed_at on direct updates');
 select throws_ok(format($$ update public.tasks set title = '' where id = %L $$, tests.id('C1')),
   'P0001', 'invalid_title', 'direct updates are validated too');
+select throws_ok(format($$ update public.tasks set due_at = '-infinity' where id = %L $$, tests.id('C1')),
+  'P0001', 'invalid_due_at', 'direct due date updates are validated too');
 select is(
   (select count(*)::int from public.tasks where (status = 'done') <> (completed_at is not null)),
   0, 'invariant holds for every visible task');
@@ -234,6 +271,11 @@ alter table public.tasks disable trigger tasks_before_update;
 select throws_ok(format($$ update public.tasks set completed_at = null where id = %L $$, tests.id('C1')),
   '23514', null, 'the check constraint (status = done) = (completed_at is not null) is the last line of defense');
 alter table public.tasks enable trigger tasks_before_update;
+alter table public.tasks disable trigger tasks_before_insert;
+select throws_ok(format($$ insert into public.tasks (group_id, title, due_at) values (%L, 'Sans trigger', 'infinity') $$,
+    tests.id('G')),
+  '23514', null, 'the due_at range check constraint is the last line of defense');
+alter table public.tasks enable trigger tasks_before_insert;
 insert into public.tasks (group_id, title, status, completed_at, created_by)
 values (tests.id('G'), 'Incohérente', 'todo', now(), tests.id('admin'));
 select is((select completed_at from public.tasks where title = 'Incohérente'), null,

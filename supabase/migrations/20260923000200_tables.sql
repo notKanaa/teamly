@@ -50,7 +50,12 @@ create table public.tasks (
     constraint tasks_details_length check (details is null or char_length(details) between 1 and 5000),
   status public.task_status not null default 'todo',
   priority public.task_priority not null default 'medium',
-  due_at timestamptz,
+  -- Finite and within years 1970–9999 UTC: PostgREST renders ±infinity and BC dates as strings that the
+  -- clients' ISO-8601 decoder rejects (one such row would break every list containing it).
+  due_at timestamptz
+    constraint tasks_due_at_range check (
+      due_at is null or (due_at >= '1970-01-01 00:00:00+00' and due_at < '10000-01-01 00:00:00+00')
+    ),
   created_by uuid references public.profiles (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

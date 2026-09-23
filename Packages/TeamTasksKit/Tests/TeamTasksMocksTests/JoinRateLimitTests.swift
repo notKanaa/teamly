@@ -3,8 +3,9 @@ import TeamTasksCore
 import TeamTasksMocks
 import Testing
 
-/// `join_group_by_code`: > 10 failed attempts in the last hour → `.rateLimited` (too slow to test on a real
-/// server, so it is only covered here). Failed attempts are logged even though `.invalidCode` is thrown.
+/// `join_group_by_code`: once the caller has 10 failed attempts in the last hour (`attempted_at >= now() - 1 h`),
+/// every further attempt → `.rateLimited` (too slow to test on a real server, so it is only covered here).
+/// Failed attempts are logged even though `.invalidCode` is thrown.
 @Suite struct JoinRateLimitTests {
     let clock = MockClock(Date(timeIntervalSince1970: 1_790_150_400))
     let lilas = InviteCode(DemoData.lilasInviteCode)!
@@ -28,7 +29,10 @@ import Testing
 
         clock.advance(by: InMemoryBackend.joinRateLimitWindow - 1)
         await #expect(throws: AppError.rateLimited) { try await services.groups.join(code: lilas) }
-        clock.advance(by: 1) // the failures are now exactly one hour old: outside the window
+        // SQL counts `attempted_at >= now() - interval '1 hour'`: failures exactly one hour old still count.
+        clock.advance(by: 1)
+        await #expect(throws: AppError.rateLimited) { try await services.groups.join(code: lilas) }
+        clock.advance(by: 0.001)
         let joined = try await services.groups.join(code: lilas)
         #expect(joined.groupId == DemoData.lilasGroupId)
         #expect(!joined.alreadyMember)

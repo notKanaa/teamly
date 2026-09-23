@@ -61,6 +61,29 @@ extension ContractScenarios {
             try Verify.equal(members.map(\.role), [.admin, .member, .member], "final roles")
         },
 
+        // SQL set_member_role returns before any write when the role does not change.
+        ContractScenario("members.noOpRoleChange") { harness in
+            let alice = try await harness.user("Alice")
+            let bob = try await harness.user("Bob")
+            let group = try await alice.makeGroup(joinedBy: [bob])
+            let probe = try await bob.subscribe(groups: [group.id])
+            defer { probe.stop() }
+            let before = try await alice.lastActivity(of: group.id)
+
+            let mark = probe.mark()
+            try await Verify.step("set unchanged roles") {
+                try await alice.groups.setRole(groupId: group.id, userId: bob.id, role: .member)
+                try await alice.groups.setRole(groupId: group.id, userId: alice.id, role: .admin) // the only admin
+            }
+            try await probe.expectNone(since: mark, "no signal for an unchanged role") {
+                $0 == .membershipsChanged || $0 == .groupActivity(groupId: group.id)
+            }
+            let after = try await alice.lastActivity(of: group.id)
+            try Verify.equal(after, before, "an unchanged role keeps lastActivityAt")
+            let members = try await bob.groups.members(groupId: group.id)
+            try Verify.equal(members.map(\.role), [.admin, .member], "roles unchanged")
+        },
+
         ContractScenario("members.remove") { harness in
             let alice = try await harness.user("Alice")
             let bob = try await harness.user("Bob")

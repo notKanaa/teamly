@@ -267,6 +267,61 @@ final class LogicFakeScheduler: NotificationScheduler, @unchecked Sendable {
     func setBadge(_ count: Int) async {}
 }
 
+/// Scheduler whose n-th `add` call (1-based) can be held until the test opens it, to reproduce interleavings
+/// of concurrent callers. A held request is registered when released (like a late UNUserNotificationCenter call).
+final class LogicGatedScheduler: NotificationScheduler, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _pending: [String: LocalNotification] = [:]
+    private var addCalls = 0
+    private let gatedCalls: Set<Int>
+    private var waiting: [Int: CheckedContinuation<Void, Never>] = [:]
+
+    init(gatedCalls: Set<Int>) {
+        self.gatedCalls = gatedCalls
+    }
+
+    var pending: [String: LocalNotification] { lock.withLock { _pending } }
+    /// Calls currently held.
+    var waitingCalls: Set<Int> { lock.withLock { Set(waiting.keys) } }
+    var addCallCount: Int { lock.withLock { addCalls } }
+
+    /// Releases the held call `call`.
+    func open(_ call: Int) {
+        let continuation = lock.withLock { waiting.removeValue(forKey: call) }
+        continuation?.resume()
+    }
+
+    func authorizationStatus() async -> NotificationAuthorization { .authorized }
+    func requestAuthorization() async -> Bool { true }
+
+    func pendingIdentifiers(prefix: String) async -> [String] {
+        lock.withLock { _pending.keys.filter { $0.hasPrefix(prefix) }.sorted() }
+    }
+
+    func add(_ notification: LocalNotification) async throws {
+        let call = lock.withLock {
+            addCalls += 1
+            return addCalls
+        }
+        if gatedCalls.contains(call) {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.withLock { waiting[call] = continuation }
+            }
+        }
+        lock.withLock { _pending[notification.id] = notification }
+    }
+
+    func removePending(ids: [String]) async {
+        lock.withLock {
+            for id in ids {
+                _pending.removeValue(forKey: id)
+            }
+        }
+    }
+
+    func setBadge(_ count: Int) async {}
+}
+
 // MARK: - Task service
 
 final class LogicFakeTaskService: TaskService, @unchecked Sendable {

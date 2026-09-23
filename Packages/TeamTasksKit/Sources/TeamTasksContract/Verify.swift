@@ -62,7 +62,7 @@ public enum Verify {
         try await fails(withAnyOf: [expected], message(), file: file, line: line, body)
     }
 
-    /// Expects `body` to throw one of `expected` (used where docs/CONTRACTS.md leaves the precedence open).
+    /// Expects `body` to throw one of `expected`.
     public static func fails<Value>(
         withAnyOf expected: Set<AppError>,
         _ message: @autoclosure () -> String,
@@ -85,24 +85,23 @@ public enum Verify {
         }
     }
 
-    /// Non-members see nothing: either an empty result (RLS) or `.forbidden` / `.notFound`.
+    /// Non-members see nothing: an empty result (RLS), never an error (lead decision).
     public static func hidden<Result: Collection>(
         _ message: @autoclosure () -> String,
         file: StaticString = #fileID,
         line: UInt = #line,
         _ body: () async throws -> Result
     ) async throws {
+        let result: Result
         do {
-            let result = try await body()
-            guard result.isEmpty else {
-                throw ContractFailure("\(message()): expected nothing visible, got \(result)", file: file, line: line)
-            }
+            result = try await body()
         } catch let error as ContractFailure {
             throw error
-        } catch let error as AppError {
-            guard error == .forbidden || error == .notFound else {
-                throw ContractFailure("\(message()): expected empty/forbidden/notFound, got \(error)", file: file, line: line)
-            }
+        } catch {
+            throw ContractFailure("\(message()): expected an empty result, got error \(error)", file: file, line: line)
+        }
+        guard result.isEmpty else {
+            throw ContractFailure("\(message()): expected nothing visible, got \(result)", file: file, line: line)
         }
     }
 

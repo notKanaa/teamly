@@ -1,13 +1,16 @@
 import Foundation
 
-/// Sort orders of a task list. Every order is total and deterministic; tasks that compare equal on
-/// every criterion keep their input order (stable sort).
+/// Sort orders of a task list. Every order is total over distinct tasks and independent of the input order
+/// (PostgREST reads have no ORDER BY): the last criteria are the creation date (oldest first, newest first for
+/// `recentlyCreated`) and the id. Only two copies of the same task keep their input order (stable sort).
 public enum TaskSort: String, Sendable, Hashable, Codable, CaseIterable, Identifiable {
-    /// Due date ascending (tasks without due date last), then priority (high first), then title.
+    /// Due date ascending (tasks without due date last), then priority (high first), then title, then
+    /// creation date ascending, then id.
     case dueDate
-    /// Priority (high first), then due date ascending (none last), then title.
+    /// Priority (high first), then due date ascending (none last), then title, then creation date ascending,
+    /// then id.
     case priority
-    /// Most recently created first, then title.
+    /// Most recently created first, then title, then id.
     case recentlyCreated
 
     public var id: String { rawValue }
@@ -52,6 +55,8 @@ public enum TaskSort: String, Sendable, Hashable, Codable, CaseIterable, Identif
                 TaskSort.compareDescending(lhs.priority.rank, rhs.priority.rank),
                 TaskSort.compareAscending(lhsTitle, rhsTitle),
                 TaskSort.compareAscending(lhs.title, rhs.title),
+                TaskSort.compareAscending(lhs.createdAt, rhs.createdAt),
+                TaskSort.compareAscending(lhs.id.uuidString, rhs.id.uuidString),
             ]
         case .priority:
             criteria = [
@@ -59,23 +64,32 @@ public enum TaskSort: String, Sendable, Hashable, Codable, CaseIterable, Identif
                 TaskSort.compareDue(lhs.dueAt, rhs.dueAt),
                 TaskSort.compareAscending(lhsTitle, rhsTitle),
                 TaskSort.compareAscending(lhs.title, rhs.title),
+                TaskSort.compareAscending(lhs.createdAt, rhs.createdAt),
+                TaskSort.compareAscending(lhs.id.uuidString, rhs.id.uuidString),
             ]
         case .recentlyCreated:
             criteria = [
                 TaskSort.compareDescending(lhs.createdAt, rhs.createdAt),
                 TaskSort.compareAscending(lhsTitle, rhsTitle),
                 TaskSort.compareAscending(lhs.title, rhs.title),
+                TaskSort.compareAscending(lhs.id.uuidString, rhs.id.uuidString),
             ]
         }
         return criteria.first { $0 != .orderedSame } ?? .orderedSame
     }
 
     /// Case-, accent- and width-insensitive key so that "éclairage" sorts between "eau" and "fenêtre".
+    /// Ligatures are spelled out as in French alphabetical order ("œufs" between "nettoyer" and "payer").
     static func titleKey(_ title: String) -> String {
         title.folding(
             options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
             locale: Locale(identifier: "fr_FR")
         )
+        .replacingOccurrences(of: "œ", with: "oe")
+        .replacingOccurrences(of: "Œ", with: "oe")
+        .replacingOccurrences(of: "æ", with: "ae")
+        .replacingOccurrences(of: "Æ", with: "ae")
+        .replacingOccurrences(of: "ß", with: "ss")
     }
 
     /// Ascending due date, nil last.

@@ -48,12 +48,13 @@ import Testing
         clock.advance(by: 60)
         let again = try await camille.tasks.setStatus(taskId: task.id, status: .done)
         #expect(again.completedAt == done.completedAt)
-        #expect(again.updatedAt == done.updatedAt.addingTimeInterval(60))
+        #expect(again.updatedAt == done.updatedAt) // nothing changed: SQL keeps updated_at
     }
 
     @Test func timestampsFollowTheInjectedClock() async throws {
         let backend = InMemoryBackend.demo(now: clock.provider)
         let camille = backend.services(for: DemoData.camille.id)
+        clock.advance(by: 1) // the demo groups were last active at the seed time
         let start = clock.peek()
         let task = try await camille.tasks.create(
             groupId: DemoData.sportGroupId, draft: TaskDraft(title: "Tracer les lignes", assigneeIds: [DemoData.lucas.id])

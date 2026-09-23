@@ -66,6 +66,35 @@ import Testing
         #expect(formatter.relativeDateTime(F.date(2026, 10, 26, 9, 0), relativeTo: sundayEarly) == "demain à 09:00")
     }
 
+    /// Zones whose spring-forward transition skips midnight (Azores, Chile…): `startOfDay` of that day is 01:00,
+    /// so the next day starts only 23 hours later; the offset must still count calendar days.
+    @Test(arguments: ["Atlantic/Azores", "America/Santiago"])
+    func dayOffsetOnDaysWhoseMidnightIsSkipped(zone: String) throws {
+        let formatter = FrenchDateFormatter(timeZone: try #require(TimeZone(identifier: zone)))
+        let calendar = formatter.calendar
+        var day = try #require(calendar.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 12)))
+        var transitionDay: Date?
+        for _ in 0..<366 {
+            if calendar.component(.hour, from: calendar.startOfDay(for: day)) != 0 {
+                transitionDay = day
+                break
+            }
+            day = try #require(calendar.date(byAdding: .day, value: 1, to: day))
+        }
+        let transition = try #require(transitionDay, "no skipped midnight in 2026 for \(zone)")
+        let noon = try #require(calendar.date(bySettingHour: 12, minute: 0, second: 0, of: transition))
+        let ten = try #require(calendar.date(bySettingHour: 10, minute: 0, second: 0, of: transition))
+        let tomorrow = try #require(calendar.date(byAdding: .day, value: 1, to: ten))
+        let inTwoDays = try #require(calendar.date(byAdding: .day, value: 2, to: ten))
+        let yesterday = try #require(calendar.date(byAdding: .day, value: -1, to: ten))
+        #expect(formatter.dayOffset(of: tomorrow, from: noon) == 1)
+        #expect(formatter.dayOffset(of: inTwoDays, from: noon) == 2)
+        #expect(formatter.dayOffset(of: yesterday, from: noon) == -1)
+        #expect(formatter.dayOffset(of: noon, from: tomorrow) == -1)
+        #expect(formatter.relativeDateTime(tomorrow, relativeTo: noon) == "demain à 10:00")
+        #expect(formatter.relativeDateTime(ten, relativeTo: noon) == "aujourd'hui à 10:00")
+    }
+
     @Test func capitalizesFirstLetter() {
         #expect(FrenchDateFormatter.capitalizingFirstLetter("aujourd'hui à 20:00") == "Aujourd'hui à 20:00")
         #expect(FrenchDateFormatter.capitalizingFirstLetter("école") == "École")

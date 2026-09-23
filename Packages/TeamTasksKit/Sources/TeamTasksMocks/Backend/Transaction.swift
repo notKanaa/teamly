@@ -57,6 +57,9 @@ struct Transaction {
     /// Runs the safety-net heal and applies the signal bumps. Called once, before commit.
     mutating func finish() {
         healGroupsWithoutAdmin()
+        // Local copy: reading `self.now` inside `data[…]?.x = …` overlaps the modify access to `self`
+        // (rejected by the Darwin compiler's static exclusivity check).
+        let now = now
         for groupId in bumpedGroups {
             data.groups[groupId]?.lastActivityAt = now
         }
@@ -75,8 +78,9 @@ struct Transaction {
         membershipsChanged(userId)
     }
 
+    /// Changes a role; an unchanged role writes nothing (no bump).
     mutating func updateRole(groupId: UUID, userId: UUID, role: MemberRole) {
-        guard data.members[groupId]?[userId] != nil else { return }
+        guard let current = data.members[groupId]?[userId]?.role, current != role else { return }
         data.members[groupId]?[userId]?.role = role
         bump(groupId)
         membershipsChanged(userId)
@@ -167,10 +171,10 @@ struct Transaction {
         for groupId in data.groupIds(of: userId) {
             deleteMembership(groupId: groupId, userId: userId)
         }
-        // ON DELETE SET NULL (fires UPDATE triggers: tasks.updated_at and the group bumps).
+        // ON DELETE SET NULL fires the UPDATE triggers: the group bumps, but `tasks_before_update` keeps
+        // `updated_at` (no editable field changed).
         for taskId in Array(data.tasks.keys) where data.tasks[taskId]?.createdBy == userId {
             data.tasks[taskId]?.createdBy = nil
-            data.tasks[taskId]?.updatedAt = now
             if let groupId = data.tasks[taskId]?.groupId { bump(groupId) }
         }
         for taskId in Array(data.assignees.keys) {

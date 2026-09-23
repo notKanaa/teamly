@@ -32,8 +32,8 @@ extension ContractScenarios {
 
         ContractScenario("group.createValidation") { harness in
             let alice = try await harness.user("Alice")
-            for invalid in ["", "   ", Fixed.text(61)] {
-                try await Verify.fails(with: .invalidName, "group name of \(invalid.count) characters") {
+            for invalid in ["", "   ", Fixed.text(61), "x\u{0}y"] {
+                try await Verify.fails(with: .invalidName, "group name \(invalid.debugDescription)") {
                     try await alice.groups.createGroup(name: invalid)
                 }
             }
@@ -183,11 +183,11 @@ extension ContractScenarios {
             try await Verify.fails(with: .forbidden, "a member renames") {
                 try await bob.groups.rename(groupId: group.id, name: Unique.name("Pirate"))
             }
-            // CONTRACTS lists both errors without precedence for non-members / unknown groups.
-            try await Verify.fails(withAnyOf: [.forbidden, .notFound], "a non-member renames") {
+            // Lead decision: existing group + non-admin (incl. non-member) → forbidden; unknown group → not found.
+            try await Verify.fails(with: .forbidden, "a non-member renames") {
                 try await eve.groups.rename(groupId: group.id, name: Unique.name("Pirate"))
             }
-            try await Verify.fails(withAnyOf: [.notFound, .forbidden], "rename an unknown group") {
+            try await Verify.fails(with: .notFound, "rename an unknown group") {
                 try await alice.groups.rename(groupId: UUID(), name: Unique.name("Fantôme"))
             }
             let final = try Verify.unwrap(try await alice.summary(of: group.id), "group in alice's list")
@@ -203,10 +203,10 @@ extension ContractScenarios {
             try await Verify.fails(with: .forbidden, "a member deletes the group") {
                 try await bob.groups.deleteGroup(groupId: group.id)
             }
-            try await Verify.fails(withAnyOf: [.forbidden, .notFound], "a non-member deletes the group") {
+            try await Verify.fails(with: .forbidden, "a non-member deletes the group") {
                 try await eve.groups.deleteGroup(groupId: group.id)
             }
-            try await Verify.fails(withAnyOf: [.notFound, .forbidden], "delete an unknown group") {
+            try await Verify.fails(with: .notFound, "delete an unknown group") {
                 try await alice.groups.deleteGroup(groupId: UUID())
             }
             let stillThere = try await bob.tasks.task(id: task.id)
@@ -229,7 +229,7 @@ extension ContractScenarios {
             try await Verify.fails(with: .invalidCode, "code of a deleted group") {
                 try await eve.groups.join(code: group.code)
             }
-            try await Verify.fails(withAnyOf: [.notFound, .forbidden], "delete an already deleted group") {
+            try await Verify.fails(with: .notFound, "delete an already deleted group") {
                 try await alice.groups.deleteGroup(groupId: group.id)
             }
         },

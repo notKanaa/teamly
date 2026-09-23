@@ -18,8 +18,9 @@ public final class InMemoryBackend: @unchecked Sendable {
     public static let maxFailedJoinsPerHour = 10
     public static let joinRateLimitWindow: TimeInterval = 3600
     public static let pushTopicPrefix = "equipe-"
-    /// Realtime `id=in.(…)` filter limit.
-    public static let maxRealtimeGroups = 100
+    /// Group ids watched by one Realtime subscription (the first ones of the list). The real server fails the
+    /// whole channel from about 70 ids in one `id=in.(…)` filter (index row size limit): adapters must cap too.
+    public static let maxRealtimeGroups = 60
 
     /// Calendar used for demo dates.
     public let calendar: Calendar
@@ -39,6 +40,9 @@ public final class InMemoryBackend: @unchecked Sendable {
     }
 
     struct RealtimeSubscriber {
+        /// Client whose session authorizes the channel (RLS of the session user, nothing when signed out).
+        var clientId: UUID
+        /// User of the filters (`user_id=eq.<userId>`, `id=eq.<userId>`).
         var userId: UUID
         var groupIds: Set<UUID>
         var continuation: AsyncStream<RealtimeEvent>.Continuation
@@ -81,9 +85,7 @@ public final class InMemoryBackend: @unchecked Sendable {
     /// Creates an account (and its profile) directly, without opening a session.
     @discardableResult
     public func createAccount(email: String, password: String, displayName: String, id: UUID = UUID()) throws -> AuthUser {
-        let email = try InputRules.email(email)
-        try InputRules.password(password)
-        let name = try InputRules.displayName(displayName)
+        let (email, name) = try InputValidation.signUp(email: email, password: password, displayName: displayName)
         return try withLock {
             guard data.account(email: email) == nil, data.accounts[id] == nil else { throw AppError.emailAlreadyUsed }
             insertAccountLocked(id: id, email: email, password: password, displayName: name, now: nowProvider())
@@ -175,11 +177,12 @@ public final class InMemoryBackend: @unchecked Sendable {
 
     // MARK: - Realtime (docs/CONTRACTS.md §6)
 
-    func subscribe(userId: UUID, groupIds: [UUID]) -> AsyncStream<RealtimeEvent> {
+    func subscribe(clientId: UUID, userId: UUID, groupIds: [UUID]) -> AsyncStream<RealtimeEvent> {
         let (stream, continuation) = AsyncStream.makeStream(of: RealtimeEvent.self, bufferingPolicy: .unbounded)
         let subscriptionId = UUID()
         withLock {
             subscribers[subscriptionId] = RealtimeSubscriber(
+                clientId: clientId,
                 userId: userId,
                 groupIds: Set(groupIds.prefix(InMemoryBackend.maxRealtimeGroups)),
                 continuation: continuation
@@ -200,20 +203,27 @@ public final class InMemoryBackend: @unchecked Sendable {
         withLock { _ = sessions[clientId]?.authSubscribers.removeValue(forKey: subscriptionId) }
     }
 
-    /// Mirrors the three Realtime bindings, including RLS (a subscriber only sees rows it may SELECT).
+    /// Mirrors the three Realtime bindings: filters use the subscription's `userId`, visibility follows the RLS of
+    /// the client's current session user (the channel's token), evaluated after the commit. Signed out (anon
+    /// role, no policy), nothing is delivered.
     private func deliverLocked(_ transaction: Transaction) {
         guard !subscribers.isEmpty else { return }
         let activity = transaction.groupActivity
         let profileUpdates = transaction.profileUpdates
         for subscriber in subscribers.values {
+            guard let viewer = sessions[subscriber.clientId]?.userId, data.accounts[viewer] != nil else { continue }
+            // groups SELECT: member of the group.
             for groupId in activity
-            where subscriber.groupIds.contains(groupId) && data.isMember(subscriber.userId, of: groupId) {
+            where subscriber.groupIds.contains(groupId) && data.isMember(viewer, of: groupId) {
                 subscriber.continuation.yield(.groupActivity(groupId: groupId))
             }
-            if profileUpdates.contains(subscriber.userId) {
+            // profiles SELECT: self or co-member.
+            if profileUpdates.contains(subscriber.userId), data.canSeeProfile(of: subscriber.userId, as: viewer) {
                 subscriber.continuation.yield(.membershipsChanged)
             }
-            for row in transaction.insertedAssignments where row.userId == subscriber.userId {
+            // task_assignees SELECT: member of the group.
+            for row in transaction.insertedAssignments
+            where row.userId == subscriber.userId && data.isMember(viewer, of: row.groupId) {
                 subscriber.continuation.yield(.assigned(taskId: row.taskId, groupId: row.groupId, assignedBy: row.assignedBy))
             }
         }
@@ -254,10 +264,10 @@ public final class InMemoryBackend: @unchecked Sendable {
         withLock { authStateLocked(clientId).user }
     }
 
+    /// Validates like the Supabase adapter does before calling Auth (`InputValidation.signUp`): Supabase Auth
+    /// alone would accept a blank or too long display name.
     func signUp(clientId: UUID, email: String, password: String, displayName: String) throws -> SignUpOutcome {
-        let email = try InputRules.email(email)
-        try InputRules.password(password)
-        let name = try InputRules.displayName(displayName)
+        let (email, name) = try InputValidation.signUp(email: email, password: password, displayName: displayName)
         try withLock {
             guard data.account(email: email) == nil else { throw AppError.emailAlreadyUsed }
             let id = UUID()

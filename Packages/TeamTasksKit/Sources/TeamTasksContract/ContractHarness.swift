@@ -12,9 +12,15 @@ import TeamTasksCore
 /// - Timestamps must come from the backend: scenarios compare server timestamps with each other only
 ///   (e.g. `assignments(since: previousEvent.assignedAt)` must exclude that event, so adapters must send
 ///   `since` with full precision).
-/// - Realtime scenarios wait for `.connected`, then for the expected event with a bounded wait
-///   (`StreamProbe`, 10 s by default). Rate limiting and password recovery are backend-specific tests.
-/// - Where docs/CONTRACTS.md leaves an error precedence open, scenarios accept either error (`Verify.fails(withAnyOf:)`).
+/// - Realtime scenarios subscribe through `ContractUser.subscribe`: it waits for `.connected`, then flushes the
+///   stream through a barrier group (changes committed before the subscription can arrive after `.connected` on
+///   a real server). Expected events are then awaited with a bounded wait (`StreamProbe`, 10 s by default);
+///   absence is checked between a mark and a later flush. Rate limiting and password recovery are
+///   backend-specific tests.
+/// - Errors are exact, including the precedences decided by the lead (unknown group → `.notFound` for
+///   rename/delete, `.forbidden` for the other admin RPCs; non-members read empty lists).
+/// - Adapters validate input with `InputValidation` before calling the server (sign-up e-mail, password and
+///   display name; U+0000 in text fields), as the mocks do.
 public protocol ContractHarness: Sendable {
     /// Creates a brand-new account (unique e-mail) with this display name and returns it signed in.
     func makeUser(displayName: String) async throws -> ContractUser

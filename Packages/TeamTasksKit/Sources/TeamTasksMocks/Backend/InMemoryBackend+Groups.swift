@@ -17,8 +17,9 @@ extension InMemoryBackend {
         try write(as: clientId) { transaction, me in
             let name = try InputRules.displayName(name)
             guard transaction.data.profiles[me] != nil else { throw AppError.forbidden }
+            let now = transaction.now // local copy: see Transaction.finish()
             transaction.data.profiles[me]?.displayName = name
-            transaction.data.profiles[me]?.updatedAt = transaction.now
+            transaction.data.profiles[me]?.updatedAt = now
             transaction.profileUpdated(me)
             return UserProfile(id: me, displayName: name)
         }
@@ -29,17 +30,10 @@ extension InMemoryBackend {
     /// Groups of the caller, most recently active first.
     func myGroups(clientId: UUID) throws -> [GroupSummary] {
         try read(as: clientId) { data, me in
-            data.groupIds(of: me).compactMap { groupId -> GroupSummary? in
+            NameOrder.sortedGroups(data.groupIds(of: me).compactMap { groupId -> GroupSummary? in
                 guard let group = data.groups[groupId], let role = data.role(of: me, in: groupId) else { return nil }
                 return GroupSummary(group: data.teamGroup(group), myRole: role)
-            }
-            .sorted { lhs, rhs in
-                if lhs.group.lastActivityAt != rhs.group.lastActivityAt {
-                    return lhs.group.lastActivityAt > rhs.group.lastActivityAt
-                }
-                if let order = NameOrder.precedes(lhs.group.name, rhs.group.name) { return order }
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
+            })
         }
     }
 
@@ -47,11 +41,7 @@ extension InMemoryBackend {
     func members(clientId: UUID, groupId: UUID) throws -> [Membership] {
         try read(as: clientId) { data, me in
             guard data.isMember(me, of: groupId) else { return [] }
-            return (data.members[groupId] ?? [:]).values.compactMap(data.membership).sorted { lhs, rhs in
-                if lhs.role != rhs.role { return lhs.role == .admin }
-                if let order = NameOrder.precedes(lhs.user.displayName, rhs.user.displayName) { return order }
-                return lhs.user.id.uuidString < rhs.user.id.uuidString
-            }
+            return NameOrder.sortedMembers((data.members[groupId] ?? [:]).values.compactMap(data.membership))
         }
     }
 
@@ -89,11 +79,12 @@ extension InMemoryBackend {
     }
 
     /// `join_group_by_code`. An invalid code is logged (and committed) before `.invalidCode` is thrown.
+    /// Failures count while `attempted_at >= now() - 1 hour` (an attempt exactly one hour old still counts).
     func join(clientId: UUID, code: InviteCode) throws -> JoinResult {
         let outcome = try write(as: clientId) { transaction, me -> JoinOutcome in
             let windowStart = transaction.now.addingTimeInterval(-InMemoryBackend.joinRateLimitWindow)
             let failures = transaction.data.joinAttempts.filter {
-                $0.userId == me && !$0.succeeded && $0.attemptedAt > windowStart
+                $0.userId == me && !$0.succeeded && $0.attemptedAt >= windowStart
             }.count
             if failures >= InMemoryBackend.maxFailedJoinsPerHour { throw AppError.rateLimited }
 
@@ -135,8 +126,9 @@ extension InMemoryBackend {
             guard transaction.data.groups[groupId] != nil else { throw AppError.notFound }
             guard transaction.data.role(of: me, in: groupId) == .admin else { throw AppError.forbidden }
             let name = try InputRules.groupName(name)
+            let now = transaction.now // local copy: see Transaction.finish()
             transaction.data.groups[groupId]?.name = name
-            transaction.data.groups[groupId]?.lastActivityAt = transaction.now
+            transaction.data.groups[groupId]?.lastActivityAt = now
             transaction.bump(groupId)
             guard let group = transaction.data.groups[groupId] else { throw AppError.notFound }
             return transaction.data.teamGroup(group)
@@ -153,10 +145,12 @@ extension InMemoryBackend {
     }
 
     /// `set_member_role`: admin only; the target must be a member; the last admin cannot be demoted.
+    /// Like SQL, an unchanged role returns before any write: no bump, no Realtime signal.
     func setRole(clientId: UUID, groupId: UUID, userId: UUID, role: MemberRole) throws {
         try write(as: clientId) { transaction, me in
             guard transaction.data.role(of: me, in: groupId) == .admin else { throw AppError.forbidden }
             guard let current = transaction.data.role(of: userId, in: groupId) else { throw AppError.notMember }
+            guard current != role else { return }
             if current == .admin, role == .member, transaction.data.adminCount(in: groupId) == 1 {
                 throw AppError.lastAdmin
             }

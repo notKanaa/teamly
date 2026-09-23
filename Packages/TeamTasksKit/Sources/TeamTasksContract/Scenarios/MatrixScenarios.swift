@@ -186,10 +186,10 @@ extension ContractScenarios {
                 }
             }
             let outsider = fixture.outsider
-            try await Verify.fails(withAnyOf: [.forbidden, .notFound], "a non-member renames") {
+            try await Verify.fails(with: .forbidden, "a non-member renames") {
                 try await outsider.groups.rename(groupId: groupId, name: Unique.name("Pirate"))
             }
-            try await Verify.fails(withAnyOf: [.forbidden, .notFound], "a non-member deletes the group") {
+            try await Verify.fails(with: .forbidden, "a non-member deletes the group") {
                 try await outsider.groups.deleteGroup(groupId: groupId)
             }
             try await Verify.fails(with: .forbidden, "a non-member reads the invite code") {
@@ -207,7 +207,19 @@ extension ContractScenarios {
             let members = try await fixture.admin.memberIDs(of: groupId)
             try Verify.equal(members.count, 4, "refused actions change no membership")
 
+            // Lead decision: on an unknown group these admin RPCs answer forbidden (not "not found").
             let admin = fixture.admin
+            let unknown = UUID()
+            try await Verify.fails(with: .forbidden, "regenerate the invite code of an unknown group") {
+                try await admin.groups.regenerateInviteCode(groupId: unknown)
+            }
+            try await Verify.fails(with: .forbidden, "change a role in an unknown group") {
+                try await admin.groups.setRole(groupId: unknown, userId: fixture.other.id, role: .admin)
+            }
+            try await Verify.fails(with: .forbidden, "remove a member of an unknown group") {
+                try await admin.groups.removeMember(groupId: unknown, userId: fixture.other.id)
+            }
+
             try await Verify.step("the admin renames, reads and regenerates the code, manages members") {
                 _ = try await admin.groups.rename(groupId: groupId, name: Unique.name("Groupe"))
                 _ = try await admin.groups.inviteCode(groupId: groupId)

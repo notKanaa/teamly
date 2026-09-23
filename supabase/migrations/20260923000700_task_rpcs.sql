@@ -81,7 +81,8 @@ declare
   v_uid uuid := auth.uid();
   v_task public.tasks;
 begin
-  if v_uid is null then
+  -- Same rule as private.require_uid() (a deleted account's JWT is not authenticated).
+  if v_uid is null or not exists (select 1 from public.profiles p where p.id = v_uid) then
     raise exception using errcode = 'P0001', message = 'not_authenticated';
   end if;
 
@@ -94,7 +95,7 @@ begin
     raise exception using errcode = '42501', message = 'forbidden';
   end if;
 
-  -- Title/details are normalized and validated by the tasks_before_insert trigger.
+  -- Title/details/due date are normalized and validated by the tasks_before_insert trigger.
   insert into public.tasks (group_id, title, details, priority, due_at)
   values (p_group_id, p_title, p_details, coalesce(p_priority, 'medium'), p_due_at)
   returning * into v_task;
@@ -126,7 +127,7 @@ declare
   v_uid uuid := auth.uid();
   v_task public.tasks;
 begin
-  if v_uid is null then
+  if v_uid is null or not exists (select 1 from public.profiles p where p.id = v_uid) then
     raise exception using errcode = 'P0001', message = 'not_authenticated';
   end if;
 
@@ -178,7 +179,7 @@ as $$
 declare
   v_task public.tasks;
 begin
-  if auth.uid() is null then
+  if auth.uid() is null or not exists (select 1 from public.profiles p where p.id = auth.uid()) then
     raise exception using errcode = 'P0001', message = 'not_authenticated';
   end if;
 
@@ -208,7 +209,7 @@ security invoker
 set search_path = ''
 as $$
 begin
-  if auth.uid() is null then
+  if auth.uid() is null or not exists (select 1 from public.profiles p where p.id = auth.uid()) then
     raise exception using errcode = 'P0001', message = 'not_authenticated';
   end if;
 

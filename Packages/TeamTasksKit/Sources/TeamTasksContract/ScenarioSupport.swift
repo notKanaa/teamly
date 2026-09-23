@@ -153,15 +153,87 @@ extension ContractUser {
         try await summary(of: groupId)?.myRole
     }
 
-    /// Subscribes to Realtime and waits for `.connected`, so that later changes are delivered.
-    func subscribe(groups groupIds: [UUID]) async throws -> StreamProbe<RealtimeEvent> {
-        let probe = StreamProbe(realtime.events(userId: id, groupIds: groupIds))
+    /// Subscribes to Realtime for `groupIds` plus a private barrier group, waits for `.connected`, then flushes
+    /// (see `RealtimeProbe`): changes committed before the subscription, which a real server may still deliver
+    /// after `.connected`, are then behind any later `mark()`.
+    func subscribe(groups groupIds: [UUID]) async throws -> RealtimeProbe {
+        let barrier = try await Verify.step("\(displayName) creates a barrier group") {
+            try await groups.createGroup(name: Unique.name("Barriere"))
+        }
+        let probe = RealtimeProbe(
+            stream: StreamProbe(realtime.events(userId: id, groupIds: groupIds + [barrier.id])), owner: self, barrier: barrier.id
+        )
         do {
             try await probe.waitFor("\(displayName): .connected") { $0 == .connected }
+            try await probe.flush("the subscription")
         } catch {
             probe.stop()
             throw error
         }
         return probe
+    }
+}
+
+/// A scenario user's Realtime subscription whose filter also contains a barrier group of that user.
+///
+/// `flush()` bumps the barrier group and waits for its `.groupActivity`: Realtime delivers changes in commit
+/// order, so every change committed before the flush has then been received. Positive checks wait for an
+/// event after a `mark()`; absence checks look at the events between a mark and a flush.
+final class RealtimeProbe: Sendable {
+    let stream: StreamProbe<RealtimeEvent>
+    let owner: ContractUser
+    let barrier: UUID
+
+    init(stream: StreamProbe<RealtimeEvent>, owner: ContractUser, barrier: UUID) {
+        self.stream = stream
+        self.owner = owner
+        self.barrier = barrier
+    }
+
+    var events: [RealtimeEvent] { stream.events }
+
+    func mark() -> Int {
+        stream.mark()
+    }
+
+    func stop() {
+        stream.stop()
+    }
+
+    @discardableResult
+    func waitFor(
+        _ description: @autoclosure () -> String,
+        after start: Int = 0,
+        file: StaticString = #fileID,
+        line: UInt = #line,
+        where predicate: (RealtimeEvent) -> Bool
+    ) async throws -> (index: Int, element: RealtimeEvent) {
+        try await stream.waitFor(description(), after: start, file: file, line: line, where: predicate)
+    }
+
+    /// Bumps the barrier group and waits for its event; returns that event's index.
+    @discardableResult
+    func flush(_ label: String, file: StaticString = #fileID, line: UInt = #line) async throws -> Int {
+        let start = mark()
+        _ = try await Verify.step("\(owner.displayName) bumps the barrier after \(label)") {
+            try await owner.groups.rename(groupId: barrier, name: Unique.name("Barriere"))
+        }
+        let barrierEvent = RealtimeEvent.groupActivity(groupId: barrier)
+        return try await waitFor("\(owner.displayName): barrier after \(label)", after: start, file: file, line: line) {
+            $0 == barrierEvent
+        }.index
+    }
+
+    /// Flushes, then checks that no event matching `predicate` arrived since `start`.
+    func expectNone(
+        since start: Int,
+        _ description: String,
+        file: StaticString = #fileID,
+        line: UInt = #line,
+        where predicate: (RealtimeEvent) -> Bool
+    ) async throws {
+        let end = try await flush(description, file: file, line: line)
+        let window = Array(events[start..<end])
+        try Verify.that(!window.contains(where: predicate), "\(description): unexpected event in \(window)", file: file, line: line)
     }
 }

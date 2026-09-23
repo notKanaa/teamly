@@ -90,6 +90,7 @@ extension ContractScenarios {
             // created_by / assigned_by become NULL; alice's own assignments disappear.
             let aliceTask = try await bob.tasks.task(id: byAlice.id)
             try Verify.equal(aliceTask.createdBy, nil, "tasks.createdBy becomes NULL")
+            try Verify.equal(aliceTask.updatedAt, byAlice.updatedAt, "updatedAt kept (no editable field changed)")
             try Verify.equal(aliceTask.assigneeIds, [bob.id], "the deleted user's assignments are gone")
             let bobTask = try await bob.tasks.task(id: byBob.id)
             try Verify.equal(bobTask.createdBy, bob.id, "other tasks keep their creator")

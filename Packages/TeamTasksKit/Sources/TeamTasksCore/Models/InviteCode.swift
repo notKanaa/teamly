@@ -18,9 +18,15 @@ public struct InviteCode: Sendable, Hashable, CustomStringConvertible {
         value = normalized
     }
 
-    /// Uppercases and keeps only ASCII letters and digits (same rule as the SQL `join_group_by_code`).
+    /// Uppercases, then keeps only the Unicode scalars A–Z and 0–9 (same rule as the SQL `join_group_by_code`,
+    /// which works per code point: "L\u{301}YLAS234" → "LYLAS234").
     public static func normalize(_ input: String) -> String {
-        String(input.uppercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) })
+        var scalars = String.UnicodeScalarView()
+        for scalar in input.uppercased().unicodeScalars
+        where ("A"..."Z").contains(scalar) || ("0"..."9").contains(scalar) {
+            scalars.append(scalar)
+        }
+        return String(scalars)
     }
 
     /// Display form, e.g. `ABCD-EFGH`.

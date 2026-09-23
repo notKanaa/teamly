@@ -1,40 +1,33 @@
 import Foundation
 import TeamTasksCore
 
-/// Server-side validation of docs/CONTRACTS.md §1. Strings are trimmed first; lengths count Unicode scalars
-/// like Postgres `char_length`.
+/// Server-side validation of docs/CONTRACTS.md §1: the shared rules of `InputValidation` (the Supabase adapters
+/// apply the same ones before calling the server), plus the membership rule of assignees.
 enum InputRules {
     static func trimmed(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    static func length(_ value: String) -> Int {
-        value.unicodeScalars.count
+        InputValidation.trimmed(value)
     }
 
     static func displayName(_ raw: String) throws -> String {
-        let value = trimmed(raw)
-        guard Limits.displayName.contains(length(value)) else { throw AppError.invalidDisplayName }
-        return value
+        try InputValidation.displayName(raw)
     }
 
     static func groupName(_ raw: String) throws -> String {
-        let value = trimmed(raw)
-        guard Limits.groupName.contains(length(value)) else { throw AppError.invalidName }
-        return value
+        try InputValidation.groupName(raw)
     }
 
     static func title(_ raw: String) throws -> String {
-        let value = trimmed(raw)
-        guard Limits.taskTitle.contains(length(value)) else { throw AppError.invalidTitle }
-        return value
+        try InputValidation.taskTitle(raw)
     }
 
     /// Empty (after trimming) is stored as NULL.
     static func details(_ raw: String) throws -> String? {
-        let value = trimmed(raw)
-        guard length(value) <= Limits.taskDetailsMax else { throw AppError.invalidDetails }
-        return value.isEmpty ? nil : value
+        try InputValidation.taskDetails(raw)
+    }
+
+    /// NULL or within [1970, 10000) UTC, else `.invalidInput` (SQL `invalid_due_at`).
+    static func dueDate(_ date: Date?) throws -> Date? {
+        try InputValidation.dueDate(date)
     }
 
     /// ≤ 20 distinct users, all members of the group.
@@ -45,22 +38,15 @@ enum InputRules {
 
     /// Normalized e-mail (trimmed, lowercased) or `.invalidEmail`.
     static func email(_ raw: String) throws -> String {
-        let value = normalizedEmail(raw)
-        let parts = value.split(separator: "@", omittingEmptySubsequences: false)
-        guard parts.count == 2,
-              !parts[0].isEmpty,
-              !value.contains(where: { $0.isWhitespace }),
-              parts[1].contains("."),
-              !parts[1].split(separator: ".", omittingEmptySubsequences: false).contains(where: \.isEmpty)
-        else { throw AppError.invalidEmail }
-        return value
+        try InputValidation.email(raw)
     }
 
     static func normalizedEmail(_ raw: String) -> String {
-        trimmed(raw).lowercased()
+        InputValidation.normalizedEmail(raw)
     }
 
+    /// 8–72 UTF-8 bytes, like Supabase Auth.
     static func password(_ value: String) throws {
-        guard value.count >= Limits.passwordMinLength else { throw AppError.weakPassword }
+        try InputValidation.password(value)
     }
 }

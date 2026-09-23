@@ -20,10 +20,15 @@ public struct RealtimeAssignment: Sendable, Hashable {
 ///   foreground, background refresh).
 ///
 /// The same assignment seen by both sources is notified once: the notifier persists, per user, the cursor
-/// (latest `assignedAt` handled by catch-up) and a bounded list of already-notified tasks.
+/// (latest `assignedAt` handled by catch-up) and a bounded list of already-handled tasks.
 /// Assignments made by the current user are ignored. Up to `maxIndividual` new assignments produce one
 /// `assigned-<taskId>` notification each; more produce a single `summary-<epochSeconds>` notification.
 /// When notifications are not authorized nothing is posted, but the cursor still advances.
+///
+/// The cursor only ever holds server timestamps (the device clock may be wrong). Every catch-up re-reads
+/// `catchUpOverlap` before it, because `assigned_at` is the transaction start time: a row can become visible
+/// after a newer one. Re-read rows are recognized by the remembered records. A notification whose posting
+/// failed holds the cursor back, so the next catch-up retries it.
 ///
 /// Operations are serialized (a realtime lookup and a catch-up never interleave).
 public actor AssignmentNotifier {
@@ -38,6 +43,11 @@ public actor AssignmentNotifier {
     /// - a realtime signal for a task notified less than this long ago is a duplicate (same assignment
     ///   already seen by catch-up, or a repeated delivery); an older one is a re-assignment.
     public static let realtimeDedupWindow: TimeInterval = 5 * 60
+    /// How far back the first catch-up looks for existing assignments (history, never notified): the latest
+    /// one becomes the cursor.
+    public static let initialLookback: TimeInterval = 7 * 86_400
+    /// How much every catch-up re-reads before the cursor (a transaction that started earlier can commit later).
+    public static let catchUpOverlap: TimeInterval = 2 * 60
 
     public static let individualTitle = "Nouvelle tâche"
     public static let summaryTitle = "Nouvelles tâches"
@@ -54,6 +64,7 @@ public actor AssignmentNotifier {
 
         /// Latest `assignedAt` handled by catch-up.
         var cursor: Date?
+        /// Notified tasks, and tasks skipped as history or while notifications were not authorized.
         /// Oldest first, at most `rememberedLimit` entries.
         var notified: [Record] = []
     }
@@ -114,7 +125,8 @@ public actor AssignmentNotifier {
     /// Latest `assignedAt` handled by catch-up (nil before the first catch-up).
     public var cursor: Date? { loadState().cursor }
 
-    /// Ids of the tasks remembered as already notified, oldest first.
+    /// Ids of the tasks remembered as already handled (notified, or skipped as history or while notifications
+    /// were not authorized), oldest first.
     public var rememberedTaskIds: [UUID] { loadState().notified.map(\.taskId) }
 
     /// Forgets the cursor and the remembered notifications (sign-out, account deletion).
@@ -153,15 +165,16 @@ public actor AssignmentNotifier {
             name = await groupName(task.groupId)
         }
         let item = Item(taskId: task.id, groupId: task.groupId, title: task.title, groupName: name, assignedAt: nil)
-        let posted = await post([item], state: &state)
+        let outcome = await post([item], state: &state)
         saveState(state)
-        return posted
+        return outcome.posted
     }
 
     // MARK: - Catch-up
 
     /// Fetches the assignments made since the cursor and notifies the new ones. Returns the notifications
-    /// posted. The first call only initializes the cursor to now (history is not notified).
+    /// posted. The first call only initializes the cursor (history is not notified): to the latest assignment
+    /// of the last `initialLookback`, or to the start of that period when there is none.
     /// Throws the `TaskService` error; the cursor is then unchanged.
     @discardableResult
     public func catchUp() async throws -> [LocalNotification] {
@@ -169,13 +182,21 @@ public actor AssignmentNotifier {
         defer { release() }
 
         var state = loadState()
-        guard let since = state.cursor else {
-            state.cursor = now()
+        guard let cursor = state.cursor else {
+            let start = now().addingTimeInterval(-Self.initialLookback)
+            let history = try await tasks.assignments(since: start).sorted { $0.assignedAt < $1.assignedAt }
+            let latest = max(start, history.last?.assignedAt ?? start)
+            let date = now()
+            for event in history where event.assignedAt > latest.addingTimeInterval(-Self.catchUpOverlap) {
+                remember(taskId: event.taskId, assignedAt: event.assignedAt, at: date, in: &state)
+            }
+            state.cursor = latest
             saveState(state)
             return []
         }
 
-        let events = try await tasks.assignments(since: since).sorted { $0.assignedAt < $1.assignedAt }
+        let events = try await tasks.assignments(since: cursor.addingTimeInterval(-Self.catchUpOverlap))
+            .sorted { $0.assignedAt < $1.assignedAt }
         var items: [Item] = []
         var batchTaskIds = Set<UUID>()
         for event in events where event.assignedBy != userId {
@@ -202,18 +223,37 @@ public actor AssignmentNotifier {
             ))
         }
 
-        if let latest = events.last?.assignedAt, latest > since {
-            state.cursor = latest
+        var newCursor = max(cursor, events.last?.assignedAt ?? cursor)
+        let outcome = await post(items, state: &state)
+        if !outcome.authorized {
+            // Not notified, but handled: the next (overlapping) catch-up must not notify them either.
+            let date = now()
+            for item in items where (item.assignedAt ?? .distantPast) > newCursor.addingTimeInterval(-Self.catchUpOverlap) {
+                remember(taskId: item.taskId, assignedAt: item.assignedAt, at: date, in: &state)
+            }
         }
-        let posted = await post(items, state: &state)
+        // Retried by the next catch-up, which re-reads from the cursor minus the overlap.
+        if let oldestFailure = outcome.failed.compactMap(\.assignedAt).min() {
+            newCursor = min(newCursor, oldestFailure)
+        }
+        state.cursor = newCursor
         saveState(state)
-        return posted
+        return outcome.posted
     }
 
     // MARK: - Posting
 
-    private func post(_ items: [Item], state: inout State) async -> [LocalNotification] {
-        guard !items.isEmpty, await scheduler.authorizationStatus() == .authorized else { return [] }
+    private struct PostOutcome {
+        var posted: [LocalNotification] = []
+        /// Items whose notification could not be added.
+        var failed: [Item] = []
+        var authorized = true
+    }
+
+    /// Posts `items` and remembers the posted ones.
+    private func post(_ items: [Item], state: inout State) async -> PostOutcome {
+        guard !items.isEmpty else { return PostOutcome() }
+        guard await scheduler.authorizationStatus() == .authorized else { return PostOutcome(authorized: false) }
         let date = now()
 
         let isSummary = items.count > maxIndividual
@@ -242,27 +282,31 @@ public actor AssignmentNotifier {
             }
         }
 
-        var posted: [LocalNotification] = []
+        var outcome = PostOutcome()
         for notification in notifications {
             do {
                 try await scheduler.add(notification)
-                posted.append(notification)
+                outcome.posted.append(notification)
             } catch {
                 continue
             }
         }
-        guard !posted.isEmpty else { return [] }
 
-        let postedIds = Set(posted.map(\.id))
-        for item in items where isSummary || postedIds.contains(Self.individualIdentifier(taskId: item.taskId)) {
-            remember(item, at: date, in: &state)
+        let postedIds = Set(outcome.posted.map(\.id))
+        for item in items {
+            let id = isSummary ? notifications[0].id : Self.individualIdentifier(taskId: item.taskId)
+            if postedIds.contains(id) {
+                remember(taskId: item.taskId, assignedAt: item.assignedAt, at: date, in: &state)
+            } else {
+                outcome.failed.append(item)
+            }
         }
-        return posted
+        return outcome
     }
 
-    private func remember(_ item: Item, at date: Date, in state: inout State) {
-        state.notified.removeAll { $0.taskId == item.taskId }
-        state.notified.append(State.Record(taskId: item.taskId, assignedAt: item.assignedAt, notifiedAt: date))
+    private func remember(taskId: UUID, assignedAt: Date?, at date: Date, in state: inout State) {
+        state.notified.removeAll { $0.taskId == taskId }
+        state.notified.append(State.Record(taskId: taskId, assignedAt: assignedAt, notifiedAt: date))
         if state.notified.count > rememberedLimit {
             state.notified.removeFirst(state.notified.count - rememberedLimit)
         }

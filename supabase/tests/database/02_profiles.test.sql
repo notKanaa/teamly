@@ -1,6 +1,6 @@
 -- Profiles: creation trigger (never fails), display name validation, visibility, column grants.
 begin;
-select plan(27);
+select plan(28);
 
 -- Test helpers (created inside this transaction, rolled back at the end) ----------------------------
 -- tests.as_user(name) = `set local role authenticated` + the JWT claims PostgREST would set;
@@ -119,6 +119,16 @@ select is(tests.display_name('array'), 'Utilisateur', 'non-object metadata and e
 select is(
   (select count(*)::int from public.profiles p join tests.ids i on i.id = p.id),
   9, 'every inserted auth user got a profile');
+
+-- clean_text trims exactly Swift's `CharacterSet.whitespacesAndNewlines` (docs/CONTRACTS.md §1): U+0009–U+000D,
+-- U+0020, U+0085, U+00A0, U+1680, U+2000–U+200B, U+2028, U+2029, U+202F, U+205F, U+3000 — not U+001C–U+001F.
+-- Same probe list as the Swift side: U+0001–U+3000 plus U+180E, U+200B, U+FEFF.
+select is(
+  (select string_agg(to_hex(s.cp), ',' order by s.cp)
+   from (select generate_series(1, 12288) union values (6158), (8203), (65279)) as s (cp)
+   where private.clean_text('a' || chr(s.cp)) = 'a' and private.clean_text(chr(s.cp) || 'a') = 'a'),
+  '9,a,b,c,d,20,85,a0,1680,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,200a,200b,2028,2029,202f,205f,3000',
+  'clean_text trims exactly the whitespacesAndNewlines code points, at both ends');
 
 -- Display name updates -----------------------------------------------------------------------------------
 select tests.create_user('alice', 'Alice');

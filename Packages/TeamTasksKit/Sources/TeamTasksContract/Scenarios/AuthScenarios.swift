@@ -4,6 +4,8 @@ import TeamTasksCore
 // Auth and profiles (docs/CONTRACTS.md §1, §4.3). Password recovery needs the e-mail content, so it is
 // covered by backend-specific tests (mock code / Mailpit), not here.
 extension ContractScenarios {
+    // Sign-up input is validated with `InputValidation.signUp` before calling Auth (Supabase Auth alone accepts
+    // a blank or 51-character display name and would create the account).
     static let authScenarios: [ContractScenario] = [
         ContractScenario("auth.signOutAndSignIn") { harness in
             let alice = try await harness.user("Alice")
@@ -19,8 +21,8 @@ extension ContractScenarios {
             try await Verify.fails(with: .notAuthenticated, "myProfile while signed out") {
                 try await alice.profiles.myProfile()
             }
-            // An RPC called without a session: our own error or PostgREST's permission error.
-            try await Verify.fails(withAnyOf: [.notAuthenticated, .forbidden], "createGroup while signed out") {
+            // An RPC called without a session (PostgREST answers HTTP 401 / 42501): still .notAuthenticated.
+            try await Verify.fails(with: .notAuthenticated, "createGroup while signed out") {
                 try await alice.groups.createGroup(name: Unique.name("Groupe"))
             }
 
@@ -125,8 +127,8 @@ extension ContractScenarios {
             let reread = try await alice.profiles.myProfile()
             try Verify.equal(reread, updated, "profile after update")
 
-            for invalid in ["", "   ", Fixed.text(51)] {
-                try await Verify.fails(with: .invalidDisplayName, "display name of \(invalid.count) characters") {
+            for invalid in ["", "   ", Fixed.text(51), "Ali\u{0}ce"] {
+                try await Verify.fails(with: .invalidDisplayName, "display name \(invalid.debugDescription)") {
                     try await alice.profiles.updateDisplayName(invalid)
                 }
             }

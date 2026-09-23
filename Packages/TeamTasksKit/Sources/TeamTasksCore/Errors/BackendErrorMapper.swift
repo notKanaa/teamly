@@ -11,6 +11,8 @@ public enum BackendErrorMapper {
         "invalid_name": .invalidName,
         "invalid_title": .invalidTitle,
         "invalid_details": .invalidDetails,
+        "invalid_due_at": .invalidInput,
+        "invalid_input": .invalidInput,
         "invalid_code": .invalidCode,
         "rate_limited": .rateLimited,
         "forbidden": .forbidden,
@@ -33,10 +35,13 @@ public enum BackendErrorMapper {
         if let message, let mapped = messageCodes[message.trimmingCharacters(in: .whitespacesAndNewlines)] {
             return mapped
         }
+        // PostgREST answers a request without a valid session (anon role) with HTTP 401 + 42501.
+        // Our own 42501 errors ('forbidden', 'forbidden_fields') are HTTP 403 and matched above.
+        if code == "42501", httpStatus == 401 { return .notAuthenticated }
         switch code {
         case "42501": return .forbidden
         case "23505": return .conflict
-        case "23514", "22001", "22P02", "23502": return .invalidInput
+        case "23514", "22001", "22P02", "22P05", "23502": return .invalidInput
         case "23503": return .notFound
         case "PGRST116": return .notFound
         case "PGRST301", "PGRST302": return .notAuthenticated

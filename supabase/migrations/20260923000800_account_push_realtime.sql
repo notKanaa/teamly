@@ -127,6 +127,9 @@ grant execute on function public.ping() to anon, authenticated;
 revoke all on all functions in schema private from public, anon;
 
 -- Realtime publication (change signals only) ------------------------------------------------------------
+-- INSERT and UPDATE only: Realtime cannot apply RLS to DELETE (or TRUNCATE) events, so publishing them would
+-- send the primary keys of other groups' rows to any authenticated subscriber. Clients never consume them.
+-- (`set table` keeps the publish list, which defaults to every action: set it explicitly.)
 
 do $$
 begin
@@ -135,5 +138,6 @@ begin
   else
     create publication supabase_realtime for table public.groups, public.profiles, public.task_assignees;
   end if;
+  alter publication supabase_realtime set (publish = 'insert, update');
 end;
 $$;

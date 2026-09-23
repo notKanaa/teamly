@@ -138,6 +138,21 @@ begin
 end;
 $$;
 
+-- Due date: NULL or within [1970-01-01, 10000-01-01) UTC, which excludes ±infinity and BC dates
+-- (business error in front of the tasks_due_at_range check constraint). Validated after title/details.
+create function private.check_due_at(p_due_at timestamptz)
+returns void
+language plpgsql
+immutable
+set search_path = ''
+as $$
+begin
+  if p_due_at < '1970-01-01 00:00:00+00' or p_due_at >= '10000-01-01 00:00:00+00' then
+    raise exception using errcode = 'P0001', message = 'invalid_due_at';
+  end if;
+end;
+$$;
+
 create function private.tasks_before_insert()
 returns trigger
 language plpgsql
@@ -150,6 +165,7 @@ begin
   select n.p_title, n.p_details
   into new.title, new.details
   from private.normalize_task_fields(new.title, new.details) n;
+  perform private.check_due_at(new.due_at);
 
   if v_uid is not null then
     -- Server-maintained fields cannot be chosen by an end user.
@@ -196,6 +212,7 @@ begin
   select n.p_title, n.p_details
   into new.title, new.details
   from private.normalize_task_fields(new.title, new.details) n;
+  perform private.check_due_at(new.due_at);
 
   if v_uid is not null
      and (new.title, new.details, new.priority, new.due_at)
@@ -375,6 +392,7 @@ revoke execute on function private.handle_new_user() from authenticated;
 revoke execute on function private.profiles_before_write() from authenticated;
 revoke execute on function private.groups_before_write() from authenticated;
 revoke execute on function private.normalize_task_fields(text, text) from authenticated;
+revoke execute on function private.check_due_at(timestamptz) from authenticated;
 revoke execute on function private.tasks_before_insert() from authenticated;
 revoke execute on function private.tasks_before_update() from authenticated;
 revoke execute on function private.bump_group_activity(uuid) from authenticated;

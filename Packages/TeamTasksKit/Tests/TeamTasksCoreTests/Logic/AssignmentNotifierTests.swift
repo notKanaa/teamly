@@ -57,24 +57,41 @@ import Testing
 
     // MARK: Catch-up
 
+    /// History is not notified; the cursor is the latest existing assignment (a server timestamp).
     @Test func firstCatchUpOnlyInitializesTheCursor() async throws {
-        tasks.assignmentEvents = [event(1, at: clock.value.addingTimeInterval(-3600))]
+        let history = clock.value.addingTimeInterval(-3600)
+        tasks.assignmentEvents = [event(2, at: history.addingTimeInterval(-60)), event(1, at: history)]
         let notifier = makeNotifier()
         let posted = try await notifier.catchUp()
         #expect(posted.isEmpty)
-        #expect(tasks.sinceCalls.isEmpty)
-        #expect(await notifier.cursor == clock.value)
+        #expect(tasks.sinceCalls == [clock.value.addingTimeInterval(-AssignmentNotifier.initialLookback)])
+        #expect(await notifier.cursor == history)
         #expect(scheduler.added.isEmpty)
+
+        // The next catch-up re-reads the overlap before the cursor: history stays silent.
+        clock.value = clock.value.addingTimeInterval(60)
+        #expect(try await notifier.catchUp().isEmpty)
+        #expect(tasks.sinceCalls.last == history.addingTimeInterval(-AssignmentNotifier.catchUpOverlap))
+        #expect(scheduler.added.isEmpty)
+    }
+
+    /// Without any assignment yet, the cursor is the start of the lookback period: everything assigned later
+    /// is new, whatever the device clock says.
+    @Test func firstCatchUpWithoutHistoryStartsAtTheLookback() async throws {
+        let notifier = makeNotifier()
+        try await notifier.catchUp()
+        #expect(await notifier.cursor == clock.value.addingTimeInterval(-AssignmentNotifier.initialLookback))
     }
 
     @Test func upToFiveAssignmentsAreNotifiedIndividually() async throws {
         let notifier = try await initializedNotifier()
         let start = clock.value
+        let cursor = try #require(await notifier.cursor)
         tasks.assignmentEvents = (1...5).map { event($0, at: start.addingTimeInterval(Double($0))) }
         clock.value = start.addingTimeInterval(60)
 
         let posted = try await notifier.catchUp()
-        #expect(tasks.sinceCalls == [start])
+        #expect(tasks.sinceCalls.last == cursor.addingTimeInterval(-AssignmentNotifier.catchUpOverlap))
         #expect(posted.count == 5)
         #expect(posted.map(\.id) == (1...5).map { "assigned-\(F.uuid($0).uuidString)" })
         let first = try #require(posted.first)
@@ -86,10 +103,10 @@ import Testing
         #expect(scheduler.added == posted)
         #expect(await notifier.cursor == start.addingTimeInterval(5))
 
-        // Nothing new: the next catch-up asks from the new cursor and posts nothing.
+        // Nothing new: the next catch-up re-reads the overlap before the new cursor and posts nothing.
         let again = try await notifier.catchUp()
         #expect(again.isEmpty)
-        #expect(tasks.sinceCalls.last == start.addingTimeInterval(5))
+        #expect(tasks.sinceCalls.last == start.addingTimeInterval(5 - AssignmentNotifier.catchUpOverlap))
     }
 
     @Test func sixAssignmentsGiveASingleSummary() async throws {
@@ -179,6 +196,66 @@ import Testing
         tasks.assignmentsError = nil
         tasks.assignmentEvents = [event(1, at: clock.value.addingTimeInterval(1))]
         #expect(try await notifier.catchUp().count == 1)
+    }
+
+    /// Device clock 10 minutes ahead of the server: the cursor must come from server data, not from the device
+    /// date, or assignments made during the skew window are never caught up.
+    @Test func deviceClockAheadDoesNotLoseAssignmentsAfterTheFirstCatchUp() async throws {
+        let serverNow = clock.value
+        clock.value = serverNow.addingTimeInterval(600)
+        let notifier = try await initializedNotifier()
+
+        // Server 12:02: an assignment while the app is in background.
+        tasks.assignmentEvents = [event(1, at: serverNow.addingTimeInterval(120))]
+        clock.value = clock.value.addingTimeInterval(3600)
+        let posted = try await notifier.catchUp()
+        #expect(posted.map(\.id) == ["assigned-\(F.uuid(1).uuidString)"])
+    }
+
+    /// `assigned_at` is the transaction START time: a row can become visible after a newer one that catch-up
+    /// already handled. It must still be notified (once).
+    @Test func assignmentCommittedAfterANewerOneIsNotified() async throws {
+        let notifier = try await initializedNotifier()
+        let start = clock.value
+        clock.value = start.addingTimeInterval(2)
+        tasks.assignmentEvents = [event(2, at: start.addingTimeInterval(1.020))]
+        #expect(try await notifier.catchUp().count == 1)
+
+        tasks.assignmentEvents.append(event(1, at: start.addingTimeInterval(1.000)))
+        clock.value = start.addingTimeInterval(60)
+        let posted = try await notifier.catchUp()
+        #expect(posted.map(\.id) == ["assigned-\(F.uuid(1).uuidString)"])
+        #expect(try await notifier.catchUp().isEmpty)
+        #expect(scheduler.added.count == 2)
+    }
+
+    /// A transient `add` failure during catch-up is retried by the next catch-up.
+    @Test func failedCatchUpPostIsRetried() async throws {
+        let notifier = try await initializedNotifier()
+        let start = clock.value
+        tasks.assignmentEvents = [event(1, at: start.addingTimeInterval(1)), event(2, at: start.addingTimeInterval(2))]
+        scheduler.failingIds = ["assigned-\(F.uuid(1).uuidString)"]
+        clock.value = start.addingTimeInterval(10)
+        #expect(try await notifier.catchUp().map(\.id) == ["assigned-\(F.uuid(2).uuidString)"])
+
+        scheduler.failingIds = []
+        clock.value = start.addingTimeInterval(20)
+        #expect(try await notifier.catchUp().map(\.id) == ["assigned-\(F.uuid(1).uuidString)"])
+        #expect(try await notifier.catchUp().isEmpty)
+    }
+
+    @Test func failedSummaryIsRetried() async throws {
+        let notifier = try await initializedNotifier()
+        let start = clock.value
+        tasks.assignmentEvents = (1...6).map { event($0, at: start.addingTimeInterval(Double($0))) }
+        clock.value = start.addingTimeInterval(10)
+        scheduler.failingIds = [AssignmentNotifier.summaryIdentifier(at: clock.value)]
+        #expect(try await notifier.catchUp().isEmpty)
+
+        clock.value = start.addingTimeInterval(20)
+        let posted = try await notifier.catchUp()
+        #expect(posted.map(\.body) == ["6 nouvelles tâches assignées"])
+        #expect(try await notifier.catchUp().isEmpty)
     }
 
     // MARK: Realtime

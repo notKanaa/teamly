@@ -58,11 +58,26 @@ public struct FrenchDateFormatter: Sendable, Hashable {
     }
 
     /// Number of calendar days from `reference`'s day to `date`'s day (0 = same day, 1 = tomorrow, -1 = yesterday).
-    /// Correct across daylight-saving transitions (days of 23 or 25 hours).
+    /// Correct across daylight-saving transitions, including those that skip midnight (Azores, Chile…): the
+    /// days are compared as calendar dates, at noon in UTC, never as instants of the local time zone.
     public func dayOffset(of date: Date, from reference: Date) -> Int {
-        let start = calendar.startOfDay(for: reference)
-        let end = calendar.startOfDay(for: date)
-        return calendar.dateComponents([.day], from: start, to: end).day ?? 0
+        guard let start = Self.utcNoon(of: calendar.dateComponents([.era, .year, .month, .day], from: reference)),
+              let end = Self.utcNoon(of: calendar.dateComponents([.era, .year, .month, .day], from: date))
+        else { return 0 }
+        return Int((end.timeIntervalSince(start) / 86_400).rounded())
+    }
+
+    /// Gregorian calendar without daylight saving, used to count days between calendar dates.
+    private static let utcCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return calendar
+    }()
+
+    private static func utcNoon(of day: DateComponents) -> Date? {
+        var components = day
+        components.hour = 12
+        return utcCalendar.date(from: components)
     }
 
     /// Day relative to `reference`: `aujourd'hui`, `demain`, `hier`, otherwise the full day
