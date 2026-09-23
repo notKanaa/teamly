@@ -4,13 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 set -o pipefail
+mkdir -p ci-logs
 xcodebuild build \
   -project TeamTasks.xcodeproj -scheme TeamTasks -configuration Release \
   -sdk iphoneos -destination 'generic/platform=iOS' \
   -derivedDataPath build/dd -clonedSourcePackagesDirPath .spm \
   -skipPackagePluginValidation -skipMacroValidation \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-  | xcbeautify
+  2>&1 | tee ci-logs/xcodebuild-ipa.log | xcbeautify
 APP="build/dd/Build/Products/Release-iphoneos/TeamTasks.app"
 test -d "$APP"
 rm -rf build/ipa build/Equipe-unsigned.ipa

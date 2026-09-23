@@ -24,8 +24,15 @@ jobs:
         with:
           version: ${{ env.SUPABASE_CLI_VERSION }}
       - run: supabase db start
-      - run: supabase db lint --level error
-      - run: supabase test db
+      - run: mkdir -p ci-logs
+      - run: set -o pipefail; supabase db lint --level error 2>&1 | tee ci-logs/db-lint.log
+      - run: set -o pipefail; supabase test db 2>&1 | tee ci-logs/db-test.log
+      # Job logs need a token to download; annotations are public, so failures are readable without one.
+      - name: Annotate failures
+        if: failure()
+        run: |
+          node scripts/ci/annotate-log.mjs ci-logs/db-lint.log "db lint"
+          node scripts/ci/annotate-log.mjs ci-logs/db-test.log "pgTAP"
 
   swift-linux:
     name: Swift package (Linux + local Supabase)
@@ -46,7 +53,13 @@ jobs:
           restore-keys: swift-6.3-linux-
       - run: supabase start -x studio,postgres-meta
       - name: swift test (unit + integration)
-        run: node scripts/swift-docker.mjs it
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          node scripts/swift-docker.mjs it 2>&1 | tee ci-logs/swift-linux.log
+      - name: Annotate failures
+        if: failure()
+        run: node scripts/ci/annotate-log.mjs ci-logs/swift-linux.log "swift test (Linux)"
 
   ios:
     name: iOS app (build, UI tests, screenshots)
@@ -74,7 +87,10 @@ jobs:
           key: spm-${{ hashFiles('Packages/TeamTasksKit/Package.resolved') }}
           restore-keys: spm-
       - name: Swift package tests (macOS)
-        run: swift test --package-path Packages/TeamTasksKit
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          swift test --package-path Packages/TeamTasksKit 2>&1 | tee ci-logs/swift-macos.log
       - name: Pick simulator
         id: sim
         run: echo "udid=$(scripts/ci/pick-simulator.sh)" >> "$GITHUB_OUTPUT"
@@ -87,7 +103,7 @@ jobs:
             -resultBundlePath build/UITests.xcresult \
             -clonedSourcePackagesDirPath .spm \
             -skipPackagePluginValidation -skipMacroValidation \
-            | xcbeautify
+            2>&1 | tee ci-logs/xcodebuild-test.log | xcbeautify
       - name: Export screenshots
         if: always()
         run: scripts/ci/export-screenshots.sh build/UITests.xcresult build/screenshots
@@ -113,3 +129,9 @@ jobs:
           name: Equipe-unsigned-ipa
           path: build/Equipe-unsigned.ipa
           retention-days: 30
+      - name: Annotate failures
+        if: failure()
+        run: |
+          node scripts/ci/annotate-log.mjs ci-logs/swift-macos.log "swift test (macOS)"
+          node scripts/ci/annotate-log.mjs ci-logs/xcodebuild-test.log "xcodebuild test"
+          node scripts/ci/annotate-log.mjs ci-logs/xcodebuild-ipa.log "IPA build"
