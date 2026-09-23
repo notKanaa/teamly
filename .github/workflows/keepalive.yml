@@ -1,0 +1,27 @@
+name: Supabase keep-alive
+
+# Free Supabase projects are paused after 7 days without activity: ping the database every 3 days.
+# Note: GitHub disables scheduled workflows after 60 days without commits (re-enable it in the Actions tab).
+on:
+  schedule:
+    - cron: "17 6 */3 * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Call rpc/ping
+        env:
+          SUPABASE_HOST: ${{ vars.SUPABASE_HOST }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_HOST" ] || [ -z "$SUPABASE_PUBLISHABLE_KEY" ]; then
+            echo "SUPABASE_HOST / SUPABASE_PUBLISHABLE_KEY repository variables are not set — skipping."
+            exit 0
+          fi
+          curl -fsS -X POST "https://${SUPABASE_HOST}/rest/v1/rpc/ping" \
+            -H "apikey: ${SUPABASE_PUBLISHABLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}'

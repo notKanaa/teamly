@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SUPABASE_CLI_VERSION: 2.117.0 # keep in sync with package.json
+
+jobs:
+  database:
+    name: Database (pgTAP)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v3
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - run: supabase db start
+      - run: supabase db lint --level error
+      - run: supabase test db
+
+  swift-linux:
+    name: Swift package (Linux + local Supabase)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CI: "true"
+      SWIFT_BUILD_BIND: ${{ github.workspace }}/.swift-build
+    steps:
+      - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v3
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - uses: actions/cache@v6
+        with:
+          path: .swift-build
+          key: swift-6.3-linux-${{ hashFiles('Packages/TeamTasksKit/Package.resolved', 'Packages/TeamTasksKit/Package.swift') }}
+          restore-keys: swift-6.3-linux-
+      - run: supabase start -x studio,postgres-meta
+      - name: swift test (unit + integration)
+        run: node scripts/swift-docker.mjs it
+
+  ios:
+    name: iOS app (build, UI tests, screenshots)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select latest Xcode 26
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Write Config/Secrets.xcconfig
+        env:
+          SUPABASE_HOST: ${{ vars.SUPABASE_HOST }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+          APP_BUNDLE_ID: ${{ vars.APP_BUNDLE_ID }}
+        run: node scripts/write-secrets.mjs
+      - run: xcodegen generate
+      - uses: actions/cache@v6
+        with:
+          path: .spm
+          key: spm-${{ hashFiles('Packages/TeamTasksKit/Package.resolved') }}
+          restore-keys: spm-
+      - name: Swift package tests (macOS)
+        run: swift test --package-path Packages/TeamTasksKit
+      - name: Pick simulator
+        id: sim
+        run: echo "udid=$(scripts/ci/pick-simulator.sh)" >> "$GITHUB_OUTPUT"
+      - name: Build & run UI tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project TeamTasks.xcodeproj -scheme TeamTasks \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath build/UITests.xcresult \
+            -clonedSourcePackagesDirPath .spm \
+            -skipPackagePluginValidation -skipMacroValidation \
+            | xcbeautify
+      - name: Export screenshots
+        if: always()
+        run: scripts/ci/export-screenshots.sh build/UITests.xcresult build/screenshots
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: screenshots
+          path: build/screenshots
+          retention-days: 14
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: UITests-xcresult
+          path: build/UITests.xcresult
+          retention-days: 7
+      - name: Build unsigned IPA (for Sideloadly)
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        run: scripts/ci/package-ipa.sh
+      - uses: actions/upload-artifact@v7
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        with:
+          name: Equipe-unsigned-ipa
+          path: build/Equipe-unsigned.ipa
+          retention-days: 30

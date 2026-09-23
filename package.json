@@ -1,0 +1,20 @@
+{
+  "name": "equipe",
+  "private": true,
+  "description": "Équipe — app iOS de gestion des tâches de groupe (outillage local : Supabase CLI + tests Swift sous Docker)",
+  "type": "module",
+  "scripts": {
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "db:test": "supabase test db",
+    "db:lint": "supabase db lint --level error",
+    "db:status": "supabase status",
+    "swift:test": "node scripts/swift-docker.mjs unit",
+    "swift:it": "node scripts/swift-docker.mjs it",
+    "verify": "npm run db:reset && npm run db:test && npm run db:lint && npm run swift:test"
+  },
+  "devDependencies": {
+    "supabase": "2.117.0"
+  }
+}

@@ -1,0 +1,92 @@
+# XcodeGen spec — the .xcodeproj is generated (never committed): `xcodegen generate`.
+# CI (macOS runner) runs it before xcodebuild; see .github/workflows/ci.yml.
+name: TeamTasks
+options:
+  bundleIdPrefix: io.github.equipe
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: fr
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+packages:
+  TeamTasksKit:
+    path: Packages/TeamTasksKit
+targets:
+  TeamTasks:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Sources
+      - path: App/Resources
+    dependencies:
+      - package: TeamTasksKit
+        product: TeamTasksCore
+      - package: TeamTasksKit
+        product: TeamTasksMocks
+      - package: TeamTasksKit
+        product: TeamTasksSupabase
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Équipe
+        CFBundleDevelopmentRegion: fr
+        CFBundleLocalizations: [fr]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Background App Refresh (free, no entitlement): periodic catch-up of new assignments.
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [$(PRODUCT_BUNDLE_IDENTIFIER).refresh]
+        # equipe://task/<groupId>/<taskId> (used by ntfy push "click" links).
+        CFBundleURLTypes:
+          - CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER)
+            CFBundleURLSchemes: [equipe]
+        SupabaseScheme: $(SUPABASE_SCHEME)
+        SupabaseHost: $(SUPABASE_HOST)
+        SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
+        PRODUCT_NAME: TeamTasks
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    # No entitlements file on purpose: the app must install with a free Apple ID (personal team).
+  TeamTasksUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: App/UITests
+      - path: App/Sources/Shared/AccessibilityID.swift
+    dependencies:
+      - target: TeamTasks
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID).uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: TeamTasks
+schemes:
+  TeamTasks:
+    build:
+      targets:
+        TeamTasks: all
+        TeamTasksUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets: [TeamTasksUITests]
+    archive:
+      config: Release
