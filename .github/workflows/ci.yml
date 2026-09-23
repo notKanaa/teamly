@@ -87,14 +87,19 @@ jobs:
           key: spm-${{ hashFiles('Packages/TeamTasksKit/Package.resolved') }}
           restore-keys: spm-
       - name: Swift package tests (macOS)
+        id: swift_macos
         run: |
           set -o pipefail
           mkdir -p ci-logs
           swift test --package-path Packages/TeamTasksKit 2>&1 | tee ci-logs/swift-macos.log
       - name: Pick simulator
         id: sim
-        run: echo "udid=$(scripts/ci/pick-simulator.sh)" >> "$GITHUB_OUTPUT"
+        run: |
+          UDID="$(scripts/ci/pick-simulator.sh)"
+          test -n "$UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
       - name: Build & run UI tests
+        id: uitests
         run: |
           set -o pipefail
           xcodebuild test \
@@ -121,6 +126,7 @@ jobs:
           path: build/UITests.xcresult
           retention-days: 7
       - name: Build unsigned IPA (for Sideloadly)
+        id: ipa
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         run: scripts/ci/package-ipa.sh
       - uses: actions/upload-artifact@v7
@@ -129,9 +135,13 @@ jobs:
           name: Equipe-unsigned-ipa
           path: build/Equipe-unsigned.ipa
           retention-days: 30
-      - name: Annotate failures
-        if: failure()
-        run: |
-          node scripts/ci/annotate-log.mjs ci-logs/swift-macos.log "swift test (macOS)"
-          node scripts/ci/annotate-log.mjs ci-logs/xcodebuild-test.log "xcodebuild test"
-          node scripts/ci/annotate-log.mjs ci-logs/xcodebuild-ipa.log "IPA build"
+      # Only the logs of the steps that actually failed (a green step's log has harmless "error:" lines).
+      - name: Annotate swift test failures
+        if: failure() && steps.swift_macos.outcome == 'failure'
+        run: node scripts/ci/annotate-log.mjs ci-logs/swift-macos.log "swift test (macOS)"
+      - name: Annotate UI test failures
+        if: failure() && steps.uitests.outcome == 'failure'
+        run: node scripts/ci/annotate-log.mjs ci-logs/xcodebuild-test.log "xcodebuild test"
+      - name: Annotate IPA failures
+        if: failure() && steps.ipa.outcome == 'failure'
+        run: node scripts/ci/annotate-log.mjs ci-logs/xcodebuild-ipa.log "IPA build"
