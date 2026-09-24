@@ -1,27 +1,27 @@
 import SwiftUI
 import TeamTasksCore
 
-// Small capsules describing a task: priority, status, « Nouveau ». Shared by the task screens, « Mes tâches » and
+// Small capsules describing a task: priority, status, « Nouveau ». Shared by the task screen, « Mes tâches » and
 // the group screen.
 
 extension TaskStatus {
-    /// Accent color of the status (icons, capsules).
+    /// Accent color of the status (icons, capsules): readable as small text (`ShellPalette`).
     var tasksTint: Color {
         switch self {
-        case .todo: Color.gray
-        case .inProgress: Color.blue
-        case .done: Color.green
+        case .todo: ShellPalette.gray
+        case .inProgress: ShellPalette.blue
+        case .done: ShellPalette.green
         }
     }
 }
 
 extension TeamTasksCore.TaskPriority {
-    /// Accent color of the priority (capsules).
+    /// Accent color of the priority (capsules): readable as small text (`ShellPalette`).
     var tasksTint: Color {
         switch self {
-        case .low: Color.gray
-        case .medium: Color.orange
-        case .high: Color.red
+        case .low: ShellPalette.gray
+        case .medium: ShellPalette.orange
+        case .high: ShellPalette.red
         }
     }
 }
@@ -64,6 +64,8 @@ struct TasksPriorityBadge: View {
         .padding(.vertical, 3)
         .foregroundStyle(priority.tasksTint)
         .background(priority.tasksTint.opacity(0.15), in: Capsule())
+        // A short tag: capped so that it leaves room to the due date at the largest text sizes.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
     }
@@ -92,12 +94,13 @@ struct TasksStatusBadge: View {
         .padding(.vertical, 3)
         .foregroundStyle(status.tasksTint)
         .background(status.tasksTint.opacity(0.15), in: Capsule())
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
     }
 
     private var accessibilityText: String {
-        "Statut : \(status.label)"
+        "Statut\u{00A0}: \(status.label)"
     }
 }
 
@@ -112,7 +115,9 @@ struct TasksNewBadge: View {
             .foregroundStyle(Color.white)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
-            .background(Color.accentColor, in: Capsule())
+            // Not the accent itself: white on the dark-mode accent is only 2.9:1.
+            .background(ShellPalette.accentFill, in: Capsule())
+            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             .fixedSize()
     }
 }

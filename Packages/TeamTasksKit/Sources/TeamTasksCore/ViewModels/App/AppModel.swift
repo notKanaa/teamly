@@ -207,10 +207,14 @@ public final class AppModel {
             // Not restored yet: stay on the splash screen; never undo a resolved state.
             break
         case .signedOut:
-            if isInPasswordRecovery, recoveryModel != nil, case .passwordRecovery = phase {
-                // The recovery session ended by itself.
+            if isInPasswordRecovery, let recoveryModel, case .passwordRecovery = phase {
+                // The recovery session ended by itself (revoked, refresh refused): the new password can no longer
+                // be set. The flow starts over at the e-mail step, with an explanation, instead of reopening on
+                // a dead session.
                 isInPasswordRecovery = false
-                recoveryModel = nil
+                self.recoveryModel = nil
+                recoveryModel.recoverySessionEnded()
+                passwordReset = recoveryModel
             }
             await endSession(then: .signedOut)
         case let .signedIn(user):

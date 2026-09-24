@@ -10,7 +10,8 @@ OUT="${2:?output dir}"
 OUT="${OUT%/}"
 RAW="$OUT-raw"
 # Attachment names of App/UITests/ScreenshotTests.swift.
-EXPECTED=(01-connexion 02-groupes 03-creer-groupe 04-code-invitation 05-nouvelle-tache 06-detail-groupe 07-mes-taches 08-membres 09-reglages)
+EXPECTED=(01-connexion 02-groupes 03-creer-groupe 04-code-invitation 05-nouvelle-tache 06-detail-groupe 07-mes-taches 08-membres 09-reglages
+  10-reglages-compte)
 
 if [ ! -d "$RESULT" ]; then
   echo "No result bundle at $RESULT — nothing to export."

@@ -36,8 +36,8 @@ public final class JoinGroupViewModel: ErrorPresenting {
     public var resultMessage: String? {
         guard let result else { return nil }
         return result.alreadyMember
-            ? "Vous faites déjà partie de « \(result.groupName) »."
-            : "Vous avez rejoint « \(result.groupName) »."
+            ? "Vous faites déjà partie de «\u{00A0}\(result.groupName)\u{00A0}»."
+            : "Vous avez rejoint «\u{00A0}\(result.groupName)\u{00A0}»."
     }
 
     /// Joins with the code. Invalid codes (checked locally, then by the server), too many attempts

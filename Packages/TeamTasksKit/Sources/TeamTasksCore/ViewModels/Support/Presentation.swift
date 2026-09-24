@@ -65,15 +65,22 @@ extension MemberRole {
 
 /// Date wording of the screens (French, relative to a reference date, in the injected calendar's time zone).
 public enum DateText {
-    /// « Aujourd'hui à 20:00 », « Demain à 18:00 », « Hier à 09:30 », « Lundi 28 septembre à 18:00 ».
+    /// « Aujourd'hui à 20:00 », « Demain à 18:00 », « Hier à 09:30 », « Lundi à 18:00 » (2 to 6 days ahead),
+    /// « Jeudi 1er octobre à 18:00 ».
     public static func relative(_ date: Date, now: Date, calendar: Calendar) -> String {
         let formatter = FrenchDateFormatter(timeZone: calendar.timeZone)
         return FrenchDateFormatter.capitalizingFirstLetter(formatter.relativeDateTime(date, relativeTo: now))
     }
 
-    /// Same wording in lowercase, to be embedded in a sentence (« créée hier à 09:30 »).
+    /// Same wording in lowercase, after a label (« Dernière activité : hier à 09:30 »).
     public static func relativeLowercase(_ date: Date, now: Date, calendar: Calendar) -> String {
         FrenchDateFormatter(timeZone: calendar.timeZone).relativeDateTime(date, relativeTo: now)
+    }
+
+    /// Wording for the middle of a sentence: « hier à 09:30 », « le lundi 14 septembre à 10:00 »
+    /// (« Créée par Lucas Bernard le lundi 14 septembre à 10:00 »).
+    public static func relativeInSentence(_ date: Date, now: Date, calendar: Calendar) -> String {
+        FrenchDateFormatter(timeZone: calendar.timeZone).relativeDateTimeInSentence(date, relativeTo: now)
     }
 }
 

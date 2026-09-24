@@ -9,8 +9,27 @@ import FoundationNetworking
 /// Maps every failure of the Supabase stack to `AppError` (docs/CONTRACTS.md §4.2, §9).
 ///
 /// `CancellationError` is passed through unchanged: view models ignore it (a cancelled SwiftUI `.task` must not
-/// surface « annulé »).
+/// surface « annulé »). Nothing the server says in English reaches the user: the conditions without an `AppError`
+/// case of their own become `.unknown` with one of the French details below.
 enum SupabaseErrorMapping {
+    // MARK: - French details of `.unknown`
+
+    /// A malformed answer (not JSON, an HTML page of a captive portal, a missing field).
+    static let unexpectedAnswer = "réponse inattendue du serveur"
+    /// Temporary server-side failure: 5xx, PostgREST `PGRST000`–`PGRST003` (database unreachable, e.g. while a free
+    /// project resumes from pause), statement timeout, gateway rate limit, Auth `unexpected_failure`/`request_timeout`.
+    static let serverUnavailable = "le serveur est momentanément indisponible, réessayez dans un instant"
+    /// Supabase Auth request rate limit (a window of minutes, unlike the one-hour limit of `join_group_by_code`).
+    static let authRateLimited = "trop de tentatives, réessayez dans quelques minutes"
+    /// `email_address_not_authorized`: the project's built-in SMTP only delivers to its team members until a custom
+    /// SMTP server is configured.
+    static let emailDeliveryUnavailable = "l’envoi d’e-mails vers cette adresse n’est pas encore possible"
+    static let signupDisabled = "les inscriptions sont fermées pour le moment"
+    static let emailProviderDisabled = "la connexion par e-mail est désactivée pour le moment"
+    static let userBanned = "ce compte est suspendu"
+    static let reauthenticationNeeded = "reconnectez-vous, puis réessayez"
+    static let captchaFailed = "la vérification de sécurité a échoué"
+
     // MARK: - PostgREST
 
     /// The JSON error body of PostgREST: `{"code": "P0001", "message": "last_admin", "details": …, "hint": …}`.
@@ -19,20 +38,26 @@ enum SupabaseErrorMapping {
         let message: String?
     }
 
+    /// PostgREST codes of a database it cannot reach (connection, schema cache, pool timeout).
+    static let temporaryPostgrestCodes: Set<String> = ["PGRST000", "PGRST001", "PGRST002", "PGRST003", "57014"]
+
     /// A non-2xx PostgREST answer → `BackendErrorMapper` (message first, then SQLSTATE, then HTTP status).
     static func postgrest(status: Int, body: Data) -> AppError {
         let error = try? JSONDecoder().decode(PostgrestErrorBody.self, from: body)
         let mapped = BackendErrorMapper.map(code: error?.code, message: error?.message, httpStatus: status)
-        // No usable body (e.g. a gateway error page): at least name the HTTP status.
-        if case let .unknown(detail) = mapped, detail.isEmpty {
-            return .unknown("HTTP \(status)")
+        guard case let .unknown(detail) = mapped else { return mapped }
+        let isTemporaryCode = error?.code.map { temporaryPostgrestCodes.contains($0) } ?? false
+        if status >= 500 || status == 429 || isTemporaryCode {
+            return .unknown(serverUnavailable)
         }
-        return mapped
+        // No usable body: at least name the HTTP status.
+        return detail.isEmpty ? .unknown("HTTP \(status)") : mapped
     }
 
     // MARK: - Transport
 
-    /// Network-level failures: `URLError` → `.network` (cancellation → `CancellationError`).
+    /// Network-level failures: `URLError` → `.network` (cancellation → `CancellationError`); anything else (e.g. a
+    /// `DecodingError` of an unexpected answer) → `.unknown(unexpectedAnswer)`.
     static func transport(_ error: any Error) -> any Error {
         if error is CancellationError || error is AppError { return error }
         if let urlError = error as? URLError {
@@ -42,7 +67,7 @@ enum SupabaseErrorMapping {
         if nsError.domain == NSURLErrorDomain {
             return nsError.code == NSURLErrorCancelled ? CancellationError() : AppError.network
         }
-        return AppError.unknown(String(describing: error))
+        return AppError.unknown(unexpectedAnswer)
     }
 
     // MARK: - Auth
@@ -66,7 +91,7 @@ enum SupabaseErrorMapping {
         case let .api(message, errorCode, _, response):
             return auth(code: errorCode.rawValue, message: message, httpStatus: response.statusCode, context: context)
         default:
-            return AppError.unknown(authError.message)
+            return AppError.unknown(unexpectedAnswer)
         }
     }
 
@@ -88,11 +113,18 @@ enum SupabaseErrorMapping {
         case "email_not_confirmed": return .emailNotConfirmed
         case "otp_expired": return .otpInvalid
         case "over_email_send_rate_limit": return .emailRateLimited
-        case "over_request_rate_limit": return .rateLimited
+        case "over_request_rate_limit": return .unknown(authRateLimited)
         case "session_not_found", "session_expired", "refresh_token_not_found", "refresh_token_already_used",
              "bad_jwt", "no_authorization", "user_not_found":
             return .notAuthenticated
         case "validation_failed": return .invalidInput
+        case "email_address_not_authorized": return .unknown(emailDeliveryUnavailable)
+        case "signup_disabled": return .unknown(signupDisabled)
+        case "email_provider_disabled": return .unknown(emailProviderDisabled)
+        case "user_banned": return .unknown(userBanned)
+        case "reauthentication_needed", "reauthentication_not_valid": return .unknown(reauthenticationNeeded)
+        case "captcha_failed": return .unknown(captchaFailed)
+        case "unexpected_failure", "request_timeout": return .unknown(serverUnavailable)
         default: break
         }
         // Servers older than the `error_code` field: match the historical messages.
@@ -103,8 +135,10 @@ enum SupabaseErrorMapping {
         }
         switch httpStatus {
         case 401: return .notAuthenticated
-        case 429: return .rateLimited
-        default: return .unknown(code == "unknown" ? message : "\(code) \(message)")
+        case 429: return .unknown(authRateLimited)
+        case 500...: return .unknown(serverUnavailable)
+        // The server's message is English: only the code is shown (for support).
+        default: return .unknown(code == "unknown" ? unexpectedAnswer : code)
         }
     }
 }

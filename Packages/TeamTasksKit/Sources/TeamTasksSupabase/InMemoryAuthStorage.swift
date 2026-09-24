@@ -26,4 +26,10 @@ final class InMemoryAuthStorage: AuthLocalStorage, @unchecked Sendable {
         defer { lock.unlock() }
         values[key] = nil
     }
+
+    func removeAll() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        values.removeAll()
+    }
 }

@@ -124,7 +124,7 @@ public final class MembersViewModel: ErrorPresenting {
     }
 
     public static func shareText(groupName: String, code: InviteCode) -> String {
-        "Rejoins mon groupe « \(groupName) » sur Équipe avec le code \(code.formatted)"
+        "Rejoins mon groupe «\u{00A0}\(groupName)\u{00A0}» sur Équipe avec le code \(code.formatted)"
     }
 
     public func isMe(_ member: Membership) -> Bool { member.user.id == session.userId }
@@ -147,7 +147,7 @@ public final class MembersViewModel: ErrorPresenting {
 
     /// « Nommer admin » / « Retirer le rôle d'admin ».
     public func roleActionTitle(for member: Membership) -> String {
-        member.role == .admin ? "Retirer le rôle d'admin" : "Nommer admin"
+        member.role == .admin ? "Retirer le rôle d’admin" : "Nommer admin"
     }
 
     /// The only member: leaving deletes the group.
@@ -161,12 +161,12 @@ public final class MembersViewModel: ErrorPresenting {
     /// Text of the « Quitter le groupe » confirmation (or why it is impossible).
     public var leaveConfirmationMessage: String {
         if isLastMember {
-            return "Vous êtes le dernier membre : le groupe « \(groupName) » et toutes ses tâches seront supprimés."
+            return "Vous êtes le dernier membre\u{00A0}: le groupe «\u{00A0}\(groupName)\u{00A0}» et toutes ses tâches seront supprimés."
         }
         if isLastAdmin {
             return AppError.lastAdmin.messageFR
         }
-        return "Vous ne verrez plus « \(groupName) » ni ses tâches. Vos assignations dans ce groupe seront retirées."
+        return "Vous ne verrez plus «\u{00A0}\(groupName)\u{00A0}» ni ses tâches. Vos assignations dans ce groupe seront retirées."
     }
 
     // MARK: - Actions

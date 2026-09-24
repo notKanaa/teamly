@@ -10,7 +10,7 @@ import Observation
 @Observable
 public final class GroupsListViewModel: ErrorPresenting {
     public static let emptyTitle = "Aucun groupe"
-    public static let emptyMessage = "Créez un groupe ou rejoignez-en un avec un code d'invitation."
+    public static let emptyMessage = "Créez un groupe ou rejoignez-en un avec un code d’invitation."
 
     public private(set) var groups: [GroupSummary] = []
     public private(set) var loadState: LoadState = .idle

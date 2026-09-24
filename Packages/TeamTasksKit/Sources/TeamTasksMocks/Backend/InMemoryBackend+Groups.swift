@@ -209,7 +209,7 @@ extension InMemoryBackend {
     // MARK: - Helpers
 
     static func inviteCode(_ stored: String) throws -> InviteCode {
-        guard let code = InviteCode(stored) else { throw AppError.unknown("code d'invitation corrompu") }
+        guard let code = InviteCode(stored) else { throw AppError.unknown("code d’invitation corrompu") }
         return code
     }
 }

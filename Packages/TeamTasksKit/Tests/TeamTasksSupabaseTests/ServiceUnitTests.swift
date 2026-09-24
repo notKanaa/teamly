@@ -207,7 +207,7 @@ import Testing
 
     @Test func updateDisplayNameIsAPatch() async throws {
         let transport = FakeTransport([
-            .json(200, #"[{"id":"11111111-1111-4111-8111-111111111111","display_name":"Camille M.","created_at":"2026-08-24T23:52:26.878215+00:00"}]"#),
+            .json(200, #"[{"id":"11111111-1111-4111-8111-111111111111","display_name":"Camille M."}]"#),
             .json(200, "[]"),
         ])
         let profiles = UnitBackend.services(transport).profiles
@@ -216,7 +216,7 @@ import Testing
         #expect(profile == UserProfile(id: Seed.camille, displayName: "Camille M."))
         let sent = try #require(transport.sent.first)
         #expect(sent.method == "PATCH")
-        #expect(sent.target == "profiles?id=eq.11111111-1111-4111-8111-111111111111")
+        #expect(sent.target == "profiles?select=id,display_name&id=eq.11111111-1111-4111-8111-111111111111")
         #expect(sent.headers["prefer"] == "return=representation")
         #expect(sent.body == #"{"display_name":"Camille M."}"#)
         await #expect(throws: AppError.forbidden) { try await profiles.updateDisplayName("Camille") }

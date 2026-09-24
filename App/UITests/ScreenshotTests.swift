@@ -1,7 +1,7 @@
 import XCTest
 
-/// The 9 screenshots of the CI artifact « screenshots »: scripts/ci/export-screenshots.sh names each file after its
-/// attachment (01-connexion.png … 09-reglages.png). In-memory demo data, signed in as Camille (admin of
+/// The 10 screenshots of the CI artifact « screenshots »: scripts/ci/export-screenshots.sh names each file after its
+/// attachment (01-connexion.png … 10-reglages-compte.png). In-memory demo data, signed in as Camille (admin of
 /// « Coloc' rue des Lilas ») except for the login screen. Each capture waits for the screen's real content; one test
 /// per screen (or pair of screens) so that one failure does not lose the other captures.
 final class ScreenshotTests: XCTestCase {
@@ -116,5 +116,9 @@ final class ScreenshotTests: XCTestCase {
         ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the display name field")
         ui.waitForContent(ui.elements(AccessibilityID.Settings.email), "the e-mail row")
         ui.capture("09-reglages")
+
+        // The « Compte » section is under the tab bar at the top of the form: scrolled into view for its own capture.
+        ui.reveal(ui.buttons(AccessibilityID.Settings.deleteAccount), "« Supprimer mon compte »")
+        ui.capture("10-reglages-compte")
     }
 }

@@ -60,11 +60,11 @@ import Testing
         let open = RestQuery.myTasks(me: me, includeDone: false)
         #expect(open.path == "tasks")
         #expect(open.readableQuery
-            == "select=*,assignees:task_assignees(user_id),mine:task_assignees!inner(assigned_at,user_id),group:groups(name)"
+            == "select=*,assignees:task_assignees(user_id),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name)"
             + "&mine.user_id=eq.11111111-1111-4111-8111-111111111111&status=neq.done")
         let all = RestQuery.myTasks(me: me, includeDone: true)
         #expect(all.readableQuery
-            == "select=*,assignees:task_assignees(user_id),mine:task_assignees!inner(assigned_at,user_id),group:groups(name)"
+            == "select=*,assignees:task_assignees(user_id),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name)"
             + "&mine.user_id=eq.11111111-1111-4111-8111-111111111111")
     }
 
@@ -88,7 +88,7 @@ import Testing
         let request = RestQuery.updateDisplayName(me: me, name: "Camille M.")
         #expect(request.method == .patch)
         #expect(request.path == "profiles")
-        #expect(request.readableQuery == "id=eq.11111111-1111-4111-8111-111111111111")
+        #expect(request.readableQuery == "select=id,display_name&id=eq.11111111-1111-4111-8111-111111111111")
         #expect(request.prefer == "return=representation")
         #expect(String(decoding: try #require(request.body).encoded(), as: UTF8.self) == #"{"display_name":"Camille M."}"#)
     }

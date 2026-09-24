@@ -1,8 +1,8 @@
 import SwiftUI
 import TeamTasksCore
 
-// Small visual building blocks of the « Groupes » tab: initials avatars, role badge, priority label,
-// colors and French counts.
+// Small visual building blocks of the « Groupes » tab and of the people shown elsewhere: initials avatars, role
+// badge, colors and French counts.
 
 /// Initials of a name: « Coloc' rue des Lilas » → « CR », « Camille Martin » → « CM ».
 enum GroupsInitials {
@@ -31,25 +31,6 @@ enum GroupsPalette {
         }
         let palette = colors
         return palette[Int(hash % UInt64(palette.count))]
-    }
-}
-
-/// Status and priority colors shared by the task rows.
-enum GroupsStyle {
-    static func statusColor(_ status: TaskStatus) -> Color {
-        switch status {
-        case .todo: Color.secondary
-        case .inProgress: Color.blue
-        case .done: Color.green
-        }
-    }
-
-    static func priorityColor(_ priority: TeamTasksCore.TaskPriority) -> Color {
-        switch priority {
-        case .high: Color.red
-        case .medium: Color.orange
-        case .low: Color.gray
-        }
     }
 }
 
@@ -96,6 +77,23 @@ struct GroupsInitialsBadge: View {
     }
 }
 
+/// A person's initials on their color. The one avatar of the app (group header, task rows, members, task screen,
+/// assignee picker): the color comes from the user id, so a person looks the same on every screen.
+struct GroupsPersonAvatar: View {
+    let id: UUID
+    let name: String
+    var size: CGFloat = 32
+
+    var body: some View {
+        GroupsInitialsBadge(
+            text: GroupsInitials.make(from: name),
+            color: GroupsPalette.color(for: id),
+            size: size,
+            style: .circle
+        )
+    }
+}
+
 /// A few people as initials circles, then « +N » (decorative: hidden from VoiceOver).
 struct GroupsAvatarStack: View {
     struct Person: Identifiable, Hashable {
@@ -116,12 +114,7 @@ struct GroupsAvatarStack: View {
                     .frame(width: size, height: size)
             } else {
                 ForEach(people.prefix(maxVisible)) { person in
-                    GroupsInitialsBadge(
-                        text: GroupsInitials.make(from: person.name),
-                        color: GroupsPalette.color(for: person.id),
-                        size: size,
-                        style: .circle
-                    )
+                    GroupsPersonAvatar(id: person.id, name: person.name, size: size)
                 }
                 if people.count > maxVisible {
                     Text("+\(people.count - maxVisible)")
@@ -141,24 +134,16 @@ struct GroupsRoleBadge: View {
     let role: MemberRole
 
     var body: some View {
-        let tint = role == .admin ? Color.accentColor : Color.secondary
+        // `accentText` / `gray`: 4.5:1 or more inside their own capsule (the accent itself gives 3.9:1 in light mode).
+        let tint = role == .admin ? ShellPalette.accentText : ShellPalette.gray
         Text(role.label)
             .font(.caption.weight(.semibold))
             .foregroundStyle(tint)
+            .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(tint.opacity(0.15), in: Capsule())
-            .accessibilityLabel("Rôle : \(role.label)")
-    }
-}
-
-/// « Haute » / « Moyenne » / « Basse » with its symbol and color.
-struct GroupsPriorityLabel: View {
-    let priority: TeamTasksCore.TaskPriority
-
-    var body: some View {
-        Label(priority.label, systemImage: priority.systemImage)
-            .labelStyle(.titleAndIcon)
-            .foregroundStyle(GroupsStyle.priorityColor(priority))
+            .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+            .accessibilityLabel("Rôle\u{00A0}: \(role.label)")
     }
 }

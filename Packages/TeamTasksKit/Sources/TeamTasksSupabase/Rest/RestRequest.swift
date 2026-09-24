@@ -131,7 +131,7 @@ enum RestQuery {
 
     static func myTasks(me: UUID, includeDone: Bool) -> RestRequest {
         var query = [
-            item("select", "\(taskSelect),mine:task_assignees!inner(assigned_at,user_id),group:groups(name)"),
+            item("select", "\(taskSelect),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name)"),
             item("mine.user_id", "eq.\(uuid(me))"),
         ]
         if !includeDone {
@@ -167,12 +167,14 @@ enum RestQuery {
 
     // MARK: - Writes
 
-    /// `PATCH profiles?id=eq.<me>` with `Prefer: return=representation` (0 rows → `.forbidden`).
+    /// `PATCH profiles?select=id,display_name&id=eq.<me>` with `Prefer: return=representation` (0 rows → `.forbidden`).
+    /// The explicit `select` keeps the representation to the columns the client reads, so that a later column-level
+    /// grant on `profiles` (review SEC-3) does not break renaming.
     static func updateDisplayName(me: UUID, name: String) -> RestRequest {
         RestRequest(
             method: .patch,
             path: "profiles",
-            query: [item("id", "eq.\(uuid(me))")],
+            query: [item("select", "id,display_name"), item("id", "eq.\(uuid(me))")],
             body: .object(["display_name": .string(name)]),
             prefer: "return=representation"
         )

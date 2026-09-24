@@ -12,7 +12,7 @@ struct TaskEditorAssigneePicker: View {
             if let message = model.assigneesError {
                 Section {
                     Label(message, systemImage: "exclamationmark.circle.fill")
-                        .foregroundStyle(Color.red)
+                        .foregroundStyle(ShellPalette.red)
                 }
             }
 
@@ -54,7 +54,7 @@ struct TaskEditorAssigneePicker: View {
             model.toggleAssignee(option.id)
         } label: {
             HStack(spacing: 12) {
-                TasksInitialsAvatar(name: option.name, size: 34)
+                GroupsPersonAvatar(id: option.id, name: option.name, size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(option.name)
                         .foregroundStyle(Color.primary)
@@ -110,7 +110,7 @@ struct TaskEditorAssigneePicker: View {
     }
 
     private var noResultMessage: String {
-        "Aucun membre ne correspond à « \(trimmedSearch) »."
+        "Aucun membre ne correspond à «\u{00A0}\(trimmedSearch)\u{00A0}»."
     }
 
     /// « 2 personnes sélectionnées sur 20 au maximum. »

@@ -53,7 +53,7 @@ enum UITestDemo {
     /// `unknownInviteCode` as the « Rejoindre un groupe » field formats it live.
     static let unknownInviteCodeDisplayed = "ZZZZ-ZZZZ"
     /// Message of `AppError.invalidCode` (TeamTasksCore): the server knows no such code.
-    static let invalidCodeMessage = "Code d'invitation invalide."
+    static let invalidCodeMessage = "Code d’invitation invalide."
 
     // Tasks of « Coloc' rue des Lilas ».
     /// Created by Camille, assigned to Inès only.
@@ -872,7 +872,7 @@ final class EquipeApp {
     private func currentObstructions() -> [Obstruction] {
         var obstructions: [Obstruction] = []
         if let keyboard = try? app.keyboards.firstMatch.snapshot(), visibleArea(of: keyboard.frame) != nil {
-            obstructions.append(Obstruction(frame: keyboard.frame, ownFrames: []))
+            obstructions.append(Obstruction(frame: keyboardFrame(from: keyboard.frame), ownFrames: []))
         }
         for tabBar in app.tabBars.allElementsBoundByIndex {
             if let snapshot = try? tabBar.snapshot(), visibleArea(of: snapshot.frame) != nil {
@@ -880,6 +880,21 @@ final class EquipeApp {
             }
         }
         return obstructions
+    }
+
+    /// The keyboard with its toolbar (the « OK » bar of the task editor), which may be a separate element on top of
+    /// it (touching it, or floating a few points above): a tap there would hit the bar, not what lies under it.
+    private func keyboardFrame(from keyboard: CGRect) -> CGRect {
+        var frame = keyboard
+        for toolbar in app.toolbars.allElementsBoundByIndex {
+            guard let snapshot = try? toolbar.snapshot() else { continue }
+            let bar = snapshot.frame
+            let isOnTop = bar.minY < frame.minY && bar.maxY >= frame.minY - 12
+            if bar.width >= 1, bar.height >= 1, isOnTop, bar.minX < frame.maxX, bar.maxX > frame.minX {
+                frame = frame.union(bar)
+            }
+        }
+        return frame
     }
 
     private func descendantFrames(of snapshot: any XCUIElementSnapshot) -> [CGRect] {

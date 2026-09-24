@@ -80,6 +80,11 @@ struct FixedCredentials: CredentialsProvider {
     func credentials() async throws -> Credentials {
         Credentials(userId: userId, accessToken: "jeton-de-test")
     }
+
+    /// Nothing to refresh: a refused session stays refused (the request is not sent again).
+    func refreshedCredentials(after rejected: Credentials) async throws -> Credentials {
+        throw AppError.notAuthenticated
+    }
 }
 
 enum UnitBackend {

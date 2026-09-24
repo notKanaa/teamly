@@ -35,8 +35,11 @@ public final class TaskEditorViewModel: ErrorPresenting {
     public static let maxAssignees = Limits.maxAssignees
     public static let maxTitleLength = Limits.taskTitle.upperBound
     public static let maxDetailsLength = Limits.taskDetailsMax
-    public static let invalidDueDateMessage = "Date d'échéance invalide."
+    public static let invalidDueDateMessage = "Date d’échéance invalide."
     public static let goneMessage = "Cette tâche a été supprimée."
+    /// After `assignee_not_member`: the people who left the group were removed from the selection.
+    public static let departedAssigneesMessage =
+        "Une personne assignée a quitté le groupe\u{00A0}: elle a été retirée. Enregistrez à nouveau."
 
     public let mode: Mode
     public let groupId: UUID
@@ -91,7 +94,7 @@ public final class TaskEditorViewModel: ErrorPresenting {
     public var error: ErrorState?
 
     public let session: SessionModel
-    private let original: TaskDraft
+    private var original: TaskDraft
     private var titleValue: String
     private var detailsValue: String
     private var hasDueDateValue: Bool
@@ -145,11 +148,17 @@ public final class TaskEditorViewModel: ErrorPresenting {
         await runner.run(rerunIfRunning: true) { [weak self] in await self?.fetchMembers() }
     }
 
+    /// Loads the members and drops from the selection the people who are no longer members: the server refuses
+    /// them (`assignee_not_member`) and the picker has no row to unselect them.
     private func fetchMembers() async {
         if loadState != .loaded { loadState = .loading }
         do {
             members = NameOrder.sortedMembers(try await session.services.groups.members(groupId: groupId))
             loadState = .loaded
+            let memberIds = Set(members.map(\.user.id))
+            assigneeIds.formIntersection(memberIds)
+            // Their assignments are gone on the server too: dropping them is not a change of the user.
+            original.assigneeIds.formIntersection(memberIds)
         } catch {
             guard let state = ErrorState(from: error) else {
                 if loadState == .loading { loadState = .idle }
@@ -297,7 +306,12 @@ public final class TaskEditorViewModel: ErrorPresenting {
             case .tooManyAssignees, .assigneeNotMember:
                 assigneesError = appError.messageFR
                 if appError == .assigneeNotMember {
+                    let selected = assigneeIds
                     await reload()
+                    if assigneeIds != selected {
+                        // The people who left were dropped: saving again works.
+                        assigneesError = Self.departedAssigneesMessage
+                    }
                 }
             case .notFound where isEditing:
                 isGone = true

@@ -34,6 +34,10 @@ enum AppErrorName {
         "emailAlreadyUsed": .emailAlreadyUsed, "weakPassword": .weakPassword, "invalidEmail": .invalidEmail,
         "otpInvalid": .otpInvalid, "emailRateLimited": .emailRateLimited, "emailNotConfirmed": .emailNotConfirmed,
         "invalidInput": .invalidInput, "lastAdmin": .lastAdmin, "forbidden": .forbidden, "notFound": .notFound,
+        // Conditions without a case of their own: `.unknown` with a French detail.
+        "emailDeliveryUnavailable": .unknown(SupabaseErrorMapping.emailDeliveryUnavailable),
+        "signupDisabled": .unknown(SupabaseErrorMapping.signupDisabled),
+        "reauthenticationNeeded": .unknown(SupabaseErrorMapping.reauthenticationNeeded),
     ]
 }
 

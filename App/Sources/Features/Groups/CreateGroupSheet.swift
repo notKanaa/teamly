@@ -66,21 +66,23 @@ struct CreateGroupSheet: View {
     }
 
     private var footer: some View {
-        let length = model.name.count
-        let isTooLong = length > CreateGroupViewModel.maxNameLength
+        // Measured like the validation (trimmed, code points), so the counter turns red exactly when « Créer » would
+        // refuse the name.
+        let length = CreateGroupNameCounter.length(of: model.name)
+        let isTooLong = CreateGroupNameCounter.isTooLong(model.name)
         return VStack(alignment: .leading, spacing: 6) {
             if let nameError = model.nameError {
                 Label(nameError, systemImage: "exclamationmark.circle")
-                    .foregroundStyle(Color.red)
+                    .foregroundStyle(ShellPalette.red)
                     .accessibilityIdentifier(AccessibilityID.Groups.nameError)
             }
             HStack(alignment: .firstTextBaseline) {
-                Text("Par exemple « Coloc’ », « Famille » ou « Projet asso ». Vous serez admin du groupe et pourrez inviter d’autres personnes.")
+                Text("Par exemple «\u{00A0}Coloc’\u{00A0}», «\u{00A0}Famille\u{00A0}» ou «\u{00A0}Projet asso\u{00A0}». Vous serez admin du groupe et pourrez inviter d’autres personnes.")
                 Spacer(minLength: 8)
-                Text("\(length)/\(CreateGroupViewModel.maxNameLength)")
+                Text("\(length)/\(CreateGroupNameCounter.maxLength)")
                     .monospacedDigit()
-                    .foregroundStyle(isTooLong ? Color.red : Color.secondary)
-                    .accessibilityLabel("\(length) caractères sur \(CreateGroupViewModel.maxNameLength)")
+                    .foregroundStyle(isTooLong ? ShellPalette.red : Color.secondary)
+                    .accessibilityLabel("\(length) caractères sur \(CreateGroupNameCounter.maxLength)")
             }
         }
     }

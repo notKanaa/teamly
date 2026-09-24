@@ -23,8 +23,11 @@ public final class PasswordResetViewModel: ErrorPresenting, Identifiable {
     public static let codeLength = 6
     public static let mismatchMessage = "Les mots de passe ne correspondent pas."
     public static let incompleteCodeMessage = "Saisissez les 6 chiffres du code reçu par e-mail."
-    public static let resentMessage = "Un nouveau code vient d'être envoyé."
+    public static let resentMessage = "Un nouveau code vient d’être envoyé."
     public static let doneMessage = "Votre mot de passe a été modifié."
+    /// The recovery session ended before the new password was set.
+    public static let recoveryEndedMessage =
+        "La session de réinitialisation a expiré avant l’enregistrement du nouveau mot de passe. Demandez un nouveau code."
 
     public nonisolated let id = UUID()
     public private(set) var step: Step = .email
@@ -86,7 +89,7 @@ public final class PasswordResetViewModel: ErrorPresenting, Identifiable {
             try await services.auth.sendPasswordReset(email: address)
             email = address
             codeValue = ""
-            infoMessage = "Si un compte existe pour \(address), un code à 6 chiffres vient d'y être envoyé."
+            infoMessage = "Si un compte existe pour \(address), un code à 6 chiffres vient d’y être envoyé."
             step = .code
             return true
         } catch {
@@ -174,6 +177,18 @@ public final class PasswordResetViewModel: ErrorPresenting, Identifiable {
         infoMessage = nil
         codeValue = ""
         step = .email
+    }
+
+    /// The recovery session ended before the new password was set (revoked, refresh refused): back to the e-mail
+    /// step (address kept) with an explanation, since the code was used up.
+    func recoverySessionEnded() {
+        guard step == .newPassword else { return }
+        newPassword = ""
+        passwordConfirmation = ""
+        codeValue = ""
+        infoMessage = nil
+        step = .email
+        present(message: Self.recoveryEndedMessage, error: .notAuthenticated)
     }
 
     /// Leaves the flow. At the new password step the recovery session is closed (local sign-out): the password

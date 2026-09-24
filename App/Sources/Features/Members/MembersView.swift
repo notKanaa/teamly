@@ -15,6 +15,7 @@ struct MembersView: View {
     @State private var isConfirmingLeave = false
     @State private var isConfirmingRegeneration = false
     @Environment(AppModel.self) private var appModel
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(groupId: UUID, session: SessionModel) {
         self.session = session
@@ -59,7 +60,7 @@ struct MembersView: View {
             .accessibilityIdentifier(AccessibilityID.Members.removeConfirmButton)
             Button("Annuler", role: .cancel) {}
         } message: { member in
-            Text("\(member.user.displayName) n’aura plus accès à « \(model.groupName) ». Ses assignations dans ce groupe seront retirées.")
+            Text("\(member.user.displayName) n’aura plus accès à «\u{00A0}\(model.groupName)\u{00A0}». Ses assignations dans ce groupe seront retirées.")
         }
         .confirmationDialog(
             "Retirer votre rôle d’admin\u{00A0}?",
@@ -112,7 +113,9 @@ struct MembersView: View {
             HStack {
                 Label("Code d’invitation", systemImage: "qrcode")
                 Spacer(minLength: 8)
+                // Spelled out by VoiceOver (« L, Y, L, A, tiret, S… »), not read as a word and a number.
                 Text(model.inviteCodeText ?? "—")
+                    .speechSpellsOutCharacters()
                     .font(.title3.monospaced().weight(.bold))
                     .textSelection(.enabled)
                     .accessibilityIdentifier(AccessibilityID.Members.inviteCode)
@@ -149,32 +152,33 @@ struct MembersView: View {
                 memberRow(member)
             }
         } header: {
-            Text("« \(model.groupName) » · \(GroupsText.memberCount(model.members.count))")
+            Text("«\u{00A0}\(model.groupName)\u{00A0}» · \(GroupsText.memberCount(model.members.count))")
                 .textCase(nil)
         }
     }
 
     private func memberRow(_ member: Membership) -> some View {
         let now = session.platform.now()
-        let joined = DateText.relativeLowercase(member.joinedAt, now: now, calendar: session.platform.calendar)
+        // « Membre depuis le 14 septembre »: the day only, short enough for the caption line.
+        let joined = MembersJoinedText.sentence(joinedAt: member.joinedAt, now: now, calendar: session.platform.calendar)
         let isBusy = model.busyMemberIds.contains(member.id)
-        return HStack(spacing: 12) {
-            HStack(spacing: 12) {
-                GroupsInitialsBadge(
-                    text: GroupsInitials.make(from: member.user.displayName),
-                    color: GroupsPalette.color(for: member.user.id),
-                    size: 40,
-                    style: .circle
-                )
+        let isLarge = typeSize.isAccessibilitySize
+        // At accessibility text sizes the avatar, the name and the role go under each other instead of being cut.
+        let infoLayout = isLarge
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+        return HStack(spacing: 4) {
+            infoLayout {
+                GroupsPersonAvatar(id: member.user.id, name: member.user.displayName, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.displayName(of: member))
                         .font(.body)
                         .fontWeight(model.isMe(member) ? Font.Weight.semibold : Font.Weight.regular)
-                        .lineLimit(1)
-                    Text("A rejoint le groupe \(joined)")
+                        .lineLimit(isLarge ? nil : 1)
+                    Text(joined)
                         .font(.caption)
                         .foregroundStyle(Color.secondary)
-                        .lineLimit(1)
+                        .lineLimit(isLarge ? nil : 2)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if isBusy {
@@ -182,6 +186,7 @@ struct MembersView: View {
                         .accessibilityLabel("Mise à jour")
                 } else {
                     GroupsRoleBadge(role: member.role)
+                        .fixedSize()
                 }
             }
             .accessibilityElement(children: .combine)
@@ -189,9 +194,10 @@ struct MembersView: View {
                 Menu {
                     memberActions(member)
                 } label: {
+                    // A 44 × 44 pt tap area at least; the frame grows with the glyph at large text sizes.
                     Image(systemName: "ellipsis.circle")
                         .font(.title3)
-                        .frame(width: 32, height: 32)
+                        .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
@@ -247,7 +253,7 @@ struct MembersView: View {
         }
     }
 
-    /// « Quitter le groupe » (everyone). The last admin gets the reason instead of the confirmation.
+    /// « Quitter le groupe » (everyone). Disabled for the last admin, whose footer says what to do first.
     private var leaveSection: some View {
         Section {
             Button(role: .destructive) {
@@ -261,7 +267,7 @@ struct MembersView: View {
                     }
                 }
             }
-            .disabled(model.isLeaving)
+            .disabled(model.isLeaving || model.isLastAdmin)
             .accessibilityIdentifier(AccessibilityID.Members.leaveButton)
         } footer: {
             if model.isLastAdmin {
@@ -313,11 +319,9 @@ struct MembersView: View {
     }
 
     private func requestLeave() {
-        if model.isLastAdmin {
-            // Refused by the server anyway (`last_admin`): explain what to do instead.
-            model.error = ErrorState(AppError.lastAdmin)
-        } else {
-            isConfirmingLeave = true
-        }
+        // The button is disabled for the last admin (refused by the server anyway, `last_admin`): the section's
+        // footer already says to name another admin first.
+        guard !model.isLastAdmin else { return }
+        isConfirmingLeave = true
     }
 }

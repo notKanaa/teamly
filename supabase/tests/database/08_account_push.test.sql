@@ -1,7 +1,7 @@
--- delete_my_account (group deletion / oldest member promotion / SET NULL references) and
+-- delete_my_account (group deletion / oldest member promotion / SET NULL references / Auth audit trail) and
 -- enable_push / disable_push.
 begin;
-select plan(55);
+select plan(57);
 
 -- Test helpers (created inside this transaction, rolled back at the end) ----------------------------
 -- tests.as_user(name) = `set local role authenticated` + the JWT claims PostgREST would set;
@@ -110,6 +110,12 @@ update public.task_assignees set assigned_by = tests.id('x') where task_id = tes
 
 insert into public.push_subscriptions (user_id, topic) values (tests.id('x'), 'equipe-abcdefghijklmnopqrstuvwx');
 insert into private.join_attempts (user_id, succeeded) values (tests.id('x'), false), (tests.id('x'), true);
+-- Supabase Auth's audit trail (e-mail and IP address of every sign-up, sign-in, refresh…) of x and of y.
+insert into auth.audit_log_entries (instance_id, id, payload, created_at, ip_address)
+select '00000000-0000-0000-0000-000000000000', gen_random_uuid(),
+  json_build_object('action', a.action, 'actor_id', tests.id(a.who), 'actor_username', a.who || '@test.local', 'log_type', 'account'),
+  now(), '203.0.113.7'
+from (values ('x', 'user_signedup'), ('x', 'login'), ('x', 'token_refreshed'), ('y', 'login')) as a (who, action);
 
 create function tests.role_of(p_group text, p_user text) returns text language sql as $$
   select role::text from public.group_members where group_id = tests.id(p_group) and user_id = tests.id(p_user)
@@ -159,6 +165,10 @@ select is((select count(*)::int from public.push_subscriptions where user_id = t
   'the push subscription is deleted');
 select is((select count(*)::int from private.join_attempts where user_id = tests.id('x')), 0,
   'join attempts are deleted');
+select is((select count(*)::int from auth.audit_log_entries where payload ->> 'actor_id' = tests.id('x')::text), 0,
+  'the Auth audit trail of x (e-mail, IP address) is erased');
+select is((select count(*)::int from auth.audit_log_entries where payload ->> 'actor_id' = tests.id('y')::text), 1,
+  'the audit trail of other users is kept');
 
 -- Another device of the deleted account still holds a valid JWT (until it expires): every RPC treats it as
 -- not_authenticated, before any other check.

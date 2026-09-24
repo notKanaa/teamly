@@ -29,7 +29,7 @@ import TeamTasksMocks
         let model = GroupsListViewModel(session: harness.makeSession())
         await model.load()
         #expect(model.isEmpty)
-        #expect(GroupsListViewModel.emptyMessage.contains("code d'invitation"))
+        #expect(GroupsListViewModel.emptyMessage.contains("code d’invitation"))
     }
 
     @Test func reloadsOnMembershipsAndGroupActivity() async throws {
@@ -229,7 +229,7 @@ import TeamTasksMocks
         let result = try #require(await model.join())
         #expect(result.groupId == F.lilas)
         #expect(!result.alreadyMember)
-        #expect(model.resultMessage == "Vous avez rejoint « Coloc' rue des Lilas ».")
+        #expect(model.resultMessage == "Vous avez rejoint «\u{00A0}Coloc' rue des Lilas\u{00A0}».")
         #expect(session.feed.membershipsRevision == revision + 1)
         #expect(try await harness.services.groups.myGroups().map(\.id) == [F.lilas])
     }
@@ -239,7 +239,7 @@ import TeamTasksMocks
         let model = JoinGroupViewModel(session: harness.makeSession(), code: "LYLA-S234")
         let result = try #require(await model.join())
         #expect(result.alreadyMember)
-        #expect(model.resultMessage == "Vous faites déjà partie de « Coloc' rue des Lilas ».")
+        #expect(model.resultMessage == "Vous faites déjà partie de «\u{00A0}Coloc' rue des Lilas\u{00A0}».")
         #expect(model.error == nil)
     }
 
@@ -254,13 +254,13 @@ import TeamTasksMocks
         // 0 is not in the alphabet: refused locally.
         model.code = "ABCD-EFG0"
         #expect(await model.join() == nil)
-        #expect(model.errorMessage == "Code d'invitation invalide.")
+        #expect(model.errorMessage == "Code d’invitation invalide.")
         #expect(harness.faults.calls(.join) == 0)
 
         // Well-formed but unknown: refused by the server.
         model.code = "ABCD-EFGH"
         #expect(await model.join() == nil)
-        #expect(model.errorMessage == "Code d'invitation invalide.")
+        #expect(model.errorMessage == "Code d’invitation invalide.")
         #expect(harness.faults.calls(.join) == 1)
         #expect(model.result == nil)
     }

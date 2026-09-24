@@ -128,7 +128,7 @@ import Testing
         #expect(loyer.assigneeIds == [inesId])
         #expect(loyer.priority == .high)
         #expect(loyer.status == .todo)
-        #expect(loyer.dueAt == ago(days: 1))
+        #expect(loyer.dueAt == Self.parisDate(2026, 9, 22, 18), "yesterday 18:00 in Paris")
         #expect(loyer.createdBy == camilleId)
         #expect(loyer.createdAt == ago(days: 6))
 
@@ -151,7 +151,7 @@ import Testing
         #expect(cuisine.dueAt == nil)
         #expect(cuisine.createdBy == lucasId)
         #expect(cuisine.createdAt == ago(days: 4))
-        #expect(cuisine.completedAt == ago(days: 1))
+        #expect(cuisine.completedAt == Self.parisDate(2026, 9, 22, 19), "yesterday 19:00 in Paris")
 
         for task in tasks {
             #expect(task.groupId == DemoData.lilasGroupId)
@@ -226,8 +226,8 @@ import Testing
         }
     }
 
-    /// "Tomorrow 18:00" is a Paris wall-clock time (also across the October DST change); "overdue by 1 day" and
-    /// "done yesterday" are exact 24-hour intervals, like `now() - interval '1 day'` in a UTC session.
+    /// "Tomorrow 18:00", the overdue rent ("yesterday 18:00") and the kitchen done "yesterday 19:00" are Paris
+    /// wall-clock times, also across the October DST change.
     @Test func relativeDatesFollowTheSeed() async throws {
         let beforeDSTChange = Self.parisDate(2026, 10, 24, 10)
         let services = InMemoryBackend.demo(now: { beforeDSTChange }).services(for: DemoData.camille.id)
@@ -241,10 +241,27 @@ import Testing
         let afterDSTChange = Self.parisDate(2026, 10, 25, 12)
         let later = InMemoryBackend.demo(now: { afterDSTChange }).services(for: DemoData.camille.id)
         let loyer = try await later.tasks.task(id: DemoData.TaskIDs.payerLoyer)
-        #expect(loyer.dueAt == afterDSTChange.addingTimeInterval(-86_400))
-        #expect(loyer.dueAt == Self.parisDate(2026, 10, 24, 13))
+        #expect(loyer.dueAt == Self.parisDate(2026, 10, 24, 18))
+        let cuisine = try await later.tasks.task(id: DemoData.TaskIDs.nettoyerCuisine)
+        #expect(cuisine.completedAt == Self.parisDate(2026, 10, 24, 19))
         let gymnase = try await later.tasks.task(id: DemoData.TaskIDs.reserverGymnase)
         #expect(gymnase.dueAt == Self.parisDate(2026, 10, 28, 18))
+    }
+
+    /// The screenshots are taken at the CI run time: the overdue rent reads « Hier à 18:00 » and the kitchen
+    /// « Terminée hier à 19:00 », not the seeding time (review UX-08).
+    @Test func pastDemoDatesShowRoundTimesWhateverTheSeedTime() async throws {
+        for now in [Self.parisDate(2026, 9, 24, 5, 19), Self.parisDate(2026, 9, 24, 23, 59), Self.parisDate(2026, 9, 24, 0, 1)] {
+            let services = InMemoryBackend.demo(now: { now }).services(for: DemoData.camille.id)
+            let loyer = try await services.tasks.task(id: DemoData.TaskIDs.payerLoyer)
+            let dueAt = try #require(loyer.dueAt)
+            #expect(DateText.relative(dueAt, now: now, calendar: Self.calendar) == "Hier à 18:00")
+            #expect(dueAt < now, "always overdue")
+            let cuisine = try await services.tasks.task(id: DemoData.TaskIDs.nettoyerCuisine)
+            let completedAt = try #require(cuisine.completedAt)
+            #expect(DateText.relativeInSentence(completedAt, now: now, calendar: Self.calendar) == "hier à 19:00")
+            #expect(completedAt < now && completedAt > cuisine.createdAt)
+        }
     }
 
     @Test func demoGroupsTieOnActivityAndAreOrderedByName() async throws {

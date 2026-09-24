@@ -3,7 +3,9 @@ import TeamTasksCore
 
 // JSON rows returned by PostgREST for the reads and RPCs of docs/CONTRACTS.md §4. Column names are the SQL
 // ones; embedded resources use the aliases of the `select` parameters (`group`, `profile`, `assignees`, `mine`,
-// `task`). Dates are decoded by `RestDecoding` (0 to 6 fractional digits).
+// `task`). Dates are decoded by `RestDecoding` (0 to 6 fractional digits). Enum columns are `Known` values: in a
+// list read (`RestClient.fetchRows`), a row with a value added by a later migration is left out instead of
+// failing the whole list.
 
 /// `public.groups` row (`create_group`, `rename_group`, embedded `group:groups(*)`).
 struct GroupRow: Decodable, Sendable, Hashable {
@@ -28,8 +30,15 @@ struct GroupRow: Decodable, Sendable, Hashable {
 
 /// `group_members?select=role,group:groups(*)`.
 struct MyGroupRow: Decodable, Sendable, Hashable {
-    let role: MemberRole
+    private let knownRole: Known<MemberRole>
     let group: GroupRow
+
+    enum CodingKeys: String, CodingKey {
+        case knownRole = "role"
+        case group
+    }
+
+    var role: MemberRole { knownRole.value }
 
     var summary: GroupSummary {
         GroupSummary(group: group.teamGroup, myRole: role)
@@ -54,16 +63,18 @@ struct ProfileRow: Decodable, Sendable, Hashable {
 /// `group_members?select=user_id,role,joined_at,profile:profiles(id,display_name)`.
 struct MemberRow: Decodable, Sendable, Hashable {
     let userId: UUID
-    let role: MemberRole
+    private let knownRole: Known<MemberRole>
     let joinedAt: Date
     let profile: ProfileRow?
 
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
-        case role
+        case knownRole = "role"
         case joinedAt = "joined_at"
         case profile
     }
+
+    var role: MemberRole { knownRole.value }
 
     func membership(groupId: UUID) -> Membership {
         Membership(
@@ -119,13 +130,16 @@ struct AssigneeRow: Decodable, Sendable, Hashable {
     }
 }
 
-/// `{assigned_at, user_id}` of the embedded `mine:task_assignees!inner(assigned_at,user_id)`.
+/// `{assigned_at, assigned_by, user_id}` of the embedded `mine:task_assignees!inner(assigned_at,assigned_by,user_id)`.
 struct MyAssignmentRow: Decodable, Sendable, Hashable {
     let assignedAt: Date
+    /// NULL when the assigner deleted their account.
+    let assignedBy: UUID?
     let userId: UUID
 
     enum CodingKeys: String, CodingKey {
         case assignedAt = "assigned_at"
+        case assignedBy = "assigned_by"
         case userId = "user_id"
     }
 }
@@ -141,8 +155,8 @@ struct TaskDTO: Decodable, Sendable, Hashable {
     let groupId: UUID
     let title: String
     let details: String?
-    let status: TaskStatus
-    let priority: TaskPriority
+    private let knownStatus: Known<TaskStatus>
+    private let knownPriority: Known<TaskPriority>
     let dueAt: Date?
     let createdBy: UUID?
     let createdAt: Date
@@ -150,7 +164,7 @@ struct TaskDTO: Decodable, Sendable, Hashable {
     let completedAt: Date?
     /// `assignees:task_assignees(user_id)` (absent from RPC results).
     let assignees: [AssigneeRow]?
-    /// `mine:task_assignees!inner(assigned_at,user_id)` (`myTasks` only).
+    /// `mine:task_assignees!inner(assigned_at,assigned_by,user_id)` (`myTasks` only).
     let mine: [MyAssignmentRow]?
     /// `group:groups(name)` (`myTasks` only).
     let group: GroupNameRow?
@@ -160,8 +174,8 @@ struct TaskDTO: Decodable, Sendable, Hashable {
         case groupId = "group_id"
         case title
         case details
-        case status
-        case priority
+        case knownStatus = "status"
+        case knownPriority = "priority"
         case dueAt = "due_at"
         case createdBy = "created_by"
         case createdAt = "created_at"
@@ -171,6 +185,9 @@ struct TaskDTO: Decodable, Sendable, Hashable {
         case mine
         case group
     }
+
+    var status: TaskStatus { knownStatus.value }
+    var priority: TaskPriority { knownPriority.value }
 
     /// The task; `assigneeIds` defaults to the embedded assignees, sorted by `uuidString`.
     func item(assigneeIds: [UUID]? = nil) -> TaskItem {
@@ -191,10 +208,11 @@ struct TaskDTO: Decodable, Sendable, Hashable {
         )
     }
 
-    /// `myTasks` item: also `myAssignedAt` and `groupName`.
+    /// `myTasks` item: also `myAssignedAt`, `myAssignedBy` and `groupName`.
     var myTaskItem: TaskItem {
         var task = item()
         task.myAssignedAt = mine?.first?.assignedAt
+        task.myAssignedBy = mine?.first?.assignedBy
         task.groupName = group?.name
         return task
     }

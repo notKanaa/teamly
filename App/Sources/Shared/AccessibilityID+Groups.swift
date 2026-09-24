@@ -50,9 +50,7 @@ extension AccessibilityID.Groups {
     static func filterChip(_ key: String) -> String { filterChipPrefix + key }
     static let emptyTasks = "groups.detail.empty"
     static let createFirstTaskButton = "groups.detail.createFirstTask"
-    static let taskStatusPrefix = "groups.taskStatus."
-    /// The status button (à faire → en cours → terminée) of a task cell of the group screen, by task title.
-    static func taskStatusButton(_ title: String) -> String { taskStatusPrefix + title }
+    // The status button of a task cell is `Tasks.statusButton`, as in « Mes tâches » (same row view).
     static let deleteTaskConfirmButton = "groups.detail.deleteTaskConfirm"
 
     // MARK: Invite code sheet (the code itself is `inviteCode`)

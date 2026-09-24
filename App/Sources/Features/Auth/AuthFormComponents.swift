@@ -16,13 +16,21 @@ struct AuthFieldStyle: ViewModifier {
     let systemImage: String
     var error: String?
 
+    /// Width of the leading icon's column: grows with Dynamic Type like the `.body` icon it holds.
+    @ScaledMetric(relativeTo: .body) private var iconWidth: CGFloat = 24
+
+    init(systemImage: String, error: String? = nil) {
+        self.systemImage = systemImage
+        self.error = error
+    }
+
     func body(content: Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
                     .font(.body)
                     .foregroundStyle(.secondary)
-                    .frame(width: 24)
+                    .frame(width: iconWidth)
                     .accessibilityHidden(true)
                 content
             }
@@ -34,13 +42,13 @@ struct AuthFieldStyle: ViewModifier {
             )
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(error == nil ? Color.clear : Color.red, lineWidth: 1)
+                    .strokeBorder(error == nil ? Color.clear : ShellPalette.red, lineWidth: 1)
             }
 
             if let error {
                 Label(error, systemImage: "exclamationmark.circle.fill")
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ShellPalette.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -91,9 +99,10 @@ struct AuthPasswordField: View {
                     focus.wrappedValue = field
                 }
             } label: {
+                // A 44 × 44 pt tap area at least; the frame grows with the glyph at large text sizes.
                 Image(systemName: isRevealed ? "eye.slash" : "eye")
                     .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 32)
+                    .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

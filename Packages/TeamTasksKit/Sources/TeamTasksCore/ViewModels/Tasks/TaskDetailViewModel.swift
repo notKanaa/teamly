@@ -9,7 +9,7 @@ import Observation
 @MainActor
 @Observable
 public final class TaskDetailViewModel: ErrorPresenting {
-    public static let goneMessage = "Cette tâche n'existe plus."
+    public static let goneMessage = "Cette tâche n’existe plus."
 
     public let groupId: UUID
     public let taskId: UUID
@@ -34,7 +34,7 @@ public final class TaskDetailViewModel: ErrorPresenting {
         self.session = session
         self.groupId = groupId
         self.taskId = taskId
-        self.task = task
+        self.task = task?.id == taskId && task?.groupId == groupId ? task : nil
         referenceDate = session.platform.now()
     }
 
@@ -69,6 +69,13 @@ public final class TaskDetailViewModel: ErrorPresenting {
             async let taskRequest = taskService.task(id: taskId)
             async let membersRequest = groupService.members(groupId: groupId)
             let (task, members) = try await (taskRequest, membersRequest)
+            guard task.groupId == groupId else {
+                // A link naming another group (`equipe://task/<group>/<task>`; a task never changes group): the
+                // rights, names and reloads would follow the wrong group.
+                self.task = nil
+                markGone()
+                return
+            }
             self.task = task
             self.members = members
             referenceDate = session.platform.now()
@@ -126,18 +133,18 @@ public final class TaskDetailViewModel: ErrorPresenting {
         return directory.name(of: task.createdBy)
     }
 
-    /// « Créée par Lucas Bernard hier à 10:00 » / « Créée par vous aujourd'hui à 09:00 ».
+    /// « Créée par Lucas Bernard hier à 10:00 » / « Créée par vous le lundi 14 septembre à 09:00 ».
     public var createdText: String? {
         guard let task, let creatorName else { return nil }
         let who = task.createdBy == session.userId ? "vous" : creatorName
-        let when = DateText.relativeLowercase(task.createdAt, now: referenceDate, calendar: session.platform.calendar)
+        let when = DateText.relativeInSentence(task.createdAt, now: referenceDate, calendar: session.platform.calendar)
         return "Créée par \(who) \(when)"
     }
 
-    /// « Terminée aujourd'hui à 09:00 », nil unless done.
+    /// « Terminée aujourd'hui à 09:00 » / « Terminée le lundi 14 septembre à 09:00 », nil unless done.
     public var completedText: String? {
         guard let completedAt = task?.completedAt, task?.status == .done else { return nil }
-        return "Terminée \(DateText.relativeLowercase(completedAt, now: referenceDate, calendar: session.platform.calendar))"
+        return "Terminée \(DateText.relativeInSentence(completedAt, now: referenceDate, calendar: session.platform.calendar))"
     }
 
     // MARK: - Permissions
@@ -220,6 +227,6 @@ public final class TaskDetailViewModel: ErrorPresenting {
 
     /// Confirmation text of « Supprimer la tâche ».
     public var deleteConfirmationMessage: String {
-        "La tâche « \(title) » sera supprimée pour tous les membres du groupe."
+        "La tâche «\u{00A0}\(title)\u{00A0}» sera supprimée pour tous les membres du groupe."
     }
 }

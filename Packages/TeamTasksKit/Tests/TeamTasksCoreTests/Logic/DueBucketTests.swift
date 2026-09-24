@@ -12,7 +12,7 @@ import Testing
 
     @Test func frenchTitlesInDisplayOrder() {
         #expect(DueBucket.allCases.map(\.title) == [
-            "En retard", "Aujourd'hui", "Cette semaine", "Plus tard", "Sans échéance", "Terminées",
+            "En retard", "Aujourd’hui", "Cette semaine", "Plus tard", "Sans échéance", "Terminées",
         ])
         #expect(DueBucket.allCases.sorted() == DueBucket.allCases)
     }
@@ -132,7 +132,7 @@ import Testing
         ]
         let sections = DueBucket.sections(for: tasks, now: now, calendar: calendar)
         #expect(sections.map(\.bucket) == [.overdue, .today, .later, .noDueDate, .done])
-        #expect(sections.map(\.title) == ["En retard", "Aujourd'hui", "Plus tard", "Sans échéance", "Terminées"])
+        #expect(sections.map(\.title) == ["En retard", "Aujourd’hui", "Plus tard", "Sans échéance", "Terminées"])
         #expect(sections.map { $0.tasks.map(\.title) } == [
             ["Retard"],
             ["Aujourd'hui 14h", "Aujourd'hui 20h"],

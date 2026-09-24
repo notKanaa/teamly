@@ -111,11 +111,12 @@ public final class SessionModel: Identifiable {
 
     // MARK: - App events
 
-    /// Return to foreground: everything may have changed while suspended (every screen reloads), then catch-up
-    /// of new assignments and reminder synchronization.
+    /// Return to foreground: everything may have changed while suspended (every screen reloads, the realtime
+    /// group ids are fetched again), then catch-up of new assignments and reminder synchronization.
     public func handleForeground() async {
         guard isRunning else { return }
         feed.bumpAll()
+        realtime.refreshGroupIds()
         await refreshNotifications()
     }
 

@@ -21,7 +21,13 @@ jobs:
             echo "SUPABASE_HOST / SUPABASE_PUBLISHABLE_KEY repository variables are not set — skipping."
             exit 0
           fi
-          curl -fsS -X POST "https://${SUPABASE_HOST}/rest/v1/rpc/ping" \
+          # Host only, as scripts/write-secrets.mjs does: strip http:// or https:// and anything from the first "/".
+          host=$(printf '%s' "$SUPABASE_HOST" | sed -E 's#^https?://##I; s#/.*$##')
+          if [ -z "$host" ]; then
+            echo "::error::SUPABASE_HOST has no host name: \"$SUPABASE_HOST\""
+            exit 1
+          fi
+          curl -fsS -X POST "https://${host}/rest/v1/rpc/ping" \
             -H "apikey: ${SUPABASE_PUBLISHABLE_KEY}" \
             -H "Content-Type: application/json" \
             -d '{}'

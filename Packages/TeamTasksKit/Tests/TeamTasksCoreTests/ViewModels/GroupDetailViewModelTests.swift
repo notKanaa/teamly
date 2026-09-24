@@ -21,7 +21,7 @@ import TeamTasksMocks
         let rows = model.rows
         #expect(rows.map(\.id) == [T.payerLoyer, T.sortirPoubelles, T.faireCourses, T.nettoyerCuisine, T.reparerFuite])
         #expect(rows.map(\.assigneesText) == ["Inès Dubois", "Vous", "Vous, Lucas Bernard", "Vous", "Non assignée"])
-        #expect(rows.map(\.dueText) == ["Hier à 10:00", "Aujourd'hui à 20:00", "Demain à 18:00", nil, nil])
+        #expect(rows.map(\.dueText) == ["Hier à 18:00", "Aujourd’hui à 20:00", "Demain à 18:00", nil, nil])
         #expect(rows.map(\.isOverdue) == [true, false, false, false, false])
         #expect(rows.allSatisfy { $0.canEdit && $0.canChangeStatus && $0.canDelete && !$0.isNew && $0.groupName == nil })
         #expect(model.canCreateTask && model.canRename && model.canDeleteGroup)
@@ -198,7 +198,7 @@ import TeamTasksMocks
         #expect(await model.rename(to: " Coloc' des Lilas "))
         #expect(model.title == "Coloc' des Lilas")
         #expect(session.feed.membershipsRevision == memberships + 1)
-        #expect(model.deleteGroupConfirmationMessage.contains("« Coloc' des Lilas »"))
+        #expect(model.deleteGroupConfirmationMessage.contains("«\u{00A0}Coloc' des Lilas\u{00A0}»"))
 
         #expect(await model.deleteGroup())
         #expect(model.isGone)
@@ -264,7 +264,7 @@ import TeamTasksMocks
         #expect(model.members.map(\.user.displayName) == ["Camille Martin", "Inès Dubois", "Lucas Bernard"])
         #expect(model.isAdmin && model.canManageMembers && model.canSeeInviteCode)
         #expect(model.inviteCodeText == "LYLA-S234")
-        #expect(model.shareText == "Rejoins mon groupe « Coloc' rue des Lilas » sur Équipe avec le code LYLA-S234")
+        #expect(model.shareText == "Rejoins mon groupe «\u{00A0}Coloc' rue des Lilas\u{00A0}» sur Équipe avec le code LYLA-S234")
         #expect(model.displayName(of: model.members[0]) == "Camille Martin (vous)")
         #expect(model.displayName(of: model.members[1]) == "Inès Dubois")
         #expect(!model.canRemove(model.members[0]))
@@ -273,7 +273,7 @@ import TeamTasksMocks
         #expect(!model.canChangeRole(of: model.members[0]))
         #expect(model.canChangeRole(of: model.members[1]))
         #expect(model.roleActionTitle(for: model.members[1]) == "Nommer admin")
-        #expect(model.roleActionTitle(for: model.members[0]) == "Retirer le rôle d'admin")
+        #expect(model.roleActionTitle(for: model.members[0]) == "Retirer le rôle d’admin")
         #expect(model.isLastAdmin)
         #expect(!model.isLastMember)
         #expect(!model.canLeave)
@@ -357,7 +357,7 @@ import TeamTasksMocks
         #expect(harness.faults.calls(.removeMember) == 0)
         #expect(harness.faults.calls(.setRole) == 0)
 
-        #expect(model.leaveConfirmationMessage.contains("Vous ne verrez plus « Projet Asso Sport »"))
+        #expect(model.leaveConfirmationMessage.contains("Vous ne verrez plus «\u{00A0}Projet Asso Sport\u{00A0}»"))
         #expect(await model.leave())
         #expect(model.isGone)
     }
@@ -370,7 +370,8 @@ import TeamTasksMocks
         #expect(model.isLastMember)
         #expect(!model.isLastAdmin)
         #expect(model.canLeave)
-        #expect(model.leaveConfirmationMessage.contains("dernier membre"))
+        #expect(model.leaveConfirmationMessage
+            == "Vous êtes le dernier membre\u{00A0}: le groupe «\u{00A0}Solo\u{00A0}» et toutes ses tâches seront supprimés.")
         #expect(await model.leave())
         #expect(try await harness.services.groups.myGroups().count == 2)
     }

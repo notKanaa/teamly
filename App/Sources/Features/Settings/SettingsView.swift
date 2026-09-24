@@ -1,6 +1,7 @@
 import SwiftUI
 import TeamTasksCore
 import UIKit
+import UniformTypeIdentifiers
 
 /// « Réglages »: profile (display name), reminder lead time, notification permission, optional ntfy push,
 /// sign-out and account deletion. Sign-out and deletion end the session: `AppModel` shows the login screen.
@@ -54,7 +55,7 @@ struct SettingsView: View {
         }
         // The deletion sheet shows the errors of the same model itself.
         .shellErrorAlert(model, isEnabled: !isShowingDeleteAccount)
-        .confirmationDialog("Se déconnecter ?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
+        .confirmationDialog("Se déconnecter\u{00A0}?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
             Button("Se déconnecter", role: .destructive) {
                 Task {
                     await model.signOut()
@@ -66,7 +67,7 @@ struct SettingsView: View {
             Text("Les rappels programmés sur cet iPhone seront supprimés. Vous pourrez vous reconnecter à tout moment.")
         }
         .confirmationDialog(
-            "Désactiver les notifications push ?",
+            "Désactiver les notifications push\u{00A0}?",
             isPresented: $isConfirmingPushDisable,
             titleVisibility: .visible
         ) {
@@ -160,7 +161,7 @@ struct SettingsView: View {
         } footer: {
             if let error = model.displayNameError {
                 Text(error)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ShellPalette.red)
             } else {
                 Text("Votre nom est visible par les membres de vos groupes.")
             }
@@ -256,7 +257,10 @@ struct SettingsView: View {
                         .textSelection(.enabled)
                 }
                 .padding(.vertical, 2)
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Votre sujet ntfy")
+                // Spelled out character by character by VoiceOver, to be typed elsewhere.
+                .accessibilityValue(Text(topic).speechSpellsOutCharacters())
                 .accessibilityIdentifier(AccessibilityID.Settings.pushTopic)
 
                 Button {
@@ -382,7 +386,12 @@ struct SettingsView: View {
     }
 
     private func copyTopic(_ topic: String) {
-        UIPasteboard.general.string = topic
+        // The topic is a secret (whoever knows it can read this user's pushes and send fake ones): kept on this
+        // iPhone (no Universal Clipboard to the user's other devices), where the ntfy app is, and for 2 minutes only.
+        UIPasteboard.general.setItems(
+            [[UTType.utf8PlainText.identifier: topic]],
+            options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)]
+        )
         didCopyTopic = true
         Task {
             try? await Task.sleep(for: .seconds(2))

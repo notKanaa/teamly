@@ -11,17 +11,17 @@ import Observation
 public final class SettingsViewModel: ErrorPresenting {
     public static let deleteConfirmationWord = "SUPPRIMER"
     public static let deleteAccountWarning =
-        "Votre compte, votre profil et vos assignations seront supprimés définitivement. Les groupes dont vous êtes le seul membre seront supprimés avec leurs tâches ; dans les autres, le membre le plus ancien deviendra administrateur si vous étiez le seul. Tapez « SUPPRIMER » pour confirmer."
+        "Votre compte, votre profil et vos assignations seront supprimés définitivement. Les groupes dont vous êtes le seul membre seront supprimés avec leurs tâches\u{00A0}; dans les autres, le membre le plus ancien deviendra admin si vous étiez le seul admin. Tapez «\u{00A0}SUPPRIMER\u{00A0}» pour confirmer."
     public static let ntfyServer = "https://ntfy.sh"
     public static let pushInstructionSteps = [
-        "Installez l'application gratuite « ntfy » depuis l'App Store.",
-        "Dans ntfy, touchez « + » puis abonnez-vous au sujet ci-dessous (serveur ntfy.sh).",
-        "Vous serez prévenu quand une tâche vous est assignée, même quand Équipe est fermée.",
+        "Installez l’application gratuite «\u{00A0}ntfy\u{00A0}» depuis l’App Store.",
+        "Dans ntfy, touchez «\u{00A0}+\u{00A0}» puis abonnez-vous au sujet ci-dessous (serveur ntfy.sh).",
+        "Une notification vous prévient quand une tâche vous est assignée, même quand Équipe est fermée.",
     ]
     public static let pushPrivacyNote =
-        "Gardez ce sujet secret : toute personne qui le connaît peut voir quand une tâche vous est assignée (le titre de la tâche n'est jamais envoyé)."
+        "Gardez ce sujet secret\u{00A0}: toute personne qui le connaît peut voir quand une tâche vous est assignée (le titre de la tâche n’est jamais envoyé)."
     public static let pushDisabledExplanation =
-        "Recevez une notification quand une tâche vous est assignée, même quand Équipe est fermée, grâce à l'application gratuite ntfy."
+        "Recevez une notification quand une tâche vous est assignée, même quand Équipe est fermée, grâce à l’application gratuite ntfy."
 
     // MARK: Profile
 
@@ -262,8 +262,8 @@ public final class SettingsViewModel: ErrorPresenting {
     /// Shown when refused: the permission can only be changed in the system settings.
     public var notificationHint: String? {
         switch notificationStatus {
-        case .denied: "Pour recevoir les rappels et les nouvelles tâches, autorisez les notifications d'Équipe dans l'app Réglages de l'iPhone."
-        case .notDetermined: "Autorisez les notifications pour recevoir les rappels d'échéance et les nouvelles tâches."
+        case .denied: "Pour recevoir les rappels et les nouvelles tâches, autorisez les notifications d’Équipe dans l’app Réglages de l’iPhone."
+        case .notDetermined: "Autorisez les notifications pour recevoir les rappels d’échéance et les nouvelles tâches."
         case .authorized, nil: nil
         }
     }
@@ -306,7 +306,7 @@ public final class SettingsViewModel: ErrorPresenting {
     @discardableResult
     public func deleteAccount() async -> Bool {
         guard deleteConfirmation == Self.deleteConfirmationWord else {
-            present(message: "Tapez « SUPPRIMER » pour confirmer.", error: .invalidInput)
+            present(message: "Tapez «\u{00A0}SUPPRIMER\u{00A0}» pour confirmer.", error: .invalidInput)
             return false
         }
         guard !isDeletingAccount else { return false }

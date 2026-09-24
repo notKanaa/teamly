@@ -128,6 +128,43 @@ import TeamTasksMocks
         #expect(model.savedTask == nil)
     }
 
+    /// After `assignee_not_member` the members are reloaded and the people who left are dropped from the selection
+    /// (review VM-5): saving again works.
+    @Test func departedAssigneeIsDroppedAfterAssigneeNotMember() async throws {
+        let harness = VMHarness()
+        let editor = TaskEditorViewModel(session: harness.makeSession(), groupId: F.lilas)
+        await editor.load()
+        editor.title = "Arroser les plantes"
+        editor.toggleAssignee(F.ines.id)
+        editor.toggleAssignee(F.lucas.id)
+        // Inès leaves the group from her phone before Camille saves.
+        try await harness.device(F.ines).groups.leave(groupId: F.lilas)
+
+        #expect(await editor.save() == nil)
+        #expect(editor.assigneesError == TaskEditorViewModel.departedAssigneesMessage)
+        #expect(!editor.assigneeOptions.contains { $0.id == F.ines.id })
+        #expect(editor.assigneeIds == [F.lucas.id])
+        #expect(editor.assigneesSummary == "Lucas Bernard")
+
+        let saved = try #require(await editor.save())
+        #expect(saved.assigneeIds == [F.lucas.id])
+        #expect(editor.assigneesError == nil)
+    }
+
+    /// Editing a task whose list row still shows someone who left: loading the members drops them, without
+    /// counting as a change of the user.
+    @Test func editorDropsAssigneesWhoLeftWhenLoadingTheMembers() async throws {
+        let harness = VMHarness()
+        let courses = try await harness.services.tasks.task(id: T.faireCourses)
+        #expect(courses.assigneeIds.contains(F.lucas.id))
+        try await harness.device(F.lucas).groups.leave(groupId: F.lilas)
+
+        let editor = TaskEditorViewModel(session: harness.makeSession(), task: courses)
+        await editor.load()
+        #expect(editor.assigneeIds == [F.camille.id])
+        #expect(!editor.hasChanges)
+    }
+
     @Test func editsATask() async throws {
         let harness = VMHarness()
         let original = try await harness.services.tasks.task(id: T.sortirPoubelles)
@@ -204,12 +241,12 @@ import TeamTasksMocks
         #expect(model.assigneeNames == ["Vous", "Lucas Bernard"])
         #expect(model.assigneesText == "Vous, Lucas Bernard")
         #expect(model.creatorName == "Lucas Bernard")
-        #expect(model.createdText == "Créée par Lucas Bernard mardi 22 septembre à 10:00")
+        #expect(model.createdText == "Créée par Lucas Bernard le mardi 22 septembre à 10:00")
         #expect(model.completedText == nil)
         #expect(model.myRole == .admin)
         #expect(model.canEdit && model.canChangeStatus && model.canDelete)
         #expect(model.statusOptions == [.todo, .inProgress, .done])
-        #expect(model.deleteConfirmationMessage.contains("« Faire les courses »"))
+        #expect(model.deleteConfirmationMessage.contains("«\u{00A0}Faire les courses\u{00A0}»"))
     }
 
     @Test func myOwnTaskAndOverdue() async {
@@ -217,9 +254,9 @@ import TeamTasksMocks
         let model = TaskDetailViewModel(session: harness.makeSession(), groupId: F.lilas, taskId: T.payerLoyer)
         await model.load()
         #expect(model.isOverdue)
-        #expect(model.dueText == "Hier à 10:00")
+        #expect(model.dueText == "Hier à 18:00")
         #expect(model.creatorName == "Vous")
-        #expect(model.createdText == "Créée par vous vendredi 18 septembre à 10:00")
+        #expect(model.createdText == "Créée par vous le vendredi 18 septembre à 10:00")
         #expect(model.assigneeNames == ["Inès Dubois"])
     }
 
@@ -240,7 +277,7 @@ import TeamTasksMocks
         let myTasksRevision = session.feed.myTasksRevision
         #expect(await model.setStatus(.done))
         #expect(model.status == .done)
-        #expect(model.completedText?.hasPrefix("Terminée aujourd'hui à ") == true)
+        #expect(model.completedText?.hasPrefix("Terminée aujourd’hui à ") == true)
         #expect(session.feed.myTasksRevision == myTasksRevision + 1)
         // Same status again: nothing to do.
         #expect(await !model.setStatus(.done))
@@ -254,6 +291,39 @@ import TeamTasksMocks
         #expect(!model.canChangeStatus && !model.canEdit && !model.canDelete)
         #expect(await !model.setStatus(.done))
         #expect(harness.faults.calls(.setStatus) == 0)
+    }
+
+    /// `equipe://task/<Coloc'>/<task of Asso Sport>`: the rights would follow Camille's admin role in the wrong group
+    /// (review VM-3). The task is not shown there.
+    @Test func linkNamingAnotherGroupIsGone() async throws {
+        let harness = VMHarness()
+        let session = harness.makeSession()
+        let router = Router()
+        router.activate()
+        let url = try #require(URL(string: "equipe://task/\(F.lilas.uuidString)/\(T.creerAffiche.uuidString)"))
+        #expect(router.open(url: url))
+
+        let model = TaskDetailViewModel(session: session, groupId: F.lilas, taskId: T.creerAffiche)
+        await model.load()
+        #expect(model.isGone)
+        #expect(model.task == nil)
+        #expect(!model.canEdit)
+        #expect(!model.canDelete)
+        #expect(!model.canChangeStatus)
+        #expect(model.makeEditor() == nil)
+        #expect(await !model.delete())
+        #expect(harness.faults.calls(.deleteTask) == 0)
+
+        // The right link works.
+        let right = TaskDetailViewModel(session: session, groupId: F.sport, taskId: T.creerAffiche)
+        await right.load()
+        #expect(!right.isGone)
+        #expect(!right.canEdit && !right.canDelete && !right.canChangeStatus)
+
+        // A task handed over with another group is not shown before the load either.
+        let affiche = try await session.services.tasks.task(id: T.creerAffiche)
+        let handedOver = TaskDetailViewModel(session: session, groupId: F.lilas, taskId: T.creerAffiche, task: affiche)
+        #expect(handedOver.task == nil)
     }
 
     @Test func deletes() async throws {
@@ -328,12 +398,12 @@ import TeamTasksMocks
         await model.load()
         #expect(model.loadState == .loaded)
         #expect(model.sections.map(\.bucket) == [.today, .thisWeek])
-        #expect(model.sections.map(\.title) == ["Aujourd'hui", "Cette semaine"])
+        #expect(model.sections.map(\.title) == ["Aujourd’hui", "Cette semaine"])
         #expect(model.sections[0].rows.map(\.id) == [T.sortirPoubelles])
         #expect(model.sections[1].rows.map(\.id) == [T.faireCourses, T.reserverGymnase])
         let rows = model.sections.flatMap(\.rows)
         #expect(rows.map(\.groupName) == ["Coloc' rue des Lilas", "Coloc' rue des Lilas", "Projet Asso Sport"])
-        #expect(rows.map(\.dueText) == ["Aujourd'hui à 20:00", "Demain à 18:00", "Dimanche 27 septembre à 18:00"])
+        #expect(rows.map(\.dueText) == ["Aujourd’hui à 20:00", "Demain à 18:00", "Dimanche à 18:00"])
         #expect(rows.allSatisfy { $0.canChangeStatus && !$0.canEdit && $0.assigneesText == nil })
         // Never looked: tasks assigned by someone else are new, my own task is not.
         #expect(rows.map(\.isNew) == [false, true, true])
@@ -364,6 +434,39 @@ import TeamTasksMocks
         await again.load()
         #expect(again.newCount == 1)
         #expect(again.tasks.first { $0.id == created.id }.map { again.isNew($0) } == true)
+    }
+
+    /// « Nouveau » means assigned by someone else: assigning oneself a task created by another member is not new
+    /// (review VM-4), like `AssignmentNotifier`, which ignores self-assignments.
+    @Test func selfAssignmentIsNotNew() async throws {
+        let harness = VMHarness()
+        let session = harness.makeSession()
+        let myTasks = MyTasksViewModel(session: session)
+        await myTasks.load()
+        myTasks.markAllSeen()
+        harness.clock.advance(by: 60)
+
+        // Camille (admin of « Coloc' ») assigns herself « Réparer la fuite du lavabo » (created by Inès).
+        let lavabo = try await session.services.tasks.task(id: T.reparerFuite)
+        let editor = TaskEditorViewModel(session: session, task: lavabo)
+        await editor.load()
+        editor.toggleAssignee(F.camille.id)
+        #expect(await editor.save() != nil)
+
+        await myTasks.load()
+        let task = try #require(myTasks.tasks.first { $0.id == T.reparerFuite })
+        #expect(task.myAssignedBy == F.camille.id)
+        let row = try #require(myTasks.sections.flatMap(\.rows).first { $0.id == T.reparerFuite })
+        #expect(!row.isNew)
+        #expect(myTasks.newCount == 0)
+
+        // Assigned by Lucas: new.
+        let courses = try #require(myTasks.tasks.first { $0.id == T.faireCourses })
+        #expect(courses.myAssignedBy == F.lucas.id)
+        var byDeletedAccount = courses
+        byDeletedAccount.myAssignedBy = nil
+        byDeletedAccount.myAssignedAt = harness.clock.peek().addingTimeInterval(60)
+        #expect(myTasks.isNew(byDeletedAccount), "an assigner who deleted their account is someone else")
     }
 
     @Test func includeDoneShowsTheDoneSection() async {

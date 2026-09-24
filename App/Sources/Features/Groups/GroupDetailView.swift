@@ -99,7 +99,7 @@ struct GroupDetailView: View {
             .accessibilityIdentifier(AccessibilityID.Groups.deleteTaskConfirmButton)
             Button("Annuler", role: .cancel) {}
         } message: { task in
-            Text("« \(task.title) » sera supprimée pour tous les membres du groupe.")
+            Text("«\u{00A0}\(task.title)\u{00A0}» sera supprimée pour tous les membres du groupe.")
         }
         .alert("Erreur", isPresented: $model.isShowingError) {
             Button("OK", role: .cancel) {}
@@ -186,7 +186,7 @@ struct GroupDetailView: View {
                     } label: {
                         Label("Nouvelle tâche", systemImage: "plus")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .shellProminentButtonStyle()
                     .accessibilityIdentifier(AccessibilityID.Groups.createFirstTaskButton)
                 }
             } else if model.hasActiveFilter {
@@ -203,16 +203,19 @@ struct GroupDetailView: View {
 
     private func taskRow(_ row: TaskRow) -> some View {
         NavigationLink(value: AppRoute.task(groupId: model.groupId, taskId: row.id)) {
-            GroupsTaskRowView(
+            // The row of « Mes tâches », with the assignees' initials instead of the group name.
+            TasksRowView(
                 row: row,
                 assignees: assignees(of: row.task),
-                isBusy: model.busyTaskIds.contains(row.id)
-            ) {
-                Task { await model.setStatus(row.status.next, for: row.task) }
-            }
+                isBusy: model.busyTaskIds.contains(row.id),
+                onToggleStatus: {
+                    Task { await model.setStatus(row.status.next, for: row.task) }
+                }
+            )
         }
         // Same identifier as the rows of « Mes tâches ».
         .accessibilityIdentifier(AccessibilityID.Tasks.row(row.title))
+        // Same leading swipe as « Mes tâches »: « Terminer » / « Rouvrir » (the status cycle is on the round button).
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if row.canChangeStatus {
                 Button {

@@ -168,6 +168,39 @@ import Testing
         #expect(await services.auth.currentUser()?.id == DemoData.lucas.id)
     }
 
+    /// `delete_my_account` on a device whose account is already gone (the answer of an earlier attempt was lost, or
+    /// the account was deleted on another device): the requested end state holds, the device is signed out.
+    @Test func deletingAnAlreadyDeletedAccountSucceedsAndSignsOut() async throws {
+        let backend = InMemoryBackend.demo()
+        let phone = backend.services(for: DemoData.ines.id)
+        let tablet = backend.services(for: DemoData.ines.id)
+        var states = tablet.auth.authStates().makeAsyncIterator()
+        #expect(await states.next()?.user?.id == DemoData.ines.id)
+
+        try await phone.auth.deleteAccount()
+        try await tablet.auth.deleteAccount()
+        #expect(await states.next() == .signedOut)
+        #expect(await tablet.auth.currentUser() == nil)
+        // Signed out now: a further call is refused.
+        await #expect(throws: AppError.notAuthenticated) { try await tablet.auth.deleteAccount() }
+    }
+
+    /// A write with the session of a deleted account ends that session (like the Supabase adapter, whose refresh
+    /// then fails): `.signedOut`, then `.notAuthenticated`. Reads only fail.
+    @Test func writeWithTheSessionOfADeletedAccountSignsOut() async throws {
+        let backend = InMemoryBackend.demo()
+        let phone = backend.services(for: DemoData.ines.id)
+        let tablet = backend.services(for: DemoData.ines.id)
+        var states = tablet.auth.authStates().makeAsyncIterator()
+        #expect(await states.next()?.user?.id == DemoData.ines.id)
+
+        try await phone.auth.deleteAccount()
+        await #expect(throws: AppError.notAuthenticated) { try await tablet.groups.myGroups() }
+        await #expect(throws: AppError.notAuthenticated) { try await tablet.groups.createGroup(name: "Encore") }
+        #expect(await states.next() == .signedOut)
+        await #expect(throws: AppError.notAuthenticated) { try await tablet.groups.createGroup(name: "Encore") }
+    }
+
     @Test func deleteAccountSignsOutEveryWhere() async throws {
         let backend = InMemoryBackend.demo()
         let phone = backend.services(for: DemoData.ines.id)

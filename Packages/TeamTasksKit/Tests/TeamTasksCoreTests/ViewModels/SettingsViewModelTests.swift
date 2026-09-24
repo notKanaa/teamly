@@ -93,6 +93,8 @@ import TeamTasksMocks
         await model.load()
         #expect(SettingsViewModel.pushInstructionSteps.count == 3)
         #expect(SettingsViewModel.pushInstructionSteps[0].contains("ntfy"))
+        #expect(SettingsViewModel.pushInstructionSteps[2]
+            == "Une notification vous prévient quand une tâche vous est assignée, même quand Équipe est fermée.")
 
         #expect(await model.setPushEnabled(true))
         let topic = try #require(model.pushTopic)
@@ -161,14 +163,15 @@ import TeamTasksMocks
         model.deleteConfirmation = "supprimer"
         #expect(!model.canDeleteAccount)
         #expect(await !model.deleteAccount())
-        #expect(model.errorMessage == "Tapez « SUPPRIMER » pour confirmer.")
+        #expect(model.errorMessage == "Tapez «\u{00A0}SUPPRIMER\u{00A0}» pour confirmer.")
         model.deleteConfirmation = " SUPPRIMER"
         #expect(!model.canDeleteAccount)
         #expect(harness.faults.calls(.deleteAccount) == 0)
 
         model.deleteConfirmation = "SUPPRIMER"
         #expect(model.canDeleteAccount)
-        #expect(SettingsViewModel.deleteAccountWarning.contains("« SUPPRIMER »"))
+        #expect(SettingsViewModel.deleteAccountWarning.contains("«\u{00A0}SUPPRIMER\u{00A0}»"))
+        #expect(SettingsViewModel.deleteAccountWarning.contains("deviendra admin si vous étiez le seul admin."))
         #expect(await model.deleteAccount())
         #expect(await harness.services.auth.currentUser() == nil)
         #expect(harness.backend.userId(forEmail: F.camille.email) == nil)
@@ -184,6 +187,34 @@ import TeamTasksMocks
         #expect(await !model.deleteAccount())
         #expect(model.errorMessage == AppError.network.messageFR)
         #expect(await harness.services.auth.currentUser() != nil)
+    }
+
+    /// `delete_my_account` ran but its answer was lost: « Réessayer » finds the account gone, which is the requested
+    /// end state. The app signs out and the reminders of the deleted account are removed (review VM-2).
+    @Test func retryAfterALostAnswerCompletesTheDeletion() async throws {
+        let harness = VMHarness()
+        let app = harness.makeApp()
+        app.start()
+        await VMWait.until("signed in") { app.session != nil }
+        let session = try #require(app.session)
+        await session.startupTask?.value
+        #expect(harness.scheduler.dueIds.count == 3)
+        let settings = SettingsViewModel(session: session)
+        settings.deleteConfirmation = SettingsViewModel.deleteConfirmationWord
+        harness.store.setValue(F.now, forKey: MyTasksViewModel.lastSeenKey(userId: F.camille.id))
+
+        // Server side the account is deleted; client side the answer never arrives.
+        try await harness.device(F.camille).auth.deleteAccount()
+        harness.faults.fail(.deleteAccount, with: AppError.network)
+        #expect(await !settings.deleteAccount())
+        #expect(settings.errorMessage == AppError.network.messageFR)
+
+        #expect(await settings.deleteAccount(), "retry error: \(settings.errorMessage ?? "-")")
+        await VMWait.until("signed out") { app.phase == .signedOut }
+        await VMWait.until("reminders removed") { harness.scheduler.dueIds.isEmpty }
+        #expect(harness.store.data(forKey: MyTasksViewModel.lastSeenKey(userId: F.camille.id)) == nil)
+        #expect(await harness.services.auth.currentUser() == nil)
+        await app.shutdown()
     }
 
     @Test func signsOut() async {

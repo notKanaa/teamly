@@ -19,7 +19,7 @@ public enum ReminderLeadTime: String, Sendable, Hashable, Codable, CaseIterable,
     /// French label for the settings picker.
     public var label: String {
         switch self {
-        case .atDueTime: "À l'heure de l'échéance"
+        case .atDueTime: "À l’heure de l’échéance"
         case .fifteenMinutes: "15 minutes avant"
         case .oneHour: "1 heure avant"
         case .oneDay: "1 jour avant"

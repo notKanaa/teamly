@@ -108,8 +108,22 @@ struct SupabaseAuthService: AuthService {
     }
 
     /// RPC `delete_my_account`, then local sign-out.
+    ///
+    /// `not_authenticated` with an accepted token means the account no longer exists: deleted by an earlier attempt
+    /// whose answer was lost (« Réessayer »), or on another device. The requested end state holds, so this is a
+    /// success. A token refused by PostgREST (401) is refreshed once first, as for every request.
     func deleteAccount() async throws {
-        _ = try await context.rest.send { _ in RestQuery.rpc("delete_my_account") }
+        let rest = context.rest
+        let request = RestQuery.rpc("delete_my_account")
+        let credentials = try await rest.credentials()
+        var answer = try await rest.response(to: request, credentials: credentials)
+        if answer.refusesTheSession, !answer.accountIsGone {
+            let fresh = try await rest.session.refreshedCredentials(after: credentials)
+            answer = try await rest.response(to: request, credentials: fresh)
+        }
+        if !answer.accountIsGone {
+            _ = try answer.data()
+        }
         try? await auth.signOut(scope: .local)
     }
 }

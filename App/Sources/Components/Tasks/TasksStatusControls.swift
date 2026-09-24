@@ -3,11 +3,17 @@ import TeamTasksCore
 
 /// Round status icon of a task row. A tap asks for the next status of the cycle (à faire → en cours → terminée →
 /// à faire); shows a spinner while `isBusy`. Borderless, so it stays tappable inside a `NavigationLink` row.
+///
+/// Its tap area is at least 44 × 44 pt, but it lays out as tall as the glyph's box only: the glyph stays level with
+/// the first line of the row's title, and the tap area overflows into the row's vertical padding.
 struct TasksStatusButton: View {
     let status: TaskStatus
     let isBusy: Bool
     let isEnabled: Bool
     let action: () -> Void
+
+    /// Side of the glyph's box, growing with Dynamic Type like the `.title2` glyph it holds.
+    @ScaledMetric(relativeTo: .title2) private var glyphSide: CGFloat = 32
 
     init(status: TaskStatus, isBusy: Bool = false, isEnabled: Bool = true, action: @escaping () -> Void) {
         self.status = status
@@ -15,6 +21,9 @@ struct TasksStatusButton: View {
         self.isEnabled = isEnabled
         self.action = action
     }
+
+    /// Side of the tap area: Apple's 44 pt minimum, or the glyph's box when larger.
+    private var hitSide: CGFloat { max(44, glyphSide) }
 
     var body: some View {
         Button {
@@ -31,10 +40,11 @@ struct TasksStatusButton: View {
                         .opacity(isEnabled ? 1 : 0.55)
                 }
             }
-            .frame(width: 32, height: 32)
+            .frame(width: hitSide, height: hitSide)
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
+        .padding(.vertical, (glyphSide - hitSide) / 2)
         .disabled(!isEnabled || isBusy)
         .accessibilityLabel(accessibilityText)
         .accessibilityHint(accessibilityHintText)
@@ -42,11 +52,11 @@ struct TasksStatusButton: View {
     }
 
     private var accessibilityText: String {
-        "Statut : \(status.label)"
+        "Statut\u{00A0}: \(status.label)"
     }
 
     private var accessibilityHintText: String {
-        isEnabled ? "Passer à « \(status.next.label) »" : ""
+        isEnabled ? "Passer à «\u{00A0}\(status.next.label)\u{00A0}»" : ""
     }
 }
 
@@ -97,7 +107,8 @@ struct TasksStatusPicker: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .foregroundStyle(isSelected ? Color.white : option.tasksTint)
+            // `onTint` on the solid fill: white on the dark light-mode tints, black on the bright dark-mode ones.
+            .foregroundStyle(isSelected ? ShellPalette.onTint : option.tasksTint)
             .background(
                 isSelected ? option.tasksTint : option.tasksTint.opacity(0.12),
                 in: RoundedRectangle(cornerRadius: 10, style: .continuous)

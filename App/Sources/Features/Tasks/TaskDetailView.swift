@@ -51,7 +51,7 @@ struct TaskDetailView: View {
                 Text(model.errorMessage ?? "")
             }
             .confirmationDialog(
-                "Supprimer la tâche ?",
+                "Supprimer la tâche\u{00A0}?",
                 isPresented: $isConfirmingDelete,
                 titleVisibility: .visible
             ) {
@@ -87,7 +87,7 @@ struct TaskDetailView: View {
                 Button("Réessayer") {
                     Task { await model.reload() }
                 }
-                .buttonStyle(.borderedProminent)
+                .shellProminentButtonStyle()
             }
         } else {
             ProgressView("Chargement…")
@@ -100,7 +100,7 @@ struct TaskDetailView: View {
             if let message = model.loadState.failureMessage {
                 Section {
                     Label(message, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(Color.orange)
+                        .foregroundStyle(ShellPalette.orange)
                     Button("Réessayer") {
                         Task { await model.reload() }
                     }
@@ -142,12 +142,12 @@ struct TaskDetailView: View {
                 if model.isOverdue {
                     Label("En retard", systemImage: "exclamationmark.circle.fill")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.red)
+                        .foregroundStyle(ShellPalette.red)
                 }
                 if let completedText = model.completedText {
                     Label(completedText, systemImage: "checkmark.seal.fill")
                         .font(.subheadline)
-                        .foregroundStyle(Color.green)
+                        .foregroundStyle(ShellPalette.green)
                 }
             }
             .padding(.vertical, 4)
@@ -193,7 +193,7 @@ struct TaskDetailView: View {
                 Text("Statut")
             } footer: {
                 if model.loadState.isLoaded {
-                    Text("Seuls les administrateurs, le créateur de la tâche et les personnes assignées peuvent changer le statut.")
+                    Text("Seuls les admins, le créateur de la tâche et les personnes assignées peuvent changer le statut.")
                 }
             }
         }
@@ -218,15 +218,17 @@ struct TaskDetailView: View {
     }
 
     private var assigneesSection: some View {
-        Section {
-            if model.assigneeNames.isEmpty {
+        let people = assignees
+        return Section {
+            if people.isEmpty {
                 Label(MemberDirectory.unassignedText, systemImage: "person.crop.circle.badge.questionmark")
                     .foregroundStyle(Color.secondary)
             } else {
-                ForEach(Array(model.assigneeNames.enumerated()), id: \.offset) { item in
+                ForEach(people) { person in
                     HStack(spacing: 12) {
-                        TasksInitialsAvatar(name: item.element, size: 32)
-                        Text(item.element)
+                        // The same initials and color as on the group screen and in « Membres ».
+                        GroupsPersonAvatar(id: person.id, name: person.name, size: 32)
+                        Text(displayName(of: person))
                     }
                     .accessibilityElement(children: .combine)
                 }
@@ -234,6 +236,34 @@ struct TaskDetailView: View {
         } header: {
             Text("Personnes assignées")
         }
+    }
+
+    /// The task's assignees with their real names: the current user first, then by name (« Ancien membre » for
+    /// someone who left the group).
+    private var assignees: [GroupsAvatarStack.Person] {
+        let directory = model.directory
+        let me = directory.currentUserId
+        let people = Set(model.task?.assigneeIds ?? []).map { (userId: UUID) -> GroupsAvatarStack.Person in
+            var name = directory.name(of: userId)
+            if userId == me, name == MemberDirectory.formerMemberName {
+                // The members are not loaded yet.
+                name = MemberDirectory.meName
+            }
+            return GroupsAvatarStack.Person(id: userId, name: name)
+        }
+        return people.sorted { lhs, rhs in
+            if lhs.id == me { return rhs.id != me }
+            if rhs.id == me { return false }
+            return NameOrder.precedes(lhs.name, rhs.name) ?? (lhs.id.uuidString < rhs.id.uuidString)
+        }
+    }
+
+    /// « Camille Martin (vous) » for the current user, as in « Membres » (« Vous » until the members are loaded).
+    private func displayName(of person: GroupsAvatarStack.Person) -> String {
+        guard person.id == model.directory.currentUserId, person.name != MemberDirectory.meName else {
+            return person.name
+        }
+        return "\(person.name) (vous)"
     }
 
     // MARK: - Actions

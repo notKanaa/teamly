@@ -7,9 +7,9 @@ struct ShellConfigurationMissingView: View {
     let issue: ConfigurationIssue
 
     private let steps = [
-        "Sur GitHub, ouvrez votre dépôt › Settings › Secrets and variables › Actions › onglet « Variables ».",
-        "Ajoutez SUPABASE_HOST (l’hôte du projet, par exemple « abcdefgh.supabase.co », sans « https:// ») et SUPABASE_PUBLISHABLE_KEY (Supabase › Project Settings › API Keys, clé « sb_publishable_… »).",
-        "Relancez le workflow « CI », puis réinstallez l’IPA « Equipe-unsigned-ipa » avec Sideloadly.",
+        "Sur GitHub, ouvrez votre dépôt › Settings › Secrets and variables › Actions › onglet «\u{00A0}Variables\u{00A0}».",
+        "Ajoutez SUPABASE_HOST (l’hôte du projet, par exemple «\u{00A0}abcdefgh.supabase.co\u{00A0}», sans «\u{00A0}https://\u{00A0}») et SUPABASE_PUBLISHABLE_KEY (Supabase › Project Settings › API Keys, clé «\u{00A0}sb_publishable_…\u{00A0}»).",
+        "Relancez le workflow «\u{00A0}CI\u{00A0}», puis réinstallez l’IPA «\u{00A0}Equipe-unsigned-ipa\u{00A0}» avec Sideloadly.",
     ]
 
     var body: some View {
@@ -24,7 +24,7 @@ struct ShellConfigurationMissingView: View {
                         .font(.title2.bold())
                         .multilineTextAlignment(.center)
                         .accessibilityAddTraits(.isHeader)
-                    Text("Cette version d’Équipe a été compilée sans l’adresse de votre projet Supabase : elle ne peut pas se connecter.")
+                    Text("Cette version d’Équipe a été compilée sans l’adresse de votre projet Supabase\u{00A0}: elle ne peut pas se connecter.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -51,7 +51,7 @@ struct ShellConfigurationMissingView: View {
                                 .foregroundStyle(Color.accentColor)
                         }
                     }
-                    Text("Sur votre ordinateur : copiez Config/Secrets.example.xcconfig vers Config/Secrets.xcconfig et remplissez-le, puis relancez « xcodegen generate ».")
+                    Text("Sur votre ordinateur\u{00A0}: copiez Config/Secrets.example.xcconfig vers Config/Secrets.xcconfig et remplissez-le, puis relancez «\u{00A0}xcodegen generate\u{00A0}».")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

@@ -151,8 +151,13 @@ public final class InMemoryBackend: @unchecked Sendable {
     }
 
     /// Runs a write transaction as the session user of `clientId`. Nothing is committed if `body` throws.
+    ///
+    /// A session whose account no longer exists (deleted on another device) is ended, like the Supabase adapter
+    /// does when the server answers `not_authenticated` and the session cannot be refreshed: the client's
+    /// `authStates()` emit `.signedOut`, then `.notAuthenticated` is thrown.
     func write<Result>(as clientId: UUID, _ body: (inout Transaction, UUID) throws -> Result) throws -> Result {
         try withLock {
+            if endStaleSessionLocked(clientId) { throw AppError.notAuthenticated }
             let me = try sessionUserLocked(clientId)
             var transaction = Transaction(data: data, now: nowProvider())
             let result = try body(&transaction, me)
@@ -234,6 +239,17 @@ public final class InMemoryBackend: @unchecked Sendable {
     private func authStateLocked(_ clientId: UUID) -> AuthState {
         guard let userId = sessions[clientId]?.userId, let user = data.authUser(userId) else { return .signedOut }
         return .signedIn(user)
+    }
+
+    /// Ends the session of `clientId` if its account no longer exists (its subscribers last saw `.signedIn`).
+    /// Returns whether it did.
+    private func endStaleSessionLocked(_ clientId: UUID) -> Bool {
+        guard let userId = sessions[clientId]?.userId, data.accounts[userId] == nil else { return false }
+        sessions[clientId]?.userId = nil
+        for continuation in (sessions[clientId]?.authSubscribers ?? [:]).values {
+            continuation.yield(.signedOut)
+        }
+        return true
     }
 
     /// Changes the session of a client and notifies its `authStates()` subscribers if the state changed.
@@ -324,8 +340,13 @@ public final class InMemoryBackend: @unchecked Sendable {
     }
 
     /// `delete_my_account()`, then local sign-out of this client.
+    ///
+    /// When the session's account no longer exists (deleted by an earlier attempt whose answer was lost, or on
+    /// another device), the requested end state holds: the session is ended and the call succeeds, like the
+    /// Supabase adapter.
     func deleteAccount(clientId: UUID) throws {
         try withLock {
+            if endStaleSessionLocked(clientId) { return }
             let me = try sessionUserLocked(clientId)
             // Sign out first so that subscribers see `.signedOut` (afterwards the account no longer exists).
             setSessionLocked(clientId, userId: nil)

@@ -37,7 +37,7 @@ import Testing
         #expect(courses.priority == .medium)
         #expect(courses.details == "Lait, pâtes, lessive et papier toilette.")
         #expect(courses.createdBy == Seed.lucas)
-        #expect(tasks.allSatisfy { $0.myAssignedAt == nil && $0.groupName == nil })
+        #expect(tasks.allSatisfy { $0.myAssignedAt == nil && $0.myAssignedBy == nil && $0.groupName == nil })
         let cuisine = try #require(tasks.first { $0.id == Seed.cuisine })
         #expect(cuisine.status == .done)
         #expect(cuisine.details == nil)
@@ -53,12 +53,16 @@ import Testing
         let courses = try #require(tasks.first { $0.id == Seed.courses })
         #expect(courses.groupName == "Coloc' rue des Lilas")
         #expect(courses.myAssignedAt.map(PostgresTimestamp.format) == "2026-09-21T23:52:26.878215Z")
+        #expect(courses.myAssignedBy == Seed.lucas)
         #expect(courses.assigneeIds == [Seed.camille, Seed.lucas], "every assignee, not only me")
         let gymnase = try #require(tasks.first { $0.id == Seed.gymnase })
         #expect(gymnase.groupName == "Projet Asso Sport")
+        let poubelles = try #require(tasks.first { $0.id == Seed.poubelles })
+        #expect(poubelles.myAssignedBy == Seed.camille, "self-assignment")
         // Without the personal fields, a myTasks item is the plain task.
         var plain = courses
         plain.myAssignedAt = nil
+        plain.myAssignedBy = nil
         plain.groupName = nil
         #expect(plain == rows.first { $0.id == Seed.courses }?.item())
     }

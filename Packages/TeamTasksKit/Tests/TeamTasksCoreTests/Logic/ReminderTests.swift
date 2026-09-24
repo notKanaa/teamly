@@ -13,7 +13,7 @@ import Testing
 
     @Test func frenchLabels() {
         #expect(ReminderLeadTime.allCases.map(\.label) == [
-            "À l'heure de l'échéance", "15 minutes avant", "1 heure avant", "1 jour avant", "Aucun rappel",
+            "À l’heure de l’échéance", "15 minutes avant", "1 heure avant", "1 jour avant", "Aucun rappel",
         ])
     }
 
@@ -84,7 +84,7 @@ import Testing
         #expect(reminder.id == ReminderPlanner.identifier(taskId: task.id, dueAt: task.dueAt!))
         #expect(reminder.id.hasPrefix("due-"))
         #expect(reminder.title == "Échéance proche")
-        #expect(reminder.body == "Sortir les poubelles — Coloc' rue des Lilas, aujourd'hui à 20:00")
+        #expect(reminder.body == "Sortir les poubelles — Coloc' rue des Lilas, aujourd’hui à 20:00")
         #expect(reminder.fireDate == F.date(2026, 9, 24, 19, 0))
         #expect(reminder.userInfo == ["taskId": task.id.uuidString, "groupId": F.groupA.uuidString])
         #expect(reminder.threadId == F.groupA.uuidString)
@@ -101,12 +101,12 @@ import Testing
     @Test func groupNameFallbacks() throws {
         let unnamed = F.task(1, title: "Payer le loyer", due: F.date(2026, 9, 24, 20, 0), groupName: nil)
         let withFallback = planner.plan(tasks: [unnamed], userId: F.me, leadTime: .oneHour, now: now, groupNames: [F.groupA: "Coloc"])
-        #expect(withFallback.first?.body == "Payer le loyer — Coloc, aujourd'hui à 20:00")
+        #expect(withFallback.first?.body == "Payer le loyer — Coloc, aujourd’hui à 20:00")
         let withoutName = planner.plan(tasks: [unnamed], userId: F.me, leadTime: .oneHour, now: now)
-        #expect(withoutName.first?.body == "Payer le loyer, aujourd'hui à 20:00")
+        #expect(withoutName.first?.body == "Payer le loyer, aujourd’hui à 20:00")
         let emptyName = F.task(2, title: "Payer le loyer", due: F.date(2026, 9, 24, 20, 0), groupName: "")
         let withEmptyName = planner.plan(tasks: [emptyName], userId: F.me, leadTime: .oneHour, now: now, groupNames: [F.groupA: "Coloc"])
-        #expect(withEmptyName.first?.body == "Payer le loyer — Coloc, aujourd'hui à 20:00")
+        #expect(withEmptyName.first?.body == "Payer le loyer — Coloc, aujourd’hui à 20:00")
     }
 
     @Test func keepsOnlyMyOpenTasksWithADueDate() {

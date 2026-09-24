@@ -10,8 +10,8 @@ import Observation
 @MainActor
 @Observable
 public final class GroupDetailViewModel: ErrorPresenting {
-    public static let goneMessage = "Ce groupe n'existe plus ou vous n'en faites plus partie."
-    public static let emptyMessage = "Aucune tâche pour l'instant."
+    public static let goneMessage = "Ce groupe n’existe plus ou vous n’en faites plus partie."
+    public static let emptyMessage = "Aucune tâche pour l’instant."
     public static let noMatchMessage = "Aucune tâche ne correspond aux filtres."
 
     public let groupId: UUID
@@ -325,6 +325,6 @@ public final class GroupDetailViewModel: ErrorPresenting {
 
     /// Confirmation text of « Supprimer le groupe ».
     public var deleteGroupConfirmationMessage: String {
-        "Le groupe « \(title) » et toutes ses tâches seront supprimés pour tous ses membres. Cette action est définitive."
+        "Le groupe «\u{00A0}\(title)\u{00A0}» et toutes ses tâches seront supprimés pour tous ses membres. Cette action est définitive."
     }
 }

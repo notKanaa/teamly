@@ -59,7 +59,7 @@ struct PasswordResetView: View {
         // Swiping the sheet down must not skip the sign-out of an abandoned recovery.
         .interactiveDismissDisabled(model.isSubmitting || model.step == .newPassword || model.step == .done)
         .confirmationDialog(
-            "Abandonner le changement de mot de passe ?",
+            "Abandonner le changement de mot de passe\u{00A0}?",
             isPresented: $isConfirmingAbandon,
             titleVisibility: .visible
         ) {
@@ -112,7 +112,7 @@ struct PasswordResetView: View {
     private var headerText: String {
         switch model.step {
         case .email:
-            "Saisissez l’adresse e-mail de votre compte : nous vous enverrons un code à 6 chiffres pour choisir un nouveau mot de passe."
+            "Saisissez l’adresse e-mail de votre compte\u{00A0}: nous vous enverrons un code à 6 chiffres pour choisir un nouveau mot de passe."
         case .code:
             "Saisissez le code à 6 chiffres reçu par e-mail. Pensez à vérifier vos courriers indésirables."
         case .newPassword:
@@ -140,7 +140,7 @@ struct PasswordResetView: View {
             Button(action: sendCode) {
                 ShellPrimaryButtonLabel(title: "Envoyer le code", isLoading: model.isSubmitting)
             }
-            .buttonStyle(.borderedProminent)
+            .shellProminentButtonStyle()
             .controlSize(.large)
             .disabled(!model.canSendCode)
             .accessibilityIdentifier(AccessibilityID.Auth.resetSendCode)
@@ -162,7 +162,7 @@ struct PasswordResetView: View {
             Button(action: verifyCode) {
                 ShellPrimaryButtonLabel(title: "Valider le code", isLoading: model.isSubmitting)
             }
-            .buttonStyle(.borderedProminent)
+            .shellProminentButtonStyle()
             .controlSize(.large)
             .disabled(!model.canVerifyCode)
             .accessibilityIdentifier(AccessibilityID.Auth.resetVerifyCode)
@@ -215,7 +215,7 @@ struct PasswordResetView: View {
             Button(action: updatePassword) {
                 ShellPrimaryButtonLabel(title: "Enregistrer le mot de passe", isLoading: model.isSubmitting)
             }
-            .buttonStyle(.borderedProminent)
+            .shellProminentButtonStyle()
             .controlSize(.large)
             .disabled(!model.canUpdatePassword)
             .accessibilityIdentifier(AccessibilityID.Auth.saveNewPassword)

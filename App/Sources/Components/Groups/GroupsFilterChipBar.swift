@@ -19,8 +19,9 @@ struct GroupsFilterChipBar: View {
                             .foregroundStyle(chip.isSelected ? Color.white : Color.primary)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
+                            // White on `accentFill` (4.8:1): the dark-mode accent would only give 2.9:1.
                             .background(
-                                chip.isSelected ? Color.accentColor : Color.secondary.opacity(0.15),
+                                chip.isSelected ? ShellPalette.accentFill : Color.secondary.opacity(0.15),
                                 in: Capsule()
                             )
                     }
@@ -33,6 +34,9 @@ struct GroupsFilterChipBar: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
         }
+        // The bar is a row of an inset list: without this, the chips are cut at the row's edge, inside the list's
+        // margin, instead of scrolling out at the screen's edge.
+        .scrollClipDisabled()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityID.Tasks.filterPicker)
     }

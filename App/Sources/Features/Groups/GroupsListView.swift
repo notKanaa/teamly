@@ -90,7 +90,7 @@ struct GroupsListView: View {
                 } label: {
                     Label("Créer un groupe", systemImage: "plus")
                 }
-                .buttonStyle(.borderedProminent)
+                .shellProminentButtonStyle()
                 .accessibilityIdentifier(AccessibilityID.Groups.emptyCreateButton)
                 Button {
                     activeSheet = .join

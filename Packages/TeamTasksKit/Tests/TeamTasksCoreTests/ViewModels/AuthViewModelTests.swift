@@ -247,6 +247,42 @@ import TeamTasksMocks
         await app.shutdown()
     }
 
+    /// The recovery session ends without the user (revoked, refresh refused) at the « Nouveau mot de passe » step:
+    /// the flow comes back at the e-mail step with an explanation, not on the dead session (review VM-6).
+    @Test func recoverySessionEndingByItselfRestartsTheFlow() async throws {
+        let harness = VMHarness(.signedOut)
+        let app = harness.makeApp()
+        app.start()
+        await VMWait.until("signed out") { app.phase == .signedOut }
+        let model = app.startPasswordReset(email: VMFixtures.camille.email)
+        #expect(await model.sendCode())
+        model.code = InMemoryBackend.recoveryCode
+        #expect(await model.verifyCode())
+        await VMWait.until("recovery phase") { app.phase == .passwordRecovery(model) }
+        model.newPassword = "nouveau-secret"
+
+        try await harness.services.auth.signOut()
+        await VMWait.until("signed out") { app.phase == .signedOut }
+        #expect(!app.isInPasswordRecovery)
+        #expect(app.passwordReset === model)
+        #expect(model.step == .email)
+        #expect(model.email == VMFixtures.camille.email)
+        #expect(model.newPassword.isEmpty)
+        #expect(model.code.isEmpty)
+        #expect(model.errorMessage == PasswordResetViewModel.recoveryEndedMessage)
+
+        // Starting over works.
+        #expect(await model.sendCode())
+        model.code = InMemoryBackend.recoveryCode
+        #expect(await model.verifyCode())
+        await VMWait.until("recovery phase again") { app.phase == .passwordRecovery(model) }
+        model.newPassword = "nouveau-secret-2026"
+        model.passwordConfirmation = "nouveau-secret-2026"
+        #expect(await model.updatePassword())
+        await VMWait.until("signed in") { app.session != nil }
+        await app.shutdown()
+    }
+
     @Test func cancellingEarlyOnlyClosesTheSheet() async {
         let harness = VMHarness(.signedOut)
         let app = harness.makeApp()

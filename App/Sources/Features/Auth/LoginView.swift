@@ -41,7 +41,7 @@ struct LoginView: View {
 
                     HStack {
                         Spacer()
-                        Button("Mot de passe oublié ?", action: onForgotPassword)
+                        Button("Mot de passe oublié\u{00A0}?", action: onForgotPassword)
                             .font(.subheadline.weight(.medium))
                             .disabled(model.isSubmitting)
                             .accessibilityIdentifier(AccessibilityID.Auth.forgotPassword)
@@ -51,13 +51,13 @@ struct LoginView: View {
                 Button(action: signIn) {
                     ShellPrimaryButtonLabel(title: "Se connecter", isLoading: model.isSubmitting)
                 }
-                .buttonStyle(.borderedProminent)
+                .shellProminentButtonStyle()
                 .controlSize(.large)
                 .disabled(!model.canSubmit)
                 .accessibilityIdentifier(AccessibilityID.Auth.signInButton)
 
                 VStack(spacing: 6) {
-                    Text("Pas encore de compte ?")
+                    Text("Pas encore de compte\u{00A0}?")
                         .foregroundStyle(.secondary)
                     Button("Créer un compte", action: onSignUp)
                         .fontWeight(.semibold)

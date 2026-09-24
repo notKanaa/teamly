@@ -292,7 +292,122 @@ final class LogicFlag: @unchecked Sendable {
         await send(.groupActivity(groupId: F.groupA), to: coordinator)
         #expect(realtime.subscriptionCount == 1)
         #expect(!realtime.isTerminated(0))
+        #expect(coordinator.groupIdsAreStale)
         coordinator.stop()
+        #expect(!coordinator.groupIdsAreStale)
+    }
+
+    // MARK: Stale group ids (the Supabase stream never ends by itself)
+
+    /// Cold start offline: the first fetch fails, the channel is subscribed without groups; the `.connected` of the
+    /// reconnected socket fetches them again.
+    @Test func failedInitialFetchIsRetriedOnConnected() async {
+        groups.fails = true
+        let coordinator = await started()
+        #expect(realtime.groupIds(of: 0).isEmpty)
+        #expect(coordinator.groupIdsAreStale)
+
+        groups.fails = false
+        await send(.connected, to: coordinator)
+        #expect(feed.allRevision == 1)
+        await LogicWait.until("resubscribed with the groups") { realtime.subscriptionCount == 2 }
+        #expect(realtime.groupIds(of: 1) == [F.groupA])
+        #expect(coordinator.subscribedGroupIds == [F.groupA])
+        #expect(!coordinator.groupIdsAreStale)
+        await LogicWait.until("old stream terminated") { realtime.isTerminated(0) }
+        await LogicWait.until("retry timer cancelled") { clock.sleeperCount == 0 }
+
+        // The new subscription's first `.connected` does not fetch again (its ids are fresh).
+        await send(.connected, to: coordinator)
+        await LogicWait.settle()
+        #expect(groups.calls == 2)
+        #expect(realtime.subscriptionCount == 2)
+        coordinator.stop()
+    }
+
+    /// A membership change missed while the socket was down: every reconnection fetches the group ids again.
+    @Test func reconnectionFetchesTheGroupIdsAgain() async {
+        let coordinator = await started()
+        await send(.connected, to: coordinator)
+        await LogicWait.settle()
+        #expect(groups.calls == 1, "the first .connected of fresh ids does not fetch")
+
+        groups.ids = [F.groupA, F.groupB]
+        await send(.connected, to: coordinator)
+        await LogicWait.until("resubscribed") { realtime.subscriptionCount == 2 }
+        #expect(groups.calls == 2)
+        #expect(Set(realtime.groupIds(of: 1)) == [F.groupA, F.groupB])
+        #expect(feed.allRevision == 2)
+        coordinator.stop()
+    }
+
+    @Test func reconnectionWithTheSameGroupsKeepsTheSubscription() async {
+        let coordinator = await started()
+        await send(.connected, .connected, to: coordinator)
+        await LogicWait.until("provider called") { groups.calls == 2 }
+        await LogicWait.settle()
+        #expect(realtime.subscriptionCount == 1)
+        #expect(!realtime.isTerminated(0))
+        coordinator.stop()
+    }
+
+    /// A failed fetch is retried after `retryDelay`, doubled after each failure, without waiting for an event.
+    @Test func failedRefreshIsRetriedWithBackoff() async {
+        let coordinator = await started()
+        groups.fails = true
+        groups.ids = [F.groupA, F.groupB]
+        await send(.membershipsChanged, to: coordinator)
+        await LogicWait.until("refresh failed") { groups.calls == 2 && coordinator.groupIdsAreStale }
+        await LogicWait.until("debounce timers and retry timer") { clock.sleeperCount == 3 }
+        clock.advance(by: .milliseconds(300))
+        await LogicWait.until("debounced bumps") { feed.membershipsRevision == 1 && clock.sleeperCount == 1 }
+
+        clock.advance(by: .milliseconds(4_699))
+        await LogicWait.settle()
+        #expect(groups.calls == 2)
+        clock.advance(by: .milliseconds(1))
+        await LogicWait.until("first retry (5 s)") { groups.calls == 3 }
+        await LogicWait.until("second retry timer") { clock.sleeperCount == 1 }
+
+        groups.fails = false
+        clock.advance(by: .seconds(9))
+        await LogicWait.settle()
+        #expect(groups.calls == 3)
+        clock.advance(by: .seconds(1))
+        await LogicWait.until("second retry (10 s) resubscribes") { realtime.subscriptionCount == 2 }
+        #expect(Set(realtime.groupIds(of: 1)) == [F.groupA, F.groupB])
+        #expect(!coordinator.groupIdsAreStale)
+        await LogicWait.until("no timer left") { clock.sleeperCount == 0 }
+        coordinator.stop()
+    }
+
+    @Test func refreshGroupIdsResubscribesOnlyWhenTheyChanged() async {
+        let coordinator = await started()
+        coordinator.refreshGroupIds()
+        await LogicWait.until("provider called") { groups.calls == 2 }
+        await LogicWait.settle()
+        #expect(realtime.subscriptionCount == 1)
+
+        groups.ids = [F.groupB]
+        coordinator.refreshGroupIds()
+        await LogicWait.until("resubscribed") { realtime.subscriptionCount == 2 }
+        #expect(realtime.groupIds(of: 1) == [F.groupB])
+        coordinator.stop()
+
+        coordinator.refreshGroupIds()
+        await LogicWait.settle()
+        #expect(groups.calls == 3, "no fetch once stopped")
+    }
+
+    @Test func stopCancelsTheRetryTimer() async {
+        groups.fails = true
+        let coordinator = await started()
+        await LogicWait.until("retry timer") { clock.sleeperCount == 1 }
+        coordinator.stop()
+        await LogicWait.until("timer cancelled") { clock.sleeperCount == 0 }
+        clock.advance(by: .seconds(60))
+        await LogicWait.settle()
+        #expect(groups.calls == 1)
     }
 
     // MARK: Assignments

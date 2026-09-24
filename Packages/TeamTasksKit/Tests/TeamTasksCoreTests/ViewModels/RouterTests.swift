@@ -262,9 +262,13 @@ import Testing
     @Test func dateTexts() {
         let now = VMFixtures.now
         let calendar = VMFixtures.calendar
-        #expect(DateText.relative(VMFixtures.date(2026, 9, 24, 20), now: now, calendar: calendar) == "Aujourd'hui à 20:00")
+        #expect(DateText.relative(VMFixtures.date(2026, 9, 24, 20), now: now, calendar: calendar) == "Aujourd’hui à 20:00")
         #expect(DateText.relative(VMFixtures.date(2026, 9, 25, 18), now: now, calendar: calendar) == "Demain à 18:00")
         #expect(DateText.relativeLowercase(VMFixtures.date(2026, 9, 23, 9, 30), now: now, calendar: calendar) == "hier à 09:30")
-        #expect(DateText.relative(VMFixtures.date(2026, 9, 28, 18), now: now, calendar: calendar) == "Lundi 28 septembre à 18:00")
+        #expect(DateText.relative(VMFixtures.date(2026, 9, 28, 18), now: now, calendar: calendar) == "Lundi à 18:00")
+        #expect(DateText.relative(VMFixtures.date(2026, 10, 1, 18), now: now, calendar: calendar) == "Jeudi 1er octobre à 18:00")
+        #expect(DateText.relative(VMFixtures.date(2026, 9, 20, 18), now: now, calendar: calendar) == "Dimanche 20 septembre à 18:00")
+        #expect(DateText.relativeInSentence(VMFixtures.date(2026, 9, 23, 9, 30), now: now, calendar: calendar) == "hier à 09:30")
+        #expect(DateText.relativeInSentence(VMFixtures.date(2026, 9, 14, 10), now: now, calendar: calendar) == "le lundi 14 septembre à 10:00")
     }
 }

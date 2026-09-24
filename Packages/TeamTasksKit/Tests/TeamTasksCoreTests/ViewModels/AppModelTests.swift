@@ -259,6 +259,35 @@ import TeamTasksMocks
         await session.stop()
     }
 
+    /// Cold start offline (the first `myGroups()` fails): the groups are subscribed as soon as the channel connects,
+    /// and group activity reaches the feed (review VM-1 / ADP-1).
+    @Test func failedFirstGroupFetchIsRecovered() async throws {
+        let harness = VMHarness()
+        harness.faults.fail(.myGroups, with: AppError.network)
+        let session = harness.makeSession()
+        session.start()
+        await VMWait.until("subscribed to both groups") { session.realtime.subscribedGroupIds == [F.lilas, F.sport] }
+        #expect(!session.realtime.groupIdsAreStale)
+        await session.startupTask?.value
+
+        let before = session.feed.groupRevision(F.sport)
+        _ = try await harness.device(F.lucas).tasks.setStatus(taskId: T.creerAffiche, status: .done)
+        await VMWait.until("sport bumped") { session.feed.groupRevision(F.sport) > before }
+        await session.stop()
+    }
+
+    @Test func foregroundFetchesTheRealtimeGroupIdsAgain() async throws {
+        let harness = VMHarness()
+        let session = harness.makeSession()
+        session.start()
+        await VMWait.until("subscribed") { session.realtime.subscribedGroupIds.count == 2 }
+        await session.startupTask?.value
+        let calls = harness.faults.calls(.myGroups)
+        await session.handleForeground()
+        await VMWait.until("group ids fetched again") { harness.faults.calls(.myGroups) > calls }
+        await session.stop()
+    }
+
     @Test func catchUpNotifiesAssignmentsMadeWhileAway() async throws {
         let harness = VMHarness()
         let session = harness.makeSession()

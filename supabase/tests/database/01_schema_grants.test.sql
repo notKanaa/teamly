@@ -57,7 +57,7 @@ select is(auth.uid(), null, 'helper: as_postgres clears the JWT claims');
 select tables_are('public',
   array['profiles', 'groups', 'group_invites', 'group_members', 'tasks', 'task_assignees', 'push_subscriptions'],
   'public tables are exactly the contract tables');
-select tables_are('private', array['join_attempts'], 'private tables');
+select tables_are('private', array['join_attempts', 'settings', 'push_log', 'write_log'], 'private tables');
 select enum_has_labels('public', 'member_role', array['admin', 'member'], 'member_role labels');
 select enum_has_labels('public', 'task_status', array['todo', 'in_progress', 'done'], 'task_status labels');
 select enum_has_labels('public', 'task_priority', array['low', 'medium', 'high'], 'task_priority labels');

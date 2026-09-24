@@ -67,6 +67,7 @@ extension TaskItem {
     var withoutPersonalFields: TaskItem {
         var copy = self
         copy.myAssignedAt = nil
+        copy.myAssignedBy = nil
         copy.groupName = nil
         return copy
     }

@@ -8,21 +8,23 @@ struct SupabaseTaskService: TaskService {
     private var rest: RestClient { context.rest }
 
     /// Unless `includeOldDone`: `or=(status.neq.done,completed_at.gte.<now − 30 × 86 400 s>)`.
-    /// Non-members read an empty list (RLS).
+    /// Non-members read an empty list (RLS). Tasks with a status or priority unknown to this client (added by a
+    /// later migration) are left out (`RestClient.fetchRows`).
     func tasks(groupId: UUID, includeOldDone: Bool) async throws -> [TaskItem] {
         let now = context.now()
-        let rows = try await rest.fetch([TaskDTO].self) { _ in
+        let rows = try await rest.fetchRows(TaskDTO.self) { _ in
             RestQuery.groupTasks(groupId: groupId, includeOldDone: includeOldDone, now: now)
         }
         return rows.map { $0.item() }.sorted(by: TaskDTO.creationOrder)
     }
 
+    /// Tasks with a status or priority unknown to this client are left out, as in `tasks(groupId:includeOldDone:)`.
     func myTasks(includeDone: Bool) async throws -> [TaskItem] {
-        let rows = try await rest.fetch([TaskDTO].self) { RestQuery.myTasks(me: $0.userId, includeDone: includeDone) }
+        let rows = try await rest.fetchRows(TaskDTO.self) { RestQuery.myTasks(me: $0.userId, includeDone: includeDone) }
         return rows.map(\.myTaskItem).sorted(by: TaskDTO.creationOrder)
     }
 
-    /// 0 rows (unknown or not visible) → `.notFound`.
+    /// 0 rows (unknown or not visible) → `.notFound`; an enum value unknown to this client → `.unknown`.
     func task(id: UUID) async throws -> TaskItem {
         let rows = try await rest.fetch([TaskDTO].self) { _ in RestQuery.task(id: id) }
         guard let row = rows.first else { throw AppError.notFound }

@@ -47,7 +47,7 @@ import FoundationNetworking
 
     @Test func fixturesAreLoaded() {
         #expect(Self.postgrestCases.count == 7)
-        #expect(Self.authCases.count == 3)
+        #expect(Self.authCases.count == 6)
     }
 
     /// Captured error bodies, mapped with their real HTTP status.
@@ -74,8 +74,27 @@ import FoundationNetworking
         #expect(map(403, #"{"code":"42501","message":"permission denied for table tasks"}"#) == .forbidden)
         #expect(map(401, #"{"code":"PGRST303","message":"JWT expired"}"#) == .notAuthenticated)
         #expect(map(409, #"{"code":"23505","message":"duplicate key value"}"#) == .conflict)
-        #expect(map(502, "<html>Bad gateway</html>") == .unknown("HTTP 502"))
-        #expect(map(503, "") == .unknown("HTTP 503"))
+        #expect(map(400, "") == .unknown("HTTP 400"))
+        #expect(map(400, #"{"code":"PGRST100","message":"failed to parse filter"}"#) == .unknown("PGRST100 failed to parse filter"))
+    }
+
+    /// Temporary failures of the hosted project (e.g. while a paused free project resumes) are a retryable French
+    /// message, never the English internals (review ADP-5).
+    @Test func temporaryServerFailuresAreRetryableAndFrench() {
+        func map(_ status: Int, _ json: String) -> AppError {
+            SupabaseErrorMapping.postgrest(status: status, body: Data(json.utf8))
+        }
+        let unavailable = AppError.unknown(SupabaseErrorMapping.serverUnavailable)
+        #expect(map(503, #"{"code":"PGRST002","message":"Could not query the database for the schema cache. Retrying.","details":null,"hint":null}"#) == unavailable)
+        #expect(map(503, #"{"code":"PGRST001","message":"Database client error. Retrying the connection.","details":null,"hint":null}"#) == unavailable)
+        #expect(map(504, #"{"code":"PGRST003","message":"Timed out acquiring connection from connection pool.","details":null,"hint":null}"#) == unavailable)
+        #expect(map(500, #"{"code":"57014","message":"canceling statement due to statement timeout","details":null,"hint":null}"#) == unavailable)
+        #expect(map(429, #"{"message":"Too many requests"}"#) == unavailable)
+        #expect(map(502, "<html>Bad gateway</html>") == unavailable)
+        #expect(map(503, "") == unavailable)
+        // A business error keeps its meaning whatever the status.
+        #expect(map(500, #"{"code":"P0001","message":"last_admin"}"#) == .lastAdmin)
+        #expect(unavailable.messageFR == "Une erreur est survenue. (le serveur est momentanément indisponible, réessayez dans un instant)")
     }
 
     @Test(arguments: authCases)
@@ -103,11 +122,39 @@ import FoundationNetworking
         #expect(map("validation_failed", 400, .signIn) == .invalidCredentials)
         #expect(map("validation_failed", 400, .verifyOTP) == .otpInvalid)
         #expect(map("something_new", 401) == .notAuthenticated)
-        #expect(map("something_new", 429) == .rateLimited)
-        #expect(map("something_new", 500) == .unknown("something_new message"))
+        #expect(map("something_new", 429) == .unknown(SupabaseErrorMapping.authRateLimited))
+        #expect(map("something_new", 500) == .unknown(SupabaseErrorMapping.serverUnavailable))
+        #expect(map("something_new", 400) == .unknown("something_new"), "the English message is not shown")
+        #expect(SupabaseErrorMapping.auth(code: "unknown", message: "Something odd", httpStatus: 400) == .unknown(SupabaseErrorMapping.unexpectedAnswer))
         // Servers without `error_code`.
         #expect(SupabaseErrorMapping.auth(code: "unknown", message: "Invalid login credentials", httpStatus: 400) == .invalidCredentials)
         #expect(SupabaseErrorMapping.auth(code: "unknown", message: "User already registered", httpStatus: 422) == .emailAlreadyUsed)
+    }
+
+    /// Codes of a hosted project (review ADP-2 / ADP-5): French messages, never the English internals.
+    @Test func hostedAuthCodes() {
+        func map(_ code: String, _ status: Int) -> AppError {
+            SupabaseErrorMapping.auth(code: code, message: "English message", httpStatus: status)
+        }
+        #expect(map("email_address_not_authorized", 400) == .unknown(SupabaseErrorMapping.emailDeliveryUnavailable))
+        #expect(map("over_request_rate_limit", 429) == .unknown(SupabaseErrorMapping.authRateLimited))
+        #expect(map("over_email_send_rate_limit", 429) == .emailRateLimited)
+        #expect(map("signup_disabled", 422) == .unknown(SupabaseErrorMapping.signupDisabled))
+        #expect(map("email_provider_disabled", 422) == .unknown(SupabaseErrorMapping.emailProviderDisabled))
+        #expect(map("user_banned", 400) == .unknown(SupabaseErrorMapping.userBanned))
+        #expect(map("reauthentication_needed", 400) == .unknown(SupabaseErrorMapping.reauthenticationNeeded))
+        #expect(map("captcha_failed", 400) == .unknown(SupabaseErrorMapping.captchaFailed))
+        #expect(map("unexpected_failure", 500) == .unknown(SupabaseErrorMapping.serverUnavailable))
+        #expect(map("request_timeout", 504) == .unknown(SupabaseErrorMapping.serverUnavailable))
+        let details = [
+            SupabaseErrorMapping.unexpectedAnswer, SupabaseErrorMapping.serverUnavailable, SupabaseErrorMapping.authRateLimited,
+            SupabaseErrorMapping.emailDeliveryUnavailable, SupabaseErrorMapping.signupDisabled,
+            SupabaseErrorMapping.emailProviderDisabled, SupabaseErrorMapping.userBanned,
+            SupabaseErrorMapping.reauthenticationNeeded, SupabaseErrorMapping.captchaFailed,
+        ]
+        #expect(details.allSatisfy { !$0.contains("'") })
+        #expect(AppError.unknown(SupabaseErrorMapping.emailDeliveryUnavailable).messageFR
+            == "Une erreur est survenue. (l’envoi d’e-mails vers cette adresse n’est pas encore possible)")
     }
 
     @Test func authClientErrors() throws {
@@ -120,6 +167,15 @@ import FoundationNetworking
         #expect(SupabaseErrorMapping.auth(AuthError.sessionMissing) as? AppError == .notAuthenticated)
         #expect(SupabaseErrorMapping.auth(AuthError.weakPassword(message: "weak", reasons: ["length"])) as? AppError == .weakPassword)
         #expect(SupabaseErrorMapping.auth(URLError(.timedOut)) as? AppError == .network)
+        // An HTML page instead of JSON (captive portal), another AuthError: no English internals.
+        let decoding = DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "The given data was not valid JSON."))
+        #expect(SupabaseErrorMapping.auth(decoding) as? AppError == .unknown(SupabaseErrorMapping.unexpectedAnswer))
+        #expect(SupabaseErrorMapping.auth(AuthError.implicitGrantRedirect(message: "Not a valid redirect")) as? AppError == .unknown(SupabaseErrorMapping.unexpectedAnswer))
+        let serverError = AuthError.api(
+            message: "Unexpected error", errorCode: .unexpectedFailure, underlyingData: Data(),
+            underlyingResponse: try #require(HTTPURLResponse(url: url, statusCode: 500, httpVersion: nil, headerFields: nil))
+        )
+        #expect(SupabaseErrorMapping.auth(serverError) as? AppError == .unknown(SupabaseErrorMapping.serverUnavailable))
     }
 
     @Test func transportErrors() {
@@ -128,5 +184,7 @@ import FoundationNetworking
         #expect(SupabaseErrorMapping.transport(URLError(.cancelled)) is CancellationError)
         #expect(SupabaseErrorMapping.transport(CancellationError()) is CancellationError)
         #expect(SupabaseErrorMapping.transport(AppError.forbidden) as? AppError == .forbidden)
+        struct Odd: Error {}
+        #expect(SupabaseErrorMapping.transport(Odd()) as? AppError == .unknown(SupabaseErrorMapping.unexpectedAnswer))
     }
 }

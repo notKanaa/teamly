@@ -39,18 +39,44 @@ import Testing
 
     @Test func relativeWording() {
         let reference = F.date(2026, 9, 24, 10, 0)
-        #expect(formatter.relativeDateTime(F.date(2026, 9, 24, 20, 0), relativeTo: reference) == "aujourd'hui à 20:00")
+        #expect(formatter.relativeDateTime(F.date(2026, 9, 24, 20, 0), relativeTo: reference) == "aujourd’hui à 20:00")
         #expect(formatter.relativeDateTime(F.date(2026, 9, 25, 8, 30), relativeTo: reference) == "demain à 08:30")
         #expect(formatter.relativeDateTime(F.date(2026, 9, 23, 23, 59), relativeTo: reference) == "hier à 23:59")
-        #expect(formatter.relativeDateTime(F.date(2026, 9, 28, 9, 0), relativeTo: reference) == "lundi 28 septembre à 09:00")
+        #expect(formatter.relativeDateTime(F.date(2026, 9, 28, 9, 0), relativeTo: reference) == "lundi à 09:00")
         #expect(formatter.relativeDateTime(F.date(2027, 1, 1, 10, 0), relativeTo: reference) == "vendredi 1er janvier 2027 à 10:00")
         #expect(formatter.relativeDateTime(F.date(2026, 9, 20, 10, 0), relativeTo: reference) == "dimanche 20 septembre à 10:00")
+    }
+
+    /// 2 to 6 days ahead: the weekday alone; from 7 days ahead and for past days: the full day (review UX-04).
+    @Test func nextDaysShowTheWeekdayOnly() {
+        let reference = F.date(2026, 9, 24, 10, 0) // Thursday
+        #expect(formatter.relativeDay(F.date(2026, 9, 26, 9, 0), relativeTo: reference) == "samedi")
+        #expect(formatter.relativeDay(F.date(2026, 9, 27, 9, 0), relativeTo: reference) == "dimanche")
+        #expect(formatter.relativeDay(F.date(2026, 9, 30, 23, 59), relativeTo: reference) == "mercredi")
+        #expect(formatter.relativeDay(F.date(2026, 10, 1, 0, 0), relativeTo: reference) == "jeudi 1er octobre")
+        #expect(formatter.relativeDay(F.date(2026, 9, 22, 9, 0), relativeTo: reference) == "mardi 22 septembre")
+        // Across the new year, the weekday alone as well (no year needed within the week).
+        let newYearsEve = F.date(2026, 12, 30, 10, 0)
+        #expect(formatter.relativeDateTime(F.date(2027, 1, 2, 18, 0), relativeTo: newYearsEve) == "samedi à 18:00")
+        #expect(formatter.relativeDateTime(F.date(2027, 1, 6, 18, 0), relativeTo: newYearsEve) == "mercredi 6 janvier 2027 à 18:00")
+    }
+
+    /// In the middle of a sentence: « Créée par Lucas Bernard le lundi 14 septembre à 10:00 » (review UX-03).
+    @Test func relativeWordingInASentence() {
+        let reference = F.date(2026, 9, 24, 10, 0)
+        #expect(formatter.relativeDateTimeInSentence(F.date(2026, 9, 24, 9, 0), relativeTo: reference) == "aujourd’hui à 09:00")
+        #expect(formatter.relativeDateTimeInSentence(F.date(2026, 9, 23, 23, 59), relativeTo: reference) == "hier à 23:59")
+        #expect(formatter.relativeDateTimeInSentence(F.date(2026, 9, 25, 8, 30), relativeTo: reference) == "demain à 08:30")
+        #expect(formatter.relativeDateTimeInSentence(F.date(2026, 9, 22, 10, 0), relativeTo: reference) == "le mardi 22 septembre à 10:00")
+        #expect(formatter.relativeDateTimeInSentence(F.date(2026, 9, 14, 10, 0), relativeTo: reference) == "le lundi 14 septembre à 10:00")
+        #expect(formatter.relativeDateTimeInSentence(F.date(2026, 9, 28, 9, 0), relativeTo: reference) == "le lundi 28 septembre à 09:00")
+        #expect(formatter.relativeDateTimeInSentence(F.date(2025, 12, 31, 10, 0), relativeTo: reference) == "le mercredi 31 décembre 2025 à 10:00")
     }
 
     @Test func midnightBoundaries() {
         let reference = F.date(2026, 9, 24, 23, 59, 59)
         #expect(formatter.relativeDay(F.date(2026, 9, 25, 0, 0), relativeTo: reference) == "demain")
-        #expect(formatter.relativeDay(F.date(2026, 9, 24, 0, 0), relativeTo: reference) == "aujourd'hui")
+        #expect(formatter.relativeDay(F.date(2026, 9, 24, 0, 0), relativeTo: reference) == "aujourd’hui")
     }
 
     @Test func dayOffsetAcrossDaylightSavingTransitions() {
@@ -62,7 +88,7 @@ import Testing
         let sundayEarly = F.date(2026, 10, 25, 0, 30)
         let sundayLate = sundayEarly.addingTimeInterval(24 * 3600) // 23:30 the same day
         #expect(formatter.time(sundayLate) == "23:30")
-        #expect(formatter.relativeDay(sundayLate, relativeTo: sundayEarly) == "aujourd'hui")
+        #expect(formatter.relativeDay(sundayLate, relativeTo: sundayEarly) == "aujourd’hui")
         #expect(formatter.relativeDateTime(F.date(2026, 10, 26, 9, 0), relativeTo: sundayEarly) == "demain à 09:00")
     }
 
@@ -92,11 +118,11 @@ import Testing
         #expect(formatter.dayOffset(of: yesterday, from: noon) == -1)
         #expect(formatter.dayOffset(of: noon, from: tomorrow) == -1)
         #expect(formatter.relativeDateTime(tomorrow, relativeTo: noon) == "demain à 10:00")
-        #expect(formatter.relativeDateTime(ten, relativeTo: noon) == "aujourd'hui à 10:00")
+        #expect(formatter.relativeDateTime(ten, relativeTo: noon) == "aujourd’hui à 10:00")
     }
 
     @Test func capitalizesFirstLetter() {
-        #expect(FrenchDateFormatter.capitalizingFirstLetter("aujourd'hui à 20:00") == "Aujourd'hui à 20:00")
+        #expect(FrenchDateFormatter.capitalizingFirstLetter("aujourd’hui à 20:00") == "Aujourd’hui à 20:00")
         #expect(FrenchDateFormatter.capitalizingFirstLetter("école") == "École")
         #expect(FrenchDateFormatter.capitalizingFirstLetter("") == "")
     }

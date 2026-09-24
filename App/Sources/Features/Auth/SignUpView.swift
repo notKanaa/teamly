@@ -97,13 +97,13 @@ struct SignUpView: View {
             Button(action: signUp) {
                 ShellPrimaryButtonLabel(title: "Créer mon compte", isLoading: model.isSubmitting)
             }
-            .buttonStyle(.borderedProminent)
+            .shellProminentButtonStyle()
             .controlSize(.large)
             .disabled(!model.canSubmit)
             .accessibilityIdentifier(AccessibilityID.Auth.signUpButton)
 
             VStack(spacing: 6) {
-                Text("Déjà un compte ?")
+                Text("Déjà un compte\u{00A0}?")
                     .foregroundStyle(.secondary)
                 Button("Se connecter") {
                     onBackToLogin(model.email)
@@ -138,7 +138,7 @@ struct SignUpView: View {
             } label: {
                 ShellPrimaryButtonLabel(title: "Retour à la connexion")
             }
-            .buttonStyle(.borderedProminent)
+            .shellProminentButtonStyle()
             .controlSize(.large)
             .accessibilityIdentifier(AccessibilityID.Auth.backToSignIn)
         }

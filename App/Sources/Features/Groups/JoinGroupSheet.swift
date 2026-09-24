@@ -73,7 +73,7 @@ struct JoinGroupSheet: View {
                 } label: {
                     Label("Ouvrir le groupe", systemImage: "arrow.right.circle")
                 }
-                .buttonStyle(.borderedProminent)
+                .shellProminentButtonStyle()
                 .accessibilityIdentifier(AccessibilityID.Groups.openGroupButton)
             }
         } else {

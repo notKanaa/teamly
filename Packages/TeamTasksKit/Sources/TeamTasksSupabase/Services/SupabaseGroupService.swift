@@ -7,9 +7,10 @@ struct SupabaseGroupService: GroupService {
 
     private var rest: RestClient { context.rest }
 
-    /// Most recently active first, ties by `NameOrder` then id (§4.3).
+    /// Most recently active first, ties by `NameOrder` then id (§4.3). A membership with a role unknown to this
+    /// client (added by a later migration) is left out (`RestClient.fetchRows`).
     func myGroups() async throws -> [GroupSummary] {
-        let rows = try await rest.fetch([MyGroupRow].self) { RestQuery.myGroups(me: $0.userId) }
+        let rows = try await rest.fetchRows(MyGroupRow.self) { RestQuery.myGroups(me: $0.userId) }
         return NameOrder.sortedGroups(rows.map(\.summary))
     }
 
@@ -43,8 +44,9 @@ struct SupabaseGroupService: GroupService {
     }
 
     /// Admins first, then `NameOrder` on the display name, then id (§4.3). Non-members read an empty list (RLS).
+    /// Members with a role unknown to this client are left out.
     func members(groupId: UUID) async throws -> [Membership] {
-        let rows = try await rest.fetch([MemberRow].self) { _ in RestQuery.members(groupId: groupId) }
+        let rows = try await rest.fetchRows(MemberRow.self) { _ in RestQuery.members(groupId: groupId) }
         return NameOrder.sortedMembers(rows.map { $0.membership(groupId: groupId) })
     }
 

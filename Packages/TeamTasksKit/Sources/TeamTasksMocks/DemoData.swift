@@ -18,10 +18,11 @@ public struct DemoUser: Sendable, Hashable, Identifiable {
 /// assigners, details and dates.
 ///
 /// Ids are fixed so that previews and UI tests can reference them. Dates are relative to the backend's `now`,
-/// computed like the seed: wall-clock times in Europe/Paris for the due dates ("today 20:00", "tomorrow
-/// 18:00"…), and exact multiples of 24 hours for everything else (`now() - interval 'N days'` in a UTC session),
-/// e.g. "overdue by 1 day" = now − 24 h. `last_activity_at` and `memberships_changed_at` are the seed time: the
-/// AFTER triggers of the seeded rows bump them to `now()`.
+/// computed like the seed: wall-clock times in Europe/Paris for the due dates ("yesterday 18:00" for the overdue
+/// rent, "today 20:00", "tomorrow 18:00"…) and the completion of the done task ("yesterday 19:00"), so the screens
+/// show round times whatever the seeding time, and exact multiples of 24 hours for everything else
+/// (`now() - interval 'N days'` in a UTC session). `last_activity_at` and `memberships_changed_at` are the seed
+/// time: the AFTER triggers of the seeded rows bump them to `now()`.
 public enum DemoData {
     public static let password = "motdepasse123"
 
@@ -147,9 +148,10 @@ public enum DemoData {
                 dueAt: wallClock(inDays: 1, hour: 18), createdBy: lucas, createdAt: ago(days: 2), assignees: [lucas, camille]
             ),
             Seed(
+                // Yesterday 18:00: always overdue, and a round time on screen (not the seeding time).
                 id: TaskIDs.payerLoyer, groupId: lilasGroupId, title: "Payer le loyer",
                 details: nil, status: .todo, priority: .high,
-                dueAt: ago(days: 1), createdBy: camille, createdAt: ago(days: 6), assignees: [ines]
+                dueAt: wallClock(inDays: -1, hour: 18), createdBy: camille, createdAt: ago(days: 6), assignees: [ines]
             ),
             Seed(
                 id: TaskIDs.reparerFuite, groupId: lilasGroupId, title: "Réparer la fuite du lavabo",
@@ -159,7 +161,8 @@ public enum DemoData {
             Seed(
                 id: TaskIDs.nettoyerCuisine, groupId: lilasGroupId, title: "Nettoyer la cuisine",
                 details: nil, status: .done, priority: .medium,
-                dueAt: nil, createdBy: lucas, createdAt: ago(days: 4), completedAt: ago(days: 1), assignees: [camille]
+                dueAt: nil, createdBy: lucas, createdAt: ago(days: 4), completedAt: wallClock(inDays: -1, hour: 19),
+                assignees: [camille]
             ),
             Seed(
                 id: TaskIDs.reserverGymnase, groupId: sportGroupId, title: "Réserver le gymnase",

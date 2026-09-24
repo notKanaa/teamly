@@ -63,7 +63,7 @@ Membership rules:
 - `remove_member`: admin only, cannot target self (`cannot_remove_self`, use `leave_group`), target must be a member (`not_member`). Admins can remove other admins.
 - `leave_group`: if caller is the only admin and other members remain → `last_admin`. If caller is the last member → the group is deleted.
 - Removing/leaving deletes that user's assignments in the group (FK cascade). Tasks they created stay (`created_by` kept).
-- Account deletion: for each group of the user — if they are the only member, the group is deleted; else if they are the only admin, the **oldest other member** (`joined_at`, then `user_id`) becomes admin. Then the auth user is deleted (cascades to profile, memberships, assignments; `created_by`/`assigned_by` become NULL).
+- Account deletion: for each group of the user — if they are the only member, the group is deleted; else if they are the only admin, the **oldest other member** (`joined_at`, then `user_id`) becomes admin. Then the user's Auth audit trail (`auth.audit_log_entries` rows whose `payload ->> 'actor_id'` is the user; best effort: if the platform refuses, only a warning is raised) and the auth user are deleted (cascades to profile, memberships, assignments; `created_by`/`assigned_by` become NULL).
 - Safety net trigger: after any membership deletion, a group with members but no admin gets its oldest member promoted.
 
 ## 3. Database schema (`public` unless stated)
@@ -80,6 +80,9 @@ Enums: `member_role ('admin','member')`, `task_status ('todo','in_progress','don
 | `task_assignees` | `task_id`, `group_id`, `user_id`, `assigned_by uuid null → profiles set null`, `assigned_at timestamptz not null default now()`; pk `(task_id, user_id)`; fk `(task_id, group_id) → tasks(id, group_id) on delete cascade`; fk `(group_id, user_id) → group_members(group_id, user_id) on delete cascade` |
 | `push_subscriptions` | `user_id uuid pk → profiles cascade`, `topic text not null unique`, `created_at` — ntfy topic of the user |
 | `private.join_attempts` | `user_id uuid`, `attempted_at timestamptz default now()`, `succeeded boolean` |
+| `private.settings` | `key text pk`, `value text` — server settings read by definer functions: `ntfy_base_url`, `push_max_per_hour` (§7), `quota_groups_per_hour`, `quota_tasks_per_hour` (§4.1) |
+| `private.push_log` | `user_id uuid not null → profiles on delete cascade`, `task_id uuid not null`, `queued_at timestamptz not null default now()` — ntfy pushes of the last hour (§7) |
+| `private.write_log` | `user_id uuid not null → profiles on delete cascade`, `kind text not null` (check `kind in ('group', 'task')`), `created_at timestamptz not null default now()` — creations of the last hour (§4.1 write quotas) |
 
 Server-maintained fields: `created_by` (= `auth.uid()` on insert), `created_at`, `updated_at`, `completed_at` (set to `now()` when status becomes `done`, NULL otherwise), `last_activity_at`, `memberships_changed_at`.
 
@@ -96,7 +99,7 @@ All RPCs are `POST /rest/v1/rpc/<name>` with named JSON params (`p_…`). Only r
 
 | RPC | Security | Returns | Behaviour | Errors |
 |---|---|---|---|---|
-| `create_group(p_name text)` | definer | `groups` row | creates group + caller as admin + invite code | `not_authenticated`, `invalid_name` |
+| `create_group(p_name text)` | definer | `groups` row | creates group + caller as admin + invite code | `not_authenticated`, `invalid_name`, `rate_limited` |
 | `join_group_by_code(p_code text)` | definer | `jsonb {status, group_id, group_name}` with `status ∈ joined, already_member, invalid_code` | normalizes code; logs attempt; if the caller already has **≥ 10 failed attempts with `attempted_at >= now() - 1 hour`** (inclusive), every further attempt raises `rate_limited` **before** the code lookup, valid codes included, and is not logged (so the 11th attempt after 10 failures is refused); `already_member` counts as a success | `not_authenticated`, `rate_limited` |
 | `regenerate_invite_code(p_group_id uuid)` | definer | `text` (new code) | admin only | `forbidden` |
 | `rename_group(p_group_id uuid, p_name text)` | definer | `groups` row | admin only | `forbidden`, `invalid_name`, `group_not_found` |
@@ -104,7 +107,7 @@ All RPCs are `POST /rest/v1/rpc/<name>` with named JSON params (`p_…`). Only r
 | `set_member_role(p_group_id uuid, p_user_id uuid, p_role member_role)` | definer | void | admin only | `forbidden`, `not_member`, `last_admin` |
 | `remove_member(p_group_id uuid, p_user_id uuid)` | definer | void | admin only | `forbidden`, `cannot_remove_self`, `not_member` |
 | `leave_group(p_group_id uuid)` | definer | void | see §2 | `not_member`, `last_admin` |
-| `create_task(p_group_id uuid, p_title text, p_details text default null, p_priority task_priority default 'medium', p_due_at timestamptz default null, p_assignee_ids uuid[] default '{}')` | invoker (+ definer helper) | `tasks` row | atomic insert + assignees | `forbidden` (not member), `invalid_title`, `invalid_details`, `too_many_assignees`, `assignee_not_member` |
+| `create_task(p_group_id uuid, p_title text, p_details text default null, p_priority task_priority default 'medium', p_due_at timestamptz default null, p_assignee_ids uuid[] default '{}')` | invoker (+ definer helper) | `tasks` row | atomic insert + assignees | `forbidden` (not member), `invalid_title`, `invalid_details`, `too_many_assignees`, `assignee_not_member`, `rate_limited` |
 | `update_task(p_task_id uuid, p_title text, p_details text, p_priority task_priority, p_due_at timestamptz, p_assignee_ids uuid[])` | invoker (+ definer helper) | `tasks` row | full edit, atomic; NULL `p_due_at` clears the due date | `task_not_found`, `forbidden`, validation errors |
 | `set_task_status(p_task_id uuid, p_status task_status)` | invoker | `tasks` row | admin / creator / assignee | `task_not_found`, `forbidden` |
 | `delete_task(p_task_id uuid)` | invoker | void | admin / creator | `task_not_found`, `forbidden` |
@@ -115,6 +118,8 @@ All RPCs are `POST /rest/v1/rpc/<name>` with named JSON params (`p_…`). Only r
 | `ping()` | invoker, **anon allowed** | `text` `'pong'` | keep-alive | – |
 
 `task_not_found` is raised when the task does not exist **or is not visible** to the caller (non-member); `forbidden` when visible but not allowed.
+
+Write quotas (server only, **not mirrored by the mocks**): a user may create at most **20 groups** and **200 tasks** in the last hour (window inclusive: a creation exactly one hour old still counts; settings `quota_groups_per_hour` / `quota_tasks_per_hour` in `private.settings`), otherwise `rate_limited` → `.rateLimited`. They are enforced by BEFORE INSERT triggers on `groups` and `tasks`, so a direct `POST /rest/v1/tasks` counts too. Permission and validation errors come first; refused writes are not counted. Only end users are limited (`auth.uid()` not NULL: migrations, the seed and service tasks are exempt).
 
 Resolved precedences and edge cases (SQL, mocks and scenarios agree):
 - `rename_group` / `delete_group`: unknown group → `group_not_found`; existing group + non-admin (non-members included) → `forbidden`; then name validation.
@@ -132,6 +137,9 @@ Resolved precedences and edge cases (SQL, mocks and scenarios agree):
 - Swift: `BackendErrorMapper.map(code:message:httpStatus:)` maps by message first, then SQLSTATE, then HTTP status.
 - A request without a valid user session is answered by PostgREST with HTTP **401** + `42501` → `.notAuthenticated` (our own `42501` errors are HTTP 403). Adapters also throw `.notAuthenticated` themselves when no local session exists.
 - `22P05` (U+0000 in JSON) and `23502 invalid_input` → `.invalidInput`.
+- A request whose session is refused (HTTP 401, or `P0001 not_authenticated`) is refreshed once and sent again with the new token; a dead refresh (revoked session, deleted account) removes the local session, which signs the device out (`.notAuthenticated`).
+- Temporary failures — HTTP 5xx or 429, PostgREST `PGRST000`–`PGRST003`, `57014` (statement timeout), Auth `unexpected_failure` / `request_timeout` — become `.unknown("le serveur est momentanément indisponible, réessayez dans un instant")`.
+- Auth codes without an `AppError` case of their own get a French `.unknown` detail (the server's English messages never reach the user): `email_address_not_authorized` (« l’envoi d’e-mails vers cette adresse n’est pas encore possible »), `signup_disabled` (« les inscriptions sont fermées pour le moment »), `email_provider_disabled` (« la connexion par e-mail est désactivée pour le moment »), `user_banned` (« ce compte est suspendu »), `reauthentication_needed` (« reconnectez-vous, puis réessayez »), `captcha_failed` (« la vérification de sécurité a échoué »), `over_request_rate_limit` (« trop de tentatives, réessayez dans quelques minutes »).
 
 ### 4.3 Reads (PostgREST)
 
@@ -142,17 +150,18 @@ Resolved precedences and edge cases (SQL, mocks and scenarios agree):
 | Invite code (admin) | `GET group_invites?select=code&group_id=eq.<g>` (0 rows for non-admins → `.forbidden`) |
 | Group tasks | `GET tasks?select=*,assignees:task_assignees(user_id)&group_id=eq.<g>` + unless `includeOldDone`: `&or=(status.neq.done,completed_at.gte.<now-30d>)` |
 | One task | `GET tasks?select=*,assignees:task_assignees(user_id)&id=eq.<t>` (0 rows → `.notFound`) |
-| My tasks | `GET tasks?select=*,assignees:task_assignees(user_id),mine:task_assignees!inner(assigned_at,user_id),group:groups(name)&mine.user_id=eq.<me>` + unless `includeDone`: `&status=neq.done` |
+| My tasks | `GET tasks?select=*,assignees:task_assignees(user_id),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name)&mine.user_id=eq.<me>` + unless `includeDone`: `&status=neq.done` |
 | Assignments since | `GET task_assignees?select=task_id,group_id,assigned_by,assigned_at,task:tasks(title,due_at,group:groups(name))&user_id=eq.<me>&assigned_at=gt.<since>&or=(assigned_by.is.null,assigned_by.neq.<me>)&order=assigned_at.asc` |
 | My profile | `GET profiles?select=id,display_name&id=eq.<me>` |
 | Push topic | `GET push_subscriptions?select=topic&user_id=eq.<me>` |
-| Update display name | `PATCH profiles?id=eq.<me>` body `{"display_name": …}` with `Prefer: return=representation` (0 rows → `.forbidden`) |
+| Update display name | `PATCH profiles?select=id,display_name&id=eq.<me>` body `{"display_name": …}` with `Prefer: return=representation` (0 rows → `.forbidden`) |
 
 Timestamps are ISO-8601 with an offset and **0 to 6** fractional digits (omitted when zero): decoders must accept all of them. Assignee ids are returned sorted by the client (`assigneeIds` is sorted by `uuidString`).
 
 Read details:
 - Timestamp **filter values** are sent in UTC with **6 fractional digits** (microseconds; supabase-swift's default `Date` filter value truncates to milliseconds — do not use it) and percent-encoded (`+` would read as a space).
 - `assignments(since:)` is **exclusive** (`gt`).
+- `TaskItem.myAssignedAt`, `myAssignedBy` (from `mine`) and `groupName` are filled by `myTasks` only (nil in every other read).
 - Old done tasks: cutoff = `now − 30 × 86 400 s` (not calendar days), inclusive (`gte`).
 - Row order of `tasks` / `myTasks` reads is unspecified: clients sort with `TaskSort`.
 - `myGroups`: `last_activity_at` desc, ties by `NameOrder` (fr_FR, case- and diacritic-insensitive, then exact) then `id.uuidString`. `members`: admins first, then `NameOrder` on the display name, then `id.uuidString`. `NameOrder` lives in TeamTasksCore so every implementation sorts identically.
@@ -164,6 +173,8 @@ Helpers live in schema `private` (not exposed), are `security definer`, `set sea
 `my_group_ids()`, `my_admin_group_ids()`, `my_assigned_task_ids()`, `co_member_ids()`, `is_group_member(uuid)`, `is_group_admin(uuid)`.
 `authenticated` has EXECUTE on these helpers (policies run with the caller's privileges) but no USAGE on schema
 `private`, so they cannot be called by name through the API.
+The private tables `private.join_attempts`, `private.settings`, `private.push_log` and `private.write_log` have RLS
+enabled **without any policy** and no API privilege: only definer functions and triggers touch them.
 
 | Table | SELECT | INSERT | UPDATE | DELETE |
 |---|---|---|---|---|
@@ -185,6 +196,7 @@ Pitfalls (keep in mind everywhere):
 7. `ON DELETE SET NULL` fires UPDATE triggers (the `created_by` immutability check must allow NULL).
 8. Raising an exception rolls back everything, including rate-limit logs → `join_group_by_code` *returns* `invalid_code`.
 9. Since 2026 new Supabase projects do not auto-grant tables to API roles → every table/function has explicit `grant`s.
+10. Never expose schema `net` or `private` (API settings → exposed schemas): Supabase grants `anon`/`authenticated` EXECUTE on `net.http_post` (and USAGE on `net`) when pg_net is created, and `postgres` cannot revoke it; only the fact that `net` is not exposed keeps it out of the API.
 
 ## 6. Realtime (change signals)
 
@@ -210,6 +222,7 @@ Client obligations:
 - Changes committed shortly **before** the subscription may still be delivered after `.connected`: scenarios use a barrier event before taking a mark.
 - Pass refreshed access tokens to the Realtime client (`setAuth`) so channels survive the JWT expiry (3600 s).
 - Never listen to DELETE events. On `.connected`, reload everything.
+- The Supabase realtime stream never ends by itself (the client reconnects on its own), so `RealtimeCoordinator` fetches the group ids again on each reconnection (a later `.connected`), while they are stale (a failed fetch is retried after 5 s, the delay doubling up to 60 s) and on return to the foreground (`refreshGroupIds()`); it re-subscribes when they changed.
 
 ## 7. Notifications
 
@@ -217,12 +230,12 @@ Client obligations:
 - `userInfo`: `taskId`, `groupId` (UUID strings).
 - Reminders: only tasks assigned to me, not done, with a due date; fire at `dueAt - leadTime` if in the future; at most 60 pending (`ReminderPlanner`).
 - Lead time options: at due time, 15 min, 1 h (default), 1 day, off.
-- Deep link: `equipe://task/<groupId>/<taskId>` (ntfy `Click` header, notification taps).
+- Deep link: `equipe://task/<groupId>/<taskId>` (ntfy `click` field, notification taps).
 - `summary-<epochSeconds>` uses device time; two summaries in the same second replace each other (accepted).
 - iOS scheduler adapter: a fire date that has passed between planning and `add()` is skipped (a time-interval trigger ≤ 0 s throws; a calendar trigger in the past never fires).
 - App wiring: one `AssignmentNotifier` and one `ReminderSynchronizer` per signed-in user per process (also used by the background refresh), because their serialization is per instance. `synchronize(myTasks:)` is only called with a **successfully loaded** list (an empty list after a network error would remove every reminder). On sign-out: stop the `RealtimeCoordinator`, `removeAll()` reminders, `reset()` the notifier.
 - The app injects `Calendar` with the French Gregorian rules and `TimeZone.autoupdatingCurrent`, and refreshes date-dependent UI on significant time changes.
-- ntfy push (opt-in): on INSERT into `task_assignees` where `assigned_by is distinct from user_id` and the assignee has a `push_subscriptions` row, the DB (pg_net) POSTs to `https://ntfy.sh/<topic>` with title `Équipe`, message `Nouvelle tâche assignée dans « <group name> »`, header `Click: equipe://task/<groupId>/<taskId>`. No task title is sent.
+- ntfy push (opt-in): on INSERT into `task_assignees` where `assigned_by is distinct from user_id` and the assignee has a `push_subscriptions` row, trigger `private.notify_assignment_push` queues with pg_net a POST of JSON `{"topic": "<topic>", "title": "Équipe", "message": "Nouvelle tâche assignée dans « <group name> »", "click": "equipe://task/<groupId>/<taskId>"}` to `private.settings.ntfy_base_url` (default `https://ntfy.sh/`; NULL or empty = push off, as in `supabase/seed.sql`). No task title or details are sent. At most 1 push per (user, task) and 30 per user per hour (`push_max_per_hour`; window inclusive, `private.push_log`). The request is queued in the assignment's transaction (nothing is sent if it rolls back); errors never fail the assignment (a preparation error becomes a WARNING, HTTP errors happen later in the pg_net worker).
 
 ## 8. Demo data (mocks & `supabase/seed.sql`)
 
@@ -239,13 +252,13 @@ Demo password for every seeded user: `motdepasse123`.
 | « Coloc' rue des Lilas » | U1 admin, U2 member, U3 member | `LYLAS234` |
 | « Projet Asso Sport » | U2 admin, U1 member | `SPRT5678` |
 
-Tasks (group « Coloc' rue des Lilas »): « Sortir les poubelles » (U1, high, due today 20:00, todo), « Faire les courses » (U2 + U1, medium, due tomorrow, in_progress), « Payer le loyer » (U3, high, overdue by 1 day, todo), « Réparer la fuite du lavabo » (unassigned, low, no due date, todo), « Nettoyer la cuisine » (U1, medium, done yesterday).
+Tasks (group « Coloc' rue des Lilas »): « Sortir les poubelles » (U1, high, due today 20:00, todo), « Faire les courses » (U2 + U1, medium, due tomorrow, in_progress), « Payer le loyer » (U3, high, overdue: due yesterday, todo), « Réparer la fuite du lavabo » (unassigned, low, no due date, todo), « Nettoyer la cuisine » (U1, medium, done yesterday).
 Tasks (group « Projet Asso Sport »): « Réserver le gymnase » (U1, high, due in 3 days, todo), « Créer l'affiche du tournoi » (U2, low, due in 7 days, in_progress).
 
 `supabase/seed.sql` is **canonical** for everything this table leaves open; `TeamTasksMocks/DemoData` copies it:
 - ids: users U1 `11111111-1111-4111-8111-111111111111`, U2 `22222222-2222-4222-8222-222222222222`, U3 `33333333-3333-4333-8333-333333333333`; groups `a0000000-0000-4000-8000-00000000000{1,2}`; tasks `b0000000-0000-4000-8000-00000000000{1…7}` in the order above;
 - creators (= assigners): poubelles, loyer → U1; courses, cuisine → U2; lavabo → U3; both Asso Sport tasks → U2;
-- due times in Europe/Paris: today 20:00, tomorrow 18:00, loyer = now − 24 h, +3 days 18:00, +7 days 12:00; cuisine `completed_at` = now − 24 h;
+- due times in Europe/Paris: today 20:00, tomorrow 18:00, loyer = yesterday 18:00, +3 days 18:00, +7 days 12:00; cuisine `completed_at` = yesterday 19:00;
 - mock scenario `emptyGroups` adds one extra account (not seeded): Alex Moreau, `alex@example.com`, id `c0000000-0000-4000-8000-000000000004`, member of no group.
 
 ## 9. Adapter obligations (phase 2B)
@@ -253,4 +266,6 @@ Tasks (group « Projet Asso Sport »): « Réserver le gymnase » (U1, high, due
 - Validate every input with `InputValidation` before calling the server (§1), normalize e-mails.
 - `signOut` uses the **local** scope (only this device), like the mocks.
 - `updatePassword` with the current password: Supabase Auth answers `422 same_password`; the adapter treats it as success (the requested end state holds).
+- `deleteAccount` answered `not_authenticated` with an accepted token (the account no longer exists: an earlier attempt whose answer was lost, or another device) counts as success, followed by the local sign-out.
+- List reads leave out rows with an enum value unknown to the client (a value added by a later migration) instead of failing the whole list; a single-row read of such a row is an error. Clients must be tolerant **before** the server adds enum values: ship the tolerant client first.
 - View models ignore `CancellationError` (a cancelled SwiftUI `.task` must not surface « annulé »).

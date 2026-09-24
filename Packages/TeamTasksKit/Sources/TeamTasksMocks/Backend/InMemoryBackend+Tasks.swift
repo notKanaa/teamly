@@ -22,7 +22,8 @@ extension InMemoryBackend {
         }
     }
 
-    /// Tasks assigned to the caller, with `myAssignedAt` and `groupName`. Unless `includeDone`, done tasks are omitted.
+    /// Tasks assigned to the caller, with `myAssignedAt`, `myAssignedBy` and `groupName`. Unless `includeDone`, done
+    /// tasks are omitted.
     func myTasks(clientId: UUID, includeDone: Bool) throws -> [TaskItem] {
         try read(as: clientId) { data, me in
             data.tasks.values
@@ -32,7 +33,9 @@ extension InMemoryBackend {
                 .sorted(by: InMemoryBackend.creationOrder)
                 .map { task in
                     var item = data.taskItem(task)
-                    item.myAssignedAt = data.assignees[task.id]?[me]?.assignedAt
+                    let mine = data.assignees[task.id]?[me]
+                    item.myAssignedAt = mine?.assignedAt
+                    item.myAssignedBy = mine?.assignedBy
                     item.groupName = data.groups[task.groupId]?.name
                     return item
                 }

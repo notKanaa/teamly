@@ -19,6 +19,7 @@ extension ContractScenarios {
                 try Verify.equal(secondTasks.map(\.id), [b1.id], "tasks of the second group (\(includeOldDone))")
                 for task in firstTasks + secondTasks {
                     try Verify.equal(task.myAssignedAt, nil, "group tasks have no myAssignedAt")
+                    try Verify.equal(task.myAssignedBy, nil, "group tasks have no myAssignedBy")
                     try Verify.equal(task.groupName, nil, "group tasks have no groupName")
                 }
             }
@@ -42,9 +43,11 @@ extension ContractScenarios {
             try Verify.that(!all.contains { $0.id == notMine.id }, "tasks not assigned to bob are excluded")
 
             let names = [first.id: first.name, second.id: second.name]
+            let assigners = [todo.id: alice.id, done.id: alice.id, selfAssigned.id: bob.id]
             for item in all {
                 try Verify.equal(item.groupName, names[item.groupId], "groupName of \(item.title)")
                 try Verify.that(item.myAssignedAt != nil, "myAssignedAt of \(item.title)")
+                try Verify.equal(item.myAssignedBy, assigners[item.id], "myAssignedBy of \(item.title)")
                 let plain = try await bob.tasks.task(id: item.id)
                 try Verify.equal(item.withoutPersonalFields, plain, "myTasks item \(item.title) matches task(id:)")
             }

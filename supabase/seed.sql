@@ -1,6 +1,9 @@
 -- Équipe — demo data (docs/CONTRACTS.md §8). Loaded by `supabase db reset` (local only).
 -- Password of every demo user: motdepasse123. Dates are relative to now() in Europe/Paris.
 
+-- The local stack and CI never send ntfy pushes (pgTAP turns them on inside its own transaction).
+update private.settings set value = null where key = 'ntfy_base_url';
+
 -- Users -------------------------------------------------------------------------------------------------
 -- GoTrue scans several token/text columns into non-nullable strings: they must be '' (not NULL) or the
 -- users cannot sign in. Profiles are created by the on_auth_user_created trigger from display_name.
@@ -87,7 +90,7 @@ from paris, lateral (values
   ('b0000000-0000-4000-8000-000000000003', 'a0000000-0000-4000-8000-000000000001',
    'Payer le loyer', null,
    'todo', 'high',
-   now() - interval '1 day',
+   (paris.today - 1 + time '18:00') at time zone 'Europe/Paris',
    '11111111-1111-4111-8111-111111111111', now() - interval '6 days', null),
   ('b0000000-0000-4000-8000-000000000004', 'a0000000-0000-4000-8000-000000000001',
    'Réparer la fuite du lavabo', 'Le joint sous le lavabo de la salle de bain goutte.',
@@ -98,7 +101,8 @@ from paris, lateral (values
    'Nettoyer la cuisine', null,
    'done', 'medium',
    null,
-   '22222222-2222-4222-8222-222222222222', now() - interval '4 days', now() - interval '1 day'),
+   '22222222-2222-4222-8222-222222222222', now() - interval '4 days',
+   (paris.today - 1 + time '19:00') at time zone 'Europe/Paris'),
   -- « Projet Asso Sport »
   ('b0000000-0000-4000-8000-000000000006', 'a0000000-0000-4000-8000-000000000002',
    'Réserver le gymnase', 'Samedi après-midi, pour le tournoi.',

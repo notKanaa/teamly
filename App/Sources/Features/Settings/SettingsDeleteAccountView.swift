@@ -36,7 +36,7 @@ struct SettingsDeleteAccountView: View {
                 } header: {
                     Text("Confirmation")
                 } footer: {
-                    Text("Tapez « \(SettingsViewModel.deleteConfirmationWord) » en majuscules pour confirmer.")
+                    Text("Tapez «\u{00A0}\(SettingsViewModel.deleteConfirmationWord)\u{00A0}» en majuscules pour confirmer.")
                 }
 
                 Section {

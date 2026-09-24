@@ -20,7 +20,7 @@ struct GroupsLoadStateView: View {
                 } label: {
                     Label("Réessayer", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(.borderedProminent)
+                .shellProminentButtonStyle()
                 .accessibilityIdentifier(AccessibilityID.Groups.retryButton)
             }
         } else if !loadState.isLoaded {

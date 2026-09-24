@@ -93,19 +93,28 @@ private struct MyTasksList: View {
 
     private func taskRow(_ row: TaskRow) -> some View {
         NavigationLink(value: AppRoute.task(groupId: row.task.groupId, taskId: row.id)) {
-            TasksRowView(row: row, isBusy: model.busyTaskIds.contains(row.id)) {
-                setStatus(row.status.next, for: row)
-            }
+            TasksRowView(
+                row: row,
+                isBusy: model.busyTaskIds.contains(row.id),
+                onToggleStatus: {
+                    setStatus(row.status.next, for: row)
+                }
+            )
         }
         .accessibilityIdentifier(AccessibilityID.Tasks.row(row.title))
+        // Same leading swipe as the group screen: « Terminer » / « Rouvrir » (the status cycle is on the round button).
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if row.canChangeStatus {
                 Button {
-                    setStatus(row.status.next, for: row)
+                    setStatus(row.isDone ? .todo : .done, for: row)
                 } label: {
-                    Label(row.status.next.label, systemImage: row.status.next.systemImage)
+                    if row.isDone {
+                        Label("Rouvrir", systemImage: "arrow.uturn.backward")
+                    } else {
+                        Label("Terminer", systemImage: "checkmark")
+                    }
                 }
-                .tint(row.status.next.tasksTint)
+                .tint(row.isDone ? Color.orange : Color.green)
             }
         }
         .contextMenu {
@@ -138,7 +147,7 @@ private struct MyTasksList: View {
                 Button("Réessayer") {
                     Task { await model.reload() }
                 }
-                .buttonStyle(.borderedProminent)
+                .shellProminentButtonStyle()
                 .accessibilityIdentifier(AccessibilityID.MyTasks.retryButton)
             }
         case .loaded:
@@ -178,7 +187,7 @@ private struct MyTasksSectionHeader: View {
             Text(section.rows.count, format: .number)
         }
         .textCase(nil)
-        .foregroundStyle(section.bucket == .overdue ? Color.red : Color.secondary)
+        .foregroundStyle(section.bucket == .overdue ? ShellPalette.red : Color.secondary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityAddTraits(.isHeader)

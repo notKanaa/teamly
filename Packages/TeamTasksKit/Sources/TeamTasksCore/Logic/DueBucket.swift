@@ -21,7 +21,7 @@ public enum DueBucket: Int, Sendable, Hashable, Codable, CaseIterable, Comparabl
     public var title: String {
         switch self {
         case .overdue: "En retard"
-        case .today: "Aujourd'hui"
+        case .today: "Aujourd’hui"
         case .thisWeek: "Cette semaine"
         case .later: "Plus tard"
         case .noDueDate: "Sans échéance"

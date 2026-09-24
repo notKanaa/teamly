@@ -78,9 +78,18 @@ struct TaskEditorView: View {
                         .accessibilityIdentifier(AccessibilityID.Tasks.saveButton)
                     }
                 }
+                // Return adds a line to the description: « OK » closes the keyboard, which otherwise hides
+                // « Échéance » and « Assignation ».
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("OK") {
+                        focusedField = nil
+                    }
+                    .fontWeight(.semibold)
+                }
             }
             .confirmationDialog(
-                "Abandonner les modifications ?",
+                "Abandonner les modifications\u{00A0}?",
                 isPresented: $isConfirmingDiscard,
                 titleVisibility: .visible
             ) {
@@ -278,6 +287,6 @@ private struct TaskEditorErrorText: View {
 
     var body: some View {
         Label(message, systemImage: "exclamationmark.circle.fill")
-            .foregroundStyle(Color.red)
+            .foregroundStyle(ShellPalette.red)
     }
 }

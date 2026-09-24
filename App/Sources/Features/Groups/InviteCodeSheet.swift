@@ -60,11 +60,13 @@ struct InviteCodeSheet: View {
         if let code = model.inviteCodeText, model.canSeeInviteCode {
             ScrollView {
                 VStack(spacing: 20) {
-                    Text("Partagez ce code avec les personnes à inviter dans « \(model.groupName) ». Elles le saisiront dans « Rejoindre ».")
+                    Text("Partagez ce code avec les personnes à inviter dans «\u{00A0}\(model.groupName)\u{00A0}». Elles le saisiront dans «\u{00A0}Rejoindre\u{00A0}».")
                         .font(.subheadline)
                         .foregroundStyle(Color.secondary)
                         .multilineTextAlignment(.center)
+                    // Spelled out by VoiceOver (« L, Y, L, A, tiret, S… »), not read as a word and a number.
                     Text(code)
+                        .speechSpellsOutCharacters()
                         .font(.system(size: 44, weight: .bold, design: .monospaced))
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
@@ -82,7 +84,7 @@ struct InviteCodeSheet: View {
                             Label("Partager le code", systemImage: "square.and.arrow.up")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .shellProminentButtonStyle()
                         .controlSize(.large)
                         .accessibilityIdentifier(AccessibilityID.Groups.shareCodeButton)
                     }

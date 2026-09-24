@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Full-width label of a primary action button that shows a spinner while the action runs.
 ///
-/// Use with `.buttonStyle(.borderedProminent)` and `.controlSize(.large)`.
+/// Use with `.shellProminentButtonStyle()` and `.controlSize(.large)`.
 struct ShellPrimaryButtonLabel: View {
     let title: String
     var isLoading = false

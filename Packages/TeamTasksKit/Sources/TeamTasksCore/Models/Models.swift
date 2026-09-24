@@ -134,6 +134,9 @@ public struct TaskItem: Sendable, Hashable, Identifiable {
     public var assigneeIds: [UUID]
     /// Only filled by `TaskService.myTasks`: when the current user was assigned (drives the "Nouveau" badge).
     public var myAssignedAt: Date?
+    /// Only filled by `TaskService.myTasks`: who assigned the current user (nil: a deleted account, or not a
+    /// `myTasks` item). A self-assignment is never "Nouveau".
+    public var myAssignedBy: UUID?
     /// Only filled by `TaskService.myTasks`: the group's name, for display outside the group screen.
     public var groupName: String?
 
@@ -151,7 +154,8 @@ public struct TaskItem: Sendable, Hashable, Identifiable {
         completedAt: Date? = nil,
         assigneeIds: [UUID] = [],
         myAssignedAt: Date? = nil,
-        groupName: String? = nil
+        groupName: String? = nil,
+        myAssignedBy: UUID? = nil
     ) {
         self.id = id
         self.groupId = groupId
@@ -166,6 +170,7 @@ public struct TaskItem: Sendable, Hashable, Identifiable {
         self.completedAt = completedAt
         self.assigneeIds = assigneeIds
         self.myAssignedAt = myAssignedAt
+        self.myAssignedBy = myAssignedBy
         self.groupName = groupName
     }
 }

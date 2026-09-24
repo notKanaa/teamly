@@ -243,6 +243,7 @@ extension ContractScenarios {
             try Verify.equal(first.assignedBy, alice.id, "assignedBy of the first assignment")
             let bobTasks = try await bob.tasks.myTasks(includeDone: true)
             try Verify.equal(bobTasks.first { $0.id == task.id }?.myAssignedAt, first.assignedAt, "myAssignedAt")
+            try Verify.equal(bobTasks.first { $0.id == task.id }?.myAssignedBy, alice.id, "myAssignedBy")
 
             // Dan (another admin) adds Carol: Bob's row is kept as is.
             let updated = try await dan.reassign(task, to: [bob, carol])

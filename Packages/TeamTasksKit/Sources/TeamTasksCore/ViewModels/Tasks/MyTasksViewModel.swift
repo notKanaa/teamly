@@ -123,9 +123,12 @@ public final class MyTasksViewModel: ErrorPresenting {
     /// Number of « Nouveau » tasks (tab badge).
     public var newCount: Int { tasks.filter { isNew($0) }.count }
 
-    /// Assigned to me by someone else after `lastSeenAt`, not done. Tasks I created are never new.
+    /// Assigned to me by someone else (or by a since-deleted account) after `lastSeenAt`, not done. Tasks I created
+    /// and tasks I assigned to myself are never new (like `AssignmentNotifier`, which ignores self-assignments).
     public func isNew(_ task: TaskItem) -> Bool {
-        guard task.status != .done, task.createdBy != session.userId, let assignedAt = task.myAssignedAt else { return false }
+        guard task.status != .done, task.createdBy != session.userId, task.myAssignedBy != session.userId,
+              let assignedAt = task.myAssignedAt
+        else { return false }
         guard let lastSeenAt else { return true }
         return assignedAt > lastSeenAt
     }
@@ -169,6 +172,7 @@ public final class MyTasksViewModel: ErrorPresenting {
             if let index = tasks.firstIndex(where: { $0.id == task.id }) {
                 var merged = updated
                 merged.myAssignedAt = tasks[index].myAssignedAt
+                merged.myAssignedBy = tasks[index].myAssignedBy
                 merged.groupName = tasks[index].groupName
                 tasks[index] = merged
             }
