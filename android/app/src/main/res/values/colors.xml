@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher icon gradient, sampled from the iOS AppIcon (top-left → bottom-right). -->
+    <color name="icon_gradient_start">#FF416CD9</color>
+    <color name="icon_gradient_end">#FF5838B3</color>
+</resources>

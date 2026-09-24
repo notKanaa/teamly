@@ -1,0 +1,9 @@
+# Gradle wrapper scripts: the Unix script must stay LF (and executable: `git add --chmod=+x android/gradlew`),
+# the Windows script CRLF.
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary
+*.png binary
+*.webp binary
+*.apk binary
+*.aab binary

@@ -38,3 +38,12 @@ App/Info.plist
 
 # CI logs (annotated on failure)
 ci-logs/
+
+# Android (Gradle project in android/)
+android/.gradle/
+android/**/build/
+android/local.properties
+android/.kotlin/
+android/captures/
+*.apk
+*.aab

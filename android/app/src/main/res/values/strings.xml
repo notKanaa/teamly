@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app is French-only: the default resources are in French. -->
+<resources>
+    <string name="app_name">Équipe</string>
+    <string name="placeholder_subtitle">Les tâches de votre groupe, au même endroit.</string>
+</resources>
