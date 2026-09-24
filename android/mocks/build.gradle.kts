@@ -7,6 +7,8 @@ plugins {
 dependencies {
     api(project(":core"))
 
+    // The backend-agnostic contract scenarios run against the in-memory backend (ContractScenarioTest).
+    testImplementation(project(":contract"))
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)

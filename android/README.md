@@ -7,9 +7,9 @@ as the iOS app and must behave like it: [`docs/CONTRACTS.md`](../docs/CONTRACTS.
 
 | Module | Kind | Content | iOS counterpart |
 |---|---|---|---|
-| `:core` | Kotlin/JVM | Models, service interfaces, `AppError`, `BackendErrorMapper`, permissions, `Limits`, `InviteCode`, `InputValidation`, `NameOrder`, platform ports (package `io.github.notkanaa.equipe.core`) | `TeamTasksCore` |
-| `:mocks` | Kotlin/JVM | In-memory backend implementing the `:core` services (placeholder) | `TeamTasksMocks` |
-| `:contract` | Kotlin/JVM | Backend-agnostic contract scenarios (placeholder) | `TeamTasksContract` |
+| `:core` | Kotlin/JVM | Models, service interfaces, `AppError`, `BackendErrorMapper`, permissions, `Limits`, `InviteCode`, `InputValidation`, `NameOrder`, platform ports (package `io.github.notkanaa.equipe.core`); pure logic in `core.logic`: filters, sorting, due buckets, French dates, reminders, assignment notifications, change feed, realtime coordinator | `TeamTasksCore` |
+| `:mocks` | Kotlin/JVM | In-memory backend implementing the `:core` services with the SQL semantics; demo data identical to `supabase/seed.sql`; `MockEnvironment` scenarios | `TeamTasksMocks` |
+| `:contract` | Kotlin/JVM | The 56 backend-agnostic contract scenarios (same names as iOS), run against the mocks and the Supabase adapters | `TeamTasksContract` |
 | `:supabase` | Kotlin/JVM | Adapters on supabase-kt (Auth, PostgREST, Realtime) + Ktor OkHttp engine (placeholder) | `TeamTasksSupabase` |
 | `:app` | Android app | Compose UI, `io.github.notkanaa.equipe`, minSdk 26, target/compile SDK 37, French only | `App/` |
 
