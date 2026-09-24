@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds an unsigned Release .ipa (to be re-signed on the user's side with Sideloadly + a free Apple ID).
+# Builds an ad-hoc signed Release .ipa (re-signed on the user's side with Sideloadly + a free Apple ID).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -17,5 +17,10 @@ test -d "$APP"
 rm -rf build/ipa build/Equipe-unsigned.ipa
 mkdir -p build/ipa/Payload
 cp -R "$APP" build/ipa/Payload/
+# Ad-hoc signature ("-", no certificate, no entitlements): a binary without any LC_CODE_SIGNATURE is rejected
+# by Sideloadly ("Guru Meditation … Invalid file"); it replaces this placeholder with the user's free Apple ID.
+codesign --force --deep --sign - --timestamp=none build/ipa/Payload/TeamTasks.app
+codesign --verify --deep --strict --verbose=2 build/ipa/Payload/TeamTasks.app
+codesign -dv build/ipa/Payload/TeamTasks.app 2>&1 | grep -E 'Identifier|Signature|Format'
 (cd build/ipa && zip -qry ../Equipe-unsigned.ipa Payload)
 ls -la build/Equipe-unsigned.ipa
