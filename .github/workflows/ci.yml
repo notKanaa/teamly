@@ -65,6 +65,8 @@ jobs:
     name: iOS app (build, UI tests, screenshots)
     runs-on: macos-26
     timeout-minutes: 60
+    permissions:
+      contents: write # publishes the screenshots to the ci-screenshots branch
     steps:
       - uses: actions/checkout@v7
       - name: Select latest Xcode 26
@@ -98,6 +100,11 @@ jobs:
           UDID="$(scripts/ci/pick-simulator.sh)"
           test -n "$UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          # Clean, stable status bar on the screenshots (best effort).
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b || true
+          xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 \
+            --cellularMode active --cellularBars 4 --wifiBars 3 || true
       - name: Build & run UI tests
         id: uitests
         run: |
@@ -119,6 +126,21 @@ jobs:
           path: build/screenshots
           retention-days: 14
           if-no-files-found: ignore
+      # Artifacts need a token to download; a branch is public, so the screenshots can be reviewed
+      # (raw.githubusercontent.com/<repo>/ci-screenshots/<name>.png) without logging in.
+      # One force-pushed commit, so the branch never accumulates history.
+      - name: Publish screenshots to the ci-screenshots branch
+        if: always() && github.ref == 'refs/heads/main' && hashFiles('build/screenshots/**') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd build/screenshots
+          printf '# Captures CI\n\nCommit %s, run %s.\n' "${GITHUB_SHA::7}" "$GITHUB_RUN_ID" > README.md
+          git init -q -b ci-screenshots
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Screenshots of ${GITHUB_SHA::7} (run $GITHUB_RUN_ID)"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

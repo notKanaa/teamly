@@ -23,14 +23,26 @@ xcrun xcresulttool export attachments --path "$RESULT" --output-path "$RAW" || {
 MANIFEST="$RAW/manifest.json"
 if [ -f "$MANIFEST" ]; then
   # Rename the exported files to their attachment names: xcresulttool suggests "<name>_<index>_<uuid>.<ext>".
-  jq -r '.[] | .attachments[]? | [.exportedFileName, (.suggestedHumanReadableName // .exportedFileName)] | @tsv' "$MANIFEST" |
-    while IFS=$'\t' read -r file name; do
+  # The expected captures go to $OUT; every other attachment (automatic screenshots of failures, debug
+  # descriptions) goes to $OUT/debug, prefixed by its test, with a file-system-safe name (artifact uploads
+  # refuse " : < > | * ? and new lines).
+  mkdir -p "$OUT/debug"
+  jq -r '.[] | (.testIdentifier // "test") as $test | .attachments[]?
+         | [.exportedFileName, (.suggestedHumanReadableName // .exportedFileName), $test] | @tsv' "$MANIFEST" |
+    while IFS=$'\t' read -r file name test; do
       case "$file" in *.*) ext="${file##*.}" ;; *) ext="png" ;; esac
       base="$(printf '%s' "$name" | sed -E \
         -e 's/\.[A-Za-z0-9]+$//' \
         -e 's/(_[0-9]+)?(_[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})?$//')"
       [ -n "$base" ] || base="${file%.*}"
-      cp "$RAW/$file" "$OUT/$base.$ext" 2>/dev/null || echo "Could not copy $file ($name)."
+      is_expected=0
+      for expected in "${EXPECTED[@]}"; do [ "$base" = "$expected" ] && is_expected=1; done
+      if [ "$is_expected" = 1 ]; then
+        cp "$RAW/$file" "$OUT/$base.$ext" 2>/dev/null || echo "Could not copy $file ($name)."
+      else
+        safe="$(printf '%s--%s' "${test##*/}" "$base" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-120)"
+        cp "$RAW/$file" "$OUT/debug/$safe.$ext" 2>/dev/null || echo "Could not copy $file ($name)."
+      fi
     done
 else
   echo "No manifest.json in the export: copying the attachments with their exported names."

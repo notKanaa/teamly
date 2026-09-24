@@ -16,41 +16,47 @@ final class FlowTests: XCTestCase {
         let ui = EquipeApp.launch(.populated, for: self)
         ui.waitForDemoGroups()
 
-        ui.tap(ui.button(AccessibilityID.Groups.createButton), "« Créer »")
-        let nameField = ui.textField(AccessibilityID.Groups.nameField)
-        let name = ui.typeText("Club de lecture", into: nameField)
-        ui.tapWhenEnabled(ui.button(AccessibilityID.Groups.saveButton), "« Créer » of the sheet")
+        let nameField = ui.textFields(AccessibilityID.Groups.nameField)
+        ui.tap(ui.createGroupButton, "« Créer »", until: .shows(nameField))
+        let name = ui.typeText("Club de lecture", into: nameField, "the group name field")
+        ui.tapWhenEnabled(ui.buttons(AccessibilityID.Groups.saveButton), "« Créer » of the sheet", until: .hides(nameField))
         ui.waitForDisappearance(nameField, "the « Nouveau groupe » sheet")
 
         ui.waitForNavigationTitle(name)
-        ui.waitFor(ui.element(AccessibilityID.Groups.emptyTasks), "the « Aucune tâche » state")
-        ui.waitFor(ui.element(AccessibilityID.Groups.inviteButton), "« Inviter avec un code » (the creator is admin)")
+        ui.waitFor(ui.elements(AccessibilityID.Groups.emptyTasks), "the « Aucune tâche » state")
+        ui.waitFor(ui.elements(AccessibilityID.Groups.inviteButton), "« Inviter avec un code » (the creator is admin)")
 
         ui.goBack(from: name)
-        ui.waitForContent(ui.element(AccessibilityID.Groups.row(name)), "the new group in the list")
+        ui.waitForContent(ui.elements(AccessibilityID.Groups.row(name)), "the new group in the list")
     }
 
-    /// « Rejoindre » with a well-formed but unknown code → « Erreur » alert; the sheet stays open.
+    /// « Rejoindre » with a well-formed but unknown code → « Code d'invitation invalide. » alert; the sheet stays open
+    /// with the code, and nothing is joined.
     @MainActor
     func testJoinWithInvalidCodeShowsError() {
         let ui = EquipeApp.launch(.populated, for: self)
         ui.waitForDemoGroups()
 
-        ui.tap(ui.button(AccessibilityID.Groups.joinButton), "« Rejoindre »")
-        let codeField = ui.textField(AccessibilityID.Groups.codeField)
-        ui.typeText("AAAA2222", into: codeField)
-        ui.tapWhenEnabled(ui.button(AccessibilityID.Groups.saveButton), "« Rejoindre » of the sheet")
+        let codeField = ui.textFields(AccessibilityID.Groups.codeField)
+        ui.tap(ui.joinGroupButton, "« Rejoindre »", until: .shows(codeField))
+        // 8 letters of the code alphabet: « Rejoindre » gets enabled; the field formats them live as ZZZZ-ZZZZ.
+        ui.typeText(
+            UITestDemo.unknownInviteCode, into: codeField, "the invite code field",
+            expecting: UITestDemo.unknownInviteCodeDisplayed
+        )
+        ui.tapWhenEnabled(
+            ui.buttons(AccessibilityID.Groups.saveButton), "« Rejoindre » of the sheet", until: .shows(ui.app.alerts)
+        )
 
-        let alert = ui.waitForAlert(containing: "invalide")
-        ui.tap(alert.buttons["OK"], "« OK »")
-        ui.waitForDisappearance(alert, "the alert")
+        ui.waitForAlert(containing: UITestDemo.invalidCodeMessage)
+        ui.tapAlertButton("OK")
 
-        // Still on the form, nothing joined.
-        ui.waitFor(codeField, "the code field")
-        ui.assertNotShown(ui.element(AccessibilityID.Groups.joinResult), within: 1, "An unknown code must not join a group")
-        ui.tap(ui.button(AccessibilityID.Groups.cancelButton), "« Annuler »")
+        // Still on the form with the code, nothing joined.
+        ui.waitForText(UITestDemo.unknownInviteCodeDisplayed, of: codeField)
+        ui.assertNotShown(ui.elements(AccessibilityID.Groups.joinResult), within: 1, "An unknown code must not join a group")
+        ui.tap(ui.buttons(AccessibilityID.Groups.cancelButton), "« Annuler »", until: .hides(codeField))
         ui.waitForDisappearance(codeField, "the « Rejoindre un groupe » sheet")
-        ui.waitForContent(ui.element(AccessibilityID.Groups.row(UITestDemo.lilasGroup)))
+        ui.waitForContent(ui.elements(AccessibilityID.Groups.row(UITestDemo.lilasGroup)), "the groups list")
     }
 
     /// Camille (admin) creates a task in « Coloc' rue des Lilas » assigned to Inès; the task screen lists her.
@@ -60,15 +66,26 @@ final class FlowTests: XCTestCase {
         ui.waitForDemoGroups()
         ui.openGroup(UITestDemo.lilasGroup)
 
-        ui.tap(ui.button(AccessibilityID.Tasks.addButton), "« + »")
-        let titleField = ui.element(AccessibilityID.Tasks.titleField)
-        let title = ui.typeText("Arroser les plantes", into: titleField)
+        let titleField = ui.elements(AccessibilityID.Tasks.titleField)
+        ui.tap(ui.addTaskButton, "« + »", until: .shows(titleField))
+        let typedTitle = ui.typeText("Arroser les plantes", into: titleField, "the title field")
         ui.assign(UITestDemo.inesName)
-        ui.tapWhenEnabled(ui.button(AccessibilityID.Tasks.saveButton), "« Créer » of the editor")
+        // The title as it will be saved (the keyboard may have corrected a word once the field lost the focus).
+        let title = ui.currentText(of: titleField) ?? typedTitle
+        // The sheet is gone once its « Annuler » is (always on screen, unlike the title field, which the editor may
+        // have scrolled away to reach « Assigner à »).
+        ui.tapWhenEnabled(
+            ui.buttons(AccessibilityID.Tasks.saveButton), "« Créer » of the editor",
+            until: .hides(ui.buttons(AccessibilityID.Tasks.cancelButton))
+        )
         ui.waitForDisappearance(titleField, "the « Nouvelle tâche » sheet")
 
-        ui.openTask(title)
-        ui.reveal(ui.element(labelContaining: UITestDemo.inesName), timeout: UITestTimeout.medium, "Inès among the assignees")
+        // The new row gives the saved title: the keyboard (English on the CI simulator) may have corrected the last
+        // word when the field lost the focus, after the reads above. Its first word was read after being corrected
+        // (on the space that followed it), and no other task of the group starts with it.
+        let firstWord = String(title.prefix { $0 != " " })
+        ui.openTask(ui.taskTitle(startingWith: firstWord) ?? title)
+        ui.reveal(ui.elements(labelContaining: UITestDemo.inesName), "Inès among the assignees", timeout: UITestTimeout.medium)
     }
 
     /// Inès (member) on a task created by Camille and assigned to her: she may change its status but neither edit nor
@@ -79,24 +96,24 @@ final class FlowTests: XCTestCase {
         ui.signIn(email: UITestDemo.inesEmail, password: UITestDemo.password)
         ui.openGroup(UITestDemo.lilasGroup)
         // Admin-only row, rendered with the rest of the loaded header.
-        ui.assertNotShown(ui.element(AccessibilityID.Groups.inviteButton), within: 1, "A member must not see the invite code")
+        ui.assertNotShown(ui.elements(AccessibilityID.Groups.inviteButton), within: 1, "A member must not see the invite code")
 
         ui.openTask(UITestDemo.payerLoyer)
-        let inProgress = ui.element(AccessibilityID.Tasks.statusOption("in_progress"))
+        let inProgress = ui.elements(AccessibilityID.Tasks.statusOption("in_progress"))
         ui.waitForContent(inProgress, "the « En cours » status option")
-        ui.assertNotShown(ui.button(AccessibilityID.Tasks.editButton), within: 2, "An assignee must not edit the task")
-        inProgress.tap()
+        ui.assertNotShown(ui.buttons(AccessibilityID.Tasks.editButton), within: 2, "An assignee must not edit the task")
+        ui.tap(inProgress, "« En cours »", until: .selects(inProgress))
         let isSelected = ui.waitUntilSelected(inProgress)
         XCTAssertTrue(isSelected, "The status did not switch to « En cours »")
         ui.scroll(.towardsBottom)
-        ui.assertNotShown(ui.button(AccessibilityID.Tasks.deleteButton), within: 1, "An assignee must not delete the task")
+        ui.assertNotShown(ui.buttons(AccessibilityID.Tasks.deleteButton), within: 1, "An assignee must not delete the task")
 
         // The group screen shows the new status (its row's label reads « Payer le loyer, En cours, … »).
-        ui.goBack()
-        ui.waitFor(ui.element(labelContaining: UITestDemo.payerLoyer, "En cours"), "« \(UITestDemo.payerLoyer) » in progress")
+        ui.goBack(from: UITestScreen.task)
+        ui.waitFor(ui.elements(labelContaining: UITestDemo.payerLoyer, "En cours"), "« \(UITestDemo.payerLoyer) » in progress")
 
         ui.openTask(UITestDemo.reparerFuite)
-        ui.waitForContent(ui.button(AccessibilityID.Tasks.editButton), "« Modifier » on a task created by Inès")
+        ui.waitForContent(ui.buttons(AccessibilityID.Tasks.editButton), "« Modifier » on a task created by Inès")
     }
 
     /// Réglages → « Se déconnecter » → confirmation → back to the login screen.
@@ -104,14 +121,13 @@ final class FlowTests: XCTestCase {
     func testSignOut() {
         let ui = EquipeApp.launch(.populated, for: self)
         ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
-        ui.waitForContent(ui.textField(AccessibilityID.Settings.displayNameField), "the loaded settings")
+        ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the loaded settings")
 
-        let signOut = ui.button(AccessibilityID.Settings.signOut)
-        ui.tap(signOut, timeout: UITestTimeout.short, "« Se déconnecter »")
-        ui.confirm("Se déconnecter", identifier: AccessibilityID.Settings.confirmSignOut, openedFrom: signOut)
+        ui.tap(ui.buttons(AccessibilityID.Settings.signOut), "« Se déconnecter »", timeout: UITestTimeout.short)
+        ui.confirm("Se déconnecter", identifier: AccessibilityID.Settings.confirmSignOut, openedFrom: AccessibilityID.Settings.signOut)
 
-        ui.waitFor(ui.element(AccessibilityID.Auth.loginScreen), "the login screen")
-        ui.waitForContent(ui.button(AccessibilityID.Auth.signInButton), "« Se connecter »")
+        ui.waitFor(ui.elements(AccessibilityID.Auth.loginScreen), "the login screen")
+        ui.waitForContent(ui.buttons(AccessibilityID.Auth.signInButton), "« Se connecter »")
         let myTasksTab = ui.tabButtonCandidates(AccessibilityID.Tabs.myTasksTitle, identifier: AccessibilityID.Tabs.myTasks)
         let remainingTab = ui.firstExisting(myTasksTab, timeout: 1)
         XCTAssertNil(remainingTab, "The tabs must be gone after signing out")
@@ -122,8 +138,8 @@ final class FlowTests: XCTestCase {
     func testEmptyGroupsShowsEmptyState() {
         let ui = EquipeApp.launch(.emptyGroups, for: self)
         ui.waitForTabBar()
-        ui.waitFor(ui.element(AccessibilityID.Groups.emptyState), "the « no group » state")
-        ui.waitForContent(ui.element(AccessibilityID.Groups.emptyCreateButton), "« Créer un groupe »")
-        ui.waitForContent(ui.element(AccessibilityID.Groups.emptyJoinButton), "« Rejoindre avec un code »")
+        ui.waitFor(ui.elements(AccessibilityID.Groups.emptyState), "the « no group » state")
+        ui.waitForContent(ui.elements(AccessibilityID.Groups.emptyCreateButton), "« Créer un groupe »")
+        ui.waitForContent(ui.elements(AccessibilityID.Groups.emptyJoinButton), "« Rejoindre avec un code »")
     }
 }

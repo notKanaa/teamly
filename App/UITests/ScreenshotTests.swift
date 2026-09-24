@@ -8,9 +8,9 @@ final class ScreenshotTests: XCTestCase {
     @MainActor
     func test01Login() {
         let ui = EquipeApp.launch(.signedOut, for: self)
-        ui.waitFor(ui.element(AccessibilityID.Auth.loginScreen), "the login screen")
-        ui.waitForContent(ui.textField(AccessibilityID.Auth.email), "the e-mail field")
-        ui.waitForContent(ui.button(AccessibilityID.Auth.signInButton), "« Se connecter »")
+        ui.waitFor(ui.elements(AccessibilityID.Auth.loginScreen), "the login screen")
+        ui.waitForContent(ui.textFields(AccessibilityID.Auth.email), "the e-mail field")
+        ui.waitForContent(ui.buttons(AccessibilityID.Auth.signInButton), "« Se connecter »")
         ui.capture("01-connexion")
     }
 
@@ -20,12 +20,13 @@ final class ScreenshotTests: XCTestCase {
         ui.waitForDemoGroups()
         ui.capture("02-groupes")
 
-        ui.tap(ui.button(AccessibilityID.Groups.createButton), "« Créer »")
-        ui.typeText("Club de lecture", into: ui.textField(AccessibilityID.Groups.nameField))
-        let createButton = ui.button(AccessibilityID.Groups.saveButton)
+        let nameField = ui.textFields(AccessibilityID.Groups.nameField)
+        ui.tap(ui.createGroupButton, "« Créer »", until: .shows(nameField))
+        ui.typeText("Club de lecture", into: nameField, "the group name field")
+        let createButton = ui.buttons(AccessibilityID.Groups.saveButton)
         ui.waitForContent(createButton, "« Créer » of the sheet")
         // The typed name is taken into account once « Créer » is enabled.
-        let isEnabled = ui.wait(for: createButton, toMatch: NSPredicate(format: "isEnabled == true"), timeout: UITestTimeout.medium)
+        let isEnabled = ui.waitUntilEnabled(createButton, timeout: UITestTimeout.medium)
         ui.capture("03-creer-groupe")
 
         XCTAssertTrue(isEnabled, "« Créer » stays disabled with a valid name")
@@ -36,8 +37,12 @@ final class ScreenshotTests: XCTestCase {
         let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
         ui.waitForDemoGroups()
         ui.openGroup(UITestDemo.lilasGroup)
-        ui.tap(ui.element(AccessibilityID.Groups.inviteButton), "« Inviter avec un code »")
-        let code = ui.element(AccessibilityID.Groups.inviteCode)
+        // « Fermer » shows with the sheet, before its code is loaded.
+        ui.tap(
+            ui.elements(AccessibilityID.Groups.inviteButton), "« Inviter avec un code »",
+            until: .shows(ui.buttons(AccessibilityID.Groups.doneButton))
+        )
+        let code = ui.elements(AccessibilityID.Groups.inviteCode)
         ui.waitForContent(code, "the invite code")
         ui.capture("04-code-invitation")
 
@@ -49,11 +54,14 @@ final class ScreenshotTests: XCTestCase {
         let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
         ui.waitForDemoGroups()
         ui.openGroup(UITestDemo.lilasGroup)
-        ui.tap(ui.button(AccessibilityID.Tasks.addButton), "« + »")
 
-        let titleField = ui.element(AccessibilityID.Tasks.titleField)
-        ui.typeText("Arroser les plantes", into: titleField)
-        ui.typeText("Deux fois par semaine, sans oublier le balcon.", into: ui.element(AccessibilityID.Tasks.detailsField))
+        let titleField = ui.elements(AccessibilityID.Tasks.titleField)
+        ui.tap(ui.addTaskButton, "« + »", until: .shows(titleField))
+        ui.typeText("Arroser les plantes", into: titleField, "the title field")
+        ui.typeText(
+            "Deux fois par semaine, sans oublier le balcon.",
+            into: ui.elements(AccessibilityID.Tasks.detailsField), "the description field"
+        )
         // Leaving for « Assigner à » also closes the keyboard.
         ui.assign(UITestDemo.inesName)
         // Polish only (never fails the capture): high priority and a due date.
@@ -62,7 +70,7 @@ final class ScreenshotTests: XCTestCase {
         ui.scrollToTop(until: titleField)
 
         ui.waitForContent(titleField, "the title field")
-        ui.waitForContent(ui.button(AccessibilityID.Tasks.saveButton), "« Créer » of the editor")
+        ui.waitForContent(ui.buttons(AccessibilityID.Tasks.saveButton), "« Créer » of the editor")
         ui.capture("05-nouvelle-tache")
     }
 
@@ -71,8 +79,8 @@ final class ScreenshotTests: XCTestCase {
         let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
         ui.waitForDemoGroups()
         ui.openGroup(UITestDemo.lilasGroup)
-        ui.waitForContent(ui.element(AccessibilityID.Groups.membersButton), "the « Membres » row")
-        ui.waitForContent(ui.element(AccessibilityID.Tasks.row(UITestDemo.payerLoyer)), "the first task")
+        ui.waitForContent(ui.elements(AccessibilityID.Groups.membersButton), "the « Membres » row")
+        ui.waitForContent(ui.elements(AccessibilityID.Tasks.row(UITestDemo.payerLoyer)), "the first task")
         ui.capture("06-detail-groupe")
     }
 
@@ -80,9 +88,9 @@ final class ScreenshotTests: XCTestCase {
     func test07MyTasks() {
         let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
         ui.openTab(AccessibilityID.Tabs.myTasksTitle, identifier: AccessibilityID.Tabs.myTasks)
-        ui.waitFor(ui.element(AccessibilityID.MyTasks.list), "the « Mes tâches » list")
-        ui.waitForContent(ui.element(AccessibilityID.Tasks.row(UITestDemo.faireCourses)), "« \(UITestDemo.faireCourses) »")
-        ui.waitForContent(ui.element(AccessibilityID.Tasks.row(UITestDemo.reserverGymnase)), "« \(UITestDemo.reserverGymnase) »")
+        ui.waitFor(ui.elements(AccessibilityID.MyTasks.list), "the « Mes tâches » list")
+        ui.waitForContent(ui.elements(AccessibilityID.Tasks.row(UITestDemo.faireCourses)), "« \(UITestDemo.faireCourses) »")
+        ui.waitForContent(ui.elements(AccessibilityID.Tasks.row(UITestDemo.reserverGymnase)), "« \(UITestDemo.reserverGymnase) »")
         ui.capture("07-mes-taches")
     }
 
@@ -91,11 +99,12 @@ final class ScreenshotTests: XCTestCase {
         let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
         ui.waitForDemoGroups()
         ui.openGroup(UITestDemo.lilasGroup)
-        ui.tapRow(AccessibilityID.Groups.membersButton)
-        ui.waitFor(ui.element(AccessibilityID.Members.list), "the members list")
-        ui.waitForContent(ui.element(AccessibilityID.Members.row(UITestDemo.camilleName)), "Camille's row")
-        ui.waitForContent(ui.element(AccessibilityID.Members.row(UITestDemo.inesName)), "Inès' row")
-        ui.waitForContent(ui.element(AccessibilityID.Members.inviteCode), "the invite code (admin)")
+        let membersList = ui.elements(AccessibilityID.Members.list)
+        ui.tapRow(AccessibilityID.Groups.membersButton, "the « Membres » row", until: .shows(membersList))
+        ui.waitFor(membersList, "the members list")
+        ui.waitForContent(ui.elements(AccessibilityID.Members.row(UITestDemo.camilleName)), "Camille's row")
+        ui.waitForContent(ui.elements(AccessibilityID.Members.row(UITestDemo.inesName)), "Inès' row")
+        ui.waitForContent(ui.elements(AccessibilityID.Members.inviteCode), "the invite code (admin)")
         ui.capture("08-membres")
     }
 
@@ -104,8 +113,8 @@ final class ScreenshotTests: XCTestCase {
         let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
         ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
         // Only shown once the profile is loaded.
-        ui.waitForContent(ui.textField(AccessibilityID.Settings.displayNameField), "the display name field")
-        ui.waitForContent(ui.element(AccessibilityID.Settings.email), "the e-mail row")
+        ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the display name field")
+        ui.waitForContent(ui.elements(AccessibilityID.Settings.email), "the e-mail row")
         ui.capture("09-reglages")
     }
 }
