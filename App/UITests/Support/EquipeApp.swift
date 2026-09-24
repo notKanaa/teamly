@@ -935,21 +935,28 @@ final class EquipeApp {
     }
 
     /// The match `choose` picks, once its frame is the same in two consecutive polls; nil after `timeout`.
+    /// A candidate always gets its second look, even past the deadline: near the bottom of the screen one poll reads
+    /// the keyboard, tab bar and toolbars too, and can outlast a short timeout on a CI simulator (it did: 4–5 s
+    /// polls made every `settledMatch(timeout: 3)` after a scroll return nil although the element was reachable).
     private func settledMatch(
         _ query: XCUIElementQuery,
         timeout: TimeInterval,
         reachability: Bool = true,
         choose: ([Match]) -> Match?
     ) -> Match? {
+        let deadline = Date().addingTimeInterval(timeout)
         var lastFrame: CGRect?
-        return poll(timeout: timeout) { () -> Match? in
+        while true {
             let found = choose(currentMatches(query, reachability: reachability))
-            let before = lastFrame
+            if let match = found, let settledFrom = lastFrame, match.frame.isClose(to: settledFrom) {
+                return match
+            }
+            let isFirstLookAtCandidate = found != nil && lastFrame == nil
             lastFrame = found?.frame
-            guard let match = found, let settledFrom = before, match.frame.isClose(to: settledFrom) else {
+            if Date() >= deadline && !isFirstLookAtCandidate {
                 return nil
             }
-            return match
+            pollingPause()
         }
     }
 
