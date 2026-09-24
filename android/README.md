@@ -10,7 +10,7 @@ as the iOS app and must behave like it: [`docs/CONTRACTS.md`](../docs/CONTRACTS.
 | `:core` | Kotlin/JVM | Models, service interfaces, `AppError`, `BackendErrorMapper`, permissions, `Limits`, `InviteCode`, `InputValidation`, `NameOrder`, platform ports (package `io.github.notkanaa.equipe.core`); pure logic in `core.logic`: filters, sorting, due buckets, French dates, reminders, assignment notifications, change feed, realtime coordinator | `TeamTasksCore` |
 | `:mocks` | Kotlin/JVM | In-memory backend implementing the `:core` services with the SQL semantics; demo data identical to `supabase/seed.sql`; `MockEnvironment` scenarios | `TeamTasksMocks` |
 | `:contract` | Kotlin/JVM | The 56 backend-agnostic contract scenarios (same names as iOS), run against the mocks and the Supabase adapters | `TeamTasksContract` |
-| `:supabase` | Kotlin/JVM | Adapters on supabase-kt (Auth, PostgREST, Realtime) + Ktor OkHttp engine (placeholder) | `TeamTasksSupabase` |
+| `:supabase` | Kotlin/JVM | Adapters on supabase-kt (Auth, Realtime) + an own PostgREST client on Ktor OkHttp; `SupabaseBackend.makeServices`; unit tests and, with SUPABASE_URL/SUPABASE_KEY set, the 56 contract scenarios against a real Supabase | `TeamTasksSupabase` |
 | `:app` | Android app | Compose UI, `io.github.notkanaa.equipe`, minSdk 26, target/compile SDK 37, French only | `App/` |
 
 The JVM modules also run on Android, so they are compiled against the **Java 8 API** (`-Xjdk-release=1.8`, set in
