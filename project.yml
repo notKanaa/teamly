@@ -53,6 +53,9 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER)
             CFBundleURLSchemes: [equipe]
+        # Plain HTTP only for a local Supabase stack (SUPABASE_SCHEME = http, e.g. 127.0.0.1:54321 in the simulator).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         SupabaseScheme: $(SUPABASE_SCHEME)
         SupabaseHost: $(SUPABASE_HOST)
         SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
@@ -69,7 +72,8 @@ targets:
     platform: iOS
     sources:
       - path: App/UITests
-      - path: App/Sources/Shared/AccessibilityID.swift
+      # Accessibility identifiers (pure Swift, no app module import): every file of the folder is shared.
+      - path: App/Sources/Shared
     dependencies:
       - target: TeamTasks
     settings:

@@ -1,0 +1,79 @@
+[
+  {
+    "name": "last_admin",
+    "status": 400,
+    "body": {
+      "code": "P0001",
+      "details": null,
+      "hint": null,
+      "message": "last_admin"
+    },
+    "expected": "lastAdmin"
+  },
+  {
+    "name": "forbidden",
+    "status": 403,
+    "body": {
+      "code": "42501",
+      "details": null,
+      "hint": null,
+      "message": "forbidden"
+    },
+    "expected": "forbidden"
+  },
+  {
+    "name": "anon_rpc",
+    "status": 401,
+    "body": {
+      "code": "42501",
+      "details": null,
+      "hint": null,
+      "message": "permission denied for function create_group"
+    },
+    "expected": "notAuthenticated"
+  },
+  {
+    "name": "invalid_input",
+    "status": 400,
+    "body": {
+      "code": "23502",
+      "details": null,
+      "hint": null,
+      "message": "invalid_input"
+    },
+    "expected": "invalidInput"
+  },
+  {
+    "name": "nul_character",
+    "status": 400,
+    "body": {
+      "code": "22P05",
+      "details": "\\u0000 cannot be converted to text.",
+      "hint": null,
+      "message": "unsupported Unicode escape sequence"
+    },
+    "expected": "invalidInput"
+  },
+  {
+    "name": "bad_jwt",
+    "status": 401,
+    "body": {
+      "code": "PGRST301",
+      "details": null,
+      "hint": null,
+      "message": "JWT cryptographic operation failed"
+    },
+    "expected": "notAuthenticated"
+  },
+  {
+    "name": "task_not_found",
+    "status": 400,
+    "body": {
+      "code": "P0001",
+      "details": null,
+      "hint": null,
+      "message": "task_not_found"
+    },
+    "expected": "notFound"
+  }
+]

@@ -35,7 +35,7 @@ let package = Package(
         ),
         .testTarget(
             name: "TeamTasksSupabaseTests",
-            dependencies: ["TeamTasksSupabase", "TeamTasksCore"],
+            dependencies: ["TeamTasksSupabase", "TeamTasksCore", "TeamTasksContract", "TeamTasksMocks"],
             resources: [.copy("Fixtures")]
         ),
     ],
