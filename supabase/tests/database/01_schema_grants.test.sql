@@ -1,6 +1,6 @@
 -- Schema, privileges, private schema isolation, publication, ping.
 begin;
-select plan(39);
+select plan(41);
 
 -- Test helpers (created inside this transaction, rolled back at the end) ----------------------------
 create schema tests;
@@ -55,8 +55,9 @@ select is(auth.uid(), null, 'helper: as_postgres clears the JWT claims');
 
 -- Schema ------------------------------------------------------------------------------------------------
 select tables_are('public',
-  array['profiles', 'groups', 'group_invites', 'group_members', 'tasks', 'task_assignees', 'push_subscriptions'],
-  'public tables are exactly the contract tables');
+  array['profiles', 'groups', 'group_invites', 'group_members', 'tasks', 'task_assignees', 'push_subscriptions',
+        'task_checklist_items', 'group_activity'],
+  'public tables are exactly the contract tables (v1 + v2)');
 select tables_are('private', array['join_attempts', 'settings', 'push_log', 'write_log'], 'private tables');
 select enum_has_labels('public', 'member_role', array['admin', 'member'], 'member_role labels');
 select enum_has_labels('public', 'task_status', array['todo', 'in_progress', 'done'], 'task_status labels');
@@ -86,6 +87,8 @@ select table_privs_are('public', 'group_members', 'authenticated', array['SELECT
 select table_privs_are('public', 'tasks', 'authenticated', array['SELECT', 'DELETE'], 'tasks: authenticated table privileges');
 select table_privs_are('public', 'task_assignees', 'authenticated', array['SELECT'], 'task_assignees: authenticated table privileges');
 select table_privs_are('public', 'push_subscriptions', 'authenticated', array['SELECT'], 'push_subscriptions: authenticated table privileges');
+select table_privs_are('public', 'task_checklist_items', 'authenticated', array['SELECT'], 'task_checklist_items: authenticated table privileges');
+select table_privs_are('public', 'group_activity', 'authenticated', array['SELECT'], 'group_activity: authenticated table privileges');
 select set_eq($$
   select c.relname || '.' || a.attname || ':' || p.priv
   from pg_class c
@@ -94,7 +97,7 @@ select set_eq($$
   cross join (values ('INSERT'), ('UPDATE')) as p (priv)
   where n.nspname = 'public' and c.relkind = 'r' and has_column_privilege('authenticated', c.oid, a.attnum, p.priv)
 $$, array[
-  'profiles.display_name:UPDATE',
+  'profiles.display_name:UPDATE', 'profiles.avatar_color:UPDATE', 'profiles.avatar_emoji:UPDATE',
   'tasks.group_id:INSERT', 'tasks.title:INSERT', 'tasks.details:INSERT', 'tasks.priority:INSERT', 'tasks.due_at:INSERT',
   'tasks.title:UPDATE', 'tasks.details:UPDATE', 'tasks.status:UPDATE', 'tasks.priority:UPDATE', 'tasks.due_at:UPDATE'
 ], 'authenticated column-level INSERT/UPDATE grants are exactly the contract ones');
@@ -114,8 +117,10 @@ select set_eq($$
 $$, array[
   'create_group', 'join_group_by_code', 'regenerate_invite_code', 'rename_group', 'delete_group', 'set_member_role',
   'remove_member', 'leave_group', 'create_task', 'update_task', 'set_task_status', 'delete_task', 'set_task_assignees',
-  'delete_my_account', 'enable_push', 'disable_push', 'ping'
-], 'authenticated can execute exactly the contract RPCs');
+  'delete_my_account', 'enable_push', 'disable_push', 'ping',
+  'set_group_appearance', 'complete_onboarding', 'add_checklist_item', 'rename_checklist_item', 'set_checklist_item_done',
+  'delete_checklist_item'
+], 'authenticated can execute exactly the contract RPCs (v1 + v2)');
 select set_eq($$
   select p.proname::text from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'private' and has_function_privilege('authenticated', p.oid, 'EXECUTE')
@@ -133,7 +138,7 @@ $$, 'every function pins search_path to an empty string');
 select is(
   (select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.prosecdef),
-  12, 'the 12 definer RPCs are security definer (create_task/update_task/set_task_status/delete_task/ping are invoker)');
+  18, 'the 18 definer RPCs are security definer (create_task/update_task/set_task_status/delete_task/ping are invoker)');
 
 -- Private schema is unusable by API roles ----------------------------------------------------------------
 select ok(not has_schema_privilege('anon', 'private', 'USAGE'), 'anon has no USAGE on schema private');

@@ -131,3 +131,20 @@ insert into public.task_assignees (task_id, group_id, user_id, assigned_by, assi
    '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', now() - interval '7 days'),
   ('b0000000-0000-4000-8000-000000000007', 'a0000000-0000-4000-8000-000000000002',
    '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-222222222222', now() - interval '7 days');
+
+-- v2 decorations (docs/CONTRACTS-V2.md §12) ---------------------------------------------------------------------
+-- Separate updates: the v1 rows above stay as they are (the v1 scenarios and the seed parity tests read them).
+
+update public.groups set color = 'coral', emoji = '🏠' where id = 'a0000000-0000-4000-8000-000000000001';
+update public.groups set color = 'green', emoji = '⚽' where id = 'a0000000-0000-4000-8000-000000000002';
+
+-- Demo accounts are onboarded (as the migration does for the accounts that existed before v2).
+update public.profiles set onboarded_at = created_at
+where id in (
+  '11111111-1111-4111-8111-111111111111',
+  '22222222-2222-4222-8222-222222222222',
+  '33333333-3333-4333-8333-333333333333'
+);
+
+-- The fixture inserts above wrote member_joined events; they are not user actions: the demo feed starts empty.
+delete from public.group_activity;
