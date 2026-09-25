@@ -73,6 +73,23 @@ final class GroupsScreenshotTests: XCTestCase {
         ui.capture("17-groupe-apparence")
     }
 
+    /// A user of no group: the empty state, then « Rejoindre avec un code » (captures under `debug/`).
+    @MainActor
+    func testEmptyStateAndJoinSheet() {
+        let ui = EquipeApp.launch(.emptyGroups, notifications: "authorized", for: self)
+        ui.waitForTabBar()
+        ui.waitForContent(ui.elements(AccessibilityID.Groups.emptyCreateButton), "« Créer un groupe »")
+        ui.capture("groupes-vide")
+
+        let codeField = ui.textFields(AccessibilityID.Groups.codeField)
+        ui.tap(
+            ui.buttons(AccessibilityID.Groups.emptyJoinButton), "« Rejoindre avec un code »",
+            until: .shows(codeField)
+        )
+        ui.waitForContent(codeField, "the invite code field")
+        ui.capture("rejoindre-groupe")
+    }
+
     /// Design check (docs/DESIGN-V2.md §1): the groups list, the group screen and « Activité » at the largest
     /// accessibility text size (AX5), to be looked at under `debug/`.
     @MainActor
