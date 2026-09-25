@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import type { ComponentProps, ReactNode } from 'react';
+import { useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -14,13 +14,26 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
-import Svg, { Circle } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 
 import type { ColorKey } from '@/core/colorKey';
-import type { TaskStatus } from '@/core/models';
-import { avatarSymbol, type AvatarAppearance, type PersonBadge, type TaskRow } from '@/core/presentation';
+import type { TaskPriority, TaskStatus } from '@/core/models';
+import { NEW_BADGE_TEXT } from '@/core/myTasks';
+import {
+  avatarSymbol,
+  MY_TURN_LABEL,
+  priorityLabel,
+  progressCompactText,
+  progressIsComplete,
+  ROTATION_LABEL,
+  statusLabel,
+  nextStatus,
+  type AvatarAppearance,
+  type PersonBadge,
+  type TaskRow,
+} from '@/core/presentation';
 
-import { radius, spacing, statusSoft, type Soft, type Theme, useTheme, type as typo } from './theme';
+import { colorAccent, prioritySoft, radius, spacing, statusSoft, type Soft, type Theme, useTheme, type as typo } from './theme';
 
 // The shared components of docs/DESIGN-V2.md §5 (docs/DESIGN-V2-COMPONENTS.md).
 
@@ -52,12 +65,24 @@ export function T({
   );
 }
 
-export function Card({ children, style, padded = true }: { children: ReactNode; style?: StyleProp<ViewStyle>; padded?: boolean }) {
+// MARK: - Surfaces
+
+export function Card({
+  children,
+  style,
+  padded = true,
+  radius: cornerRadius = radius.card,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  padded?: boolean;
+  radius?: number;
+}) {
   const theme = useTheme();
   return (
     <View
       style={[
-        { backgroundColor: theme.card, borderRadius: radius.card, padding: padded ? spacing.inner : 0 },
+        { backgroundColor: theme.card, borderRadius: cornerRadius, padding: padded ? spacing.inner : 0 },
         theme.cardShadow,
         style,
       ]}
@@ -66,6 +91,30 @@ export function Card({ children, style, padded = true }: { children: ReactNode; 
     </View>
   );
 }
+
+/** A rounded square (radius 31 %) with a symbol in a soft pair: the rows of the info cards, headers. Decorative. */
+export function IconTile({ icon, soft, size = 32 }: { icon: IconName; soft?: Soft; size?: number }) {
+  const theme = useTheme();
+  const pair = soft ?? theme.accentSoft;
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size * 0.31,
+        backgroundColor: pair.bg,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Ionicons name={icon} size={size * 0.52} color={pair.text} />
+    </View>
+  );
+}
+
+// MARK: - People and groups
 
 /** A rounded square in the group fill with its emoji or initials (GroupTile). */
 export function GroupTile({ appearance, size = 56, onWhite }: { appearance: AvatarAppearance; size?: number; onWhite?: boolean }) {
@@ -76,7 +125,7 @@ export function GroupTile({ appearance, size = 56, onWhite }: { appearance: Avat
       style={{
         width: size,
         height: size,
-        borderRadius: size >= 64 ? 22 : 18 * (size / 56),
+        borderRadius: size * 0.33,
         backgroundColor: bg,
         alignItems: 'center',
         justifyContent: 'center',
@@ -95,9 +144,24 @@ export function GroupTile({ appearance, size = 56, onWhite }: { appearance: Avat
   );
 }
 
-export function Avatar({ appearance, size = 32, ring }: { appearance: AvatarAppearance; size?: number; ring?: string }) {
+/**
+ * A circle in the person's fill with the emoji or the initials (the first letter only below 60 pt). `ring`: a 2 pt ring
+ * the color of the surface behind; `highlight`: one more 2 pt ring outside it (the current turn in the accent).
+ */
+export function Avatar({
+  appearance,
+  size = 32,
+  ring,
+  highlight,
+}: {
+  appearance: AvatarAppearance;
+  size?: number;
+  ring?: string;
+  highlight?: string;
+}) {
   const theme = useTheme();
-  return (
+  const symbol = appearance.emoji ?? (size < 60 ? appearance.initials.slice(0, 1) : appearance.initials);
+  const circle = (
     <View
       style={{
         width: size,
@@ -114,11 +178,24 @@ export function Avatar({ appearance, size = 32, ring }: { appearance: AvatarAppe
         style={
           appearance.emoji
             ? { fontSize: size * 0.52 }
-            : { fontFamily: 'Nunito_900Black', fontSize: size * 0.38, color: '#FFF' }
+            : { fontFamily: 'Nunito_900Black', fontSize: size * 0.42, color: '#FFF' }
         }
       >
-        {avatarSymbol(appearance)}
+        {symbol}
       </Text>
+    </View>
+  );
+  if (!highlight) return circle;
+  return (
+    <View
+      style={{
+        padding: 2,
+        borderRadius: size,
+        borderWidth: 2,
+        borderColor: highlight,
+      }}
+    >
+      {circle}
     </View>
   );
 }
@@ -139,32 +216,76 @@ export function AvatarStack({
   return (
     <View style={{ flexDirection: 'row' }}>
       {avatars.map((appearance, index) => (
-        <View key={index} style={{ marginLeft: index === 0 ? 0 : -size * 0.3 }}>
+        <View key={index} style={{ marginLeft: index === 0 ? 0 : -size * 0.27 }}>
           <Avatar appearance={appearance} size={size} ring={ring} />
         </View>
       ))}
       {more ? (
         <View
           style={{
-            marginLeft: avatars.length ? -size * 0.3 : 0,
+            marginLeft: avatars.length ? -size * 0.27 : 0,
             width: size,
             height: size,
             borderRadius: size / 2,
-            backgroundColor: theme.track,
+            backgroundColor: theme.neutral.bg,
             borderWidth: 2,
             borderColor: ring,
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <Text style={{ fontSize: size * 0.36, fontWeight: '700', color: theme.textSecondary }}>{more}</Text>
+          <Text style={{ fontSize: size * 0.36, fontWeight: '700', color: theme.neutral.text }}>{more}</Text>
         </View>
       ) : null}
     </View>
   );
 }
 
-export function Chip({ soft, icon, label, style }: { soft: Soft; icon?: IconName; label: string; style?: StyleProp<ViewStyle> }) {
+/** The dashed circle of « Personne ». */
+export function UnassignedAvatar({ size = 32 }: { size?: number }) {
+  const theme = useTheme();
+  return (
+    <View
+      accessibilityLabel="Personne"
+      style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.textTertiary }}
+    />
+  );
+}
+
+/** The assignees of a row: up to 3 avatars (else 2 and « +N »), or the dashed circle. */
+function AssigneesStack({ people, size = 32 }: { people: readonly PersonBadge[]; size?: number }) {
+  if (people.length === 0) return <UnassignedAvatar size={size} />;
+  const shown = people.length <= 3 ? people : people.slice(0, 2);
+  return (
+    <AvatarStack
+      avatars={shown.map((badge) => badge.appearance)}
+      more={people.length > 3 ? `+${people.length - 2}` : null}
+      size={size}
+    />
+  );
+}
+
+// MARK: - Chips and badges
+
+/**
+ * A small label: `soft` (default) draws the pair's background; `plain` only its text color (a due date, « Ton tour »,
+ * « 2/4 »). `bold` for an overdue date or « Ton tour ».
+ */
+export function Chip({
+  soft,
+  icon,
+  label,
+  style,
+  plain,
+  bold,
+}: {
+  soft: Soft;
+  icon?: IconName;
+  label: string;
+  style?: StyleProp<ViewStyle>;
+  plain?: boolean;
+  bold?: boolean;
+}) {
   return (
     <View
       style={[
@@ -172,28 +293,41 @@ export function Chip({ soft, icon, label, style }: { soft: Soft; icon?: IconName
           flexDirection: 'row',
           alignItems: 'center',
           gap: 4,
-          backgroundColor: soft.bg,
-          borderRadius: 999,
-          paddingHorizontal: 9,
-          paddingVertical: 3,
+          backgroundColor: plain ? 'transparent' : soft.bg,
+          borderRadius: 12,
+          paddingHorizontal: plain ? 0 : 9,
+          paddingVertical: plain ? 0 : 4,
           alignSelf: 'flex-start',
+          flexShrink: 1,
         },
         style,
       ]}
     >
-      {icon ? <Ionicons name={icon} size={12} color={soft.text} /> : null}
-      <Text style={[typo.chip, { color: soft.text }]} numberOfLines={1}>
-        {label}
+      {icon ? <Ionicons name={icon} size={13} color={soft.text} /> : null}
+      <Text style={[typo.chip, { color: soft.text, flexShrink: 1 }, bold && { fontWeight: '700' }]}>{label}</Text>
+    </View>
+  );
+}
+
+/** « Nouveau »: white on the accent fill, never truncated. */
+export function NewBadge({ text }: { text?: string }) {
+  const theme = useTheme();
+  return (
+    <View style={{ backgroundColor: theme.accentFill, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'center' }}>
+      <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '800' }} numberOfLines={1}>
+        {text ?? NEW_BADGE_TEXT}
       </Text>
     </View>
   );
 }
 
-/** A selectable chip (filters): selected = textPrimary fill, white text. */
+/** A selectable chip (filters): selected = textPrimary fill with the background color as text; idle = outlined card. */
 export function FilterChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
   const theme = useTheme();
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
       onPress={() => {
         tap();
         onPress();
@@ -201,58 +335,77 @@ export function FilterChip({ label, selected, onPress }: { label: string; select
       style={{
         backgroundColor: selected ? theme.textPrimary : theme.card,
         borderRadius: 999,
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        minHeight: 36,
+        paddingHorizontal: 16,
+        minHeight: 44,
         justifyContent: 'center',
-        ...(selected ? {} : theme.cardShadow),
+        borderWidth: selected ? 0 : 1.5,
+        borderColor: theme.trackStrong,
       }}
     >
-      <Text style={[typo.chip, { color: selected ? theme.background : theme.textPrimary }]}>{label}</Text>
+      <Text style={{ fontSize: 15, fontWeight: selected ? '800' : '700', color: selected ? theme.background : theme.textPrimary }}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
+
+// MARK: - Controls
+
+/** The selected segment's colors: null = a `card` segment with a shadow. */
+export type SegmentTone = { bg: string; text: string } | null;
 
 export function SegmentedPill<K extends string>({
   options,
   value,
   onChange,
+  tone,
+  track,
+  style,
 }: {
   options: readonly { key: K; label: string }[];
   value: K;
   onChange: (key: K) => void;
+  /** The selected segment's colors per option (status, priority, repetition). */
+  tone?: (key: K) => SegmentTone;
+  /** Track color: `track` on the ground, `hairline` inside a card. */
+  track?: string;
+  style?: StyleProp<ViewStyle>;
 }) {
   const theme = useTheme();
   return (
-    <View style={{ flexDirection: 'row', backgroundColor: theme.track, borderRadius: radius.track, padding: 4 }}>
+    <View style={[{ flexDirection: 'row', backgroundColor: track ?? theme.track, borderRadius: radius.track, padding: 4 }, style]}>
       {options.map((option) => {
         const selected = option.key === value;
+        const colors = selected ? (tone?.(option.key) ?? null) : null;
         return (
           <Pressable
             key={option.key}
             accessibilityRole="button"
             accessibilityState={{ selected }}
             onPress={() => {
+              if (selected) return;
               tap();
               onChange(option.key);
             }}
             style={[
               {
                 flex: 1,
-                minHeight: 40,
+                minHeight: 44,
                 borderRadius: radius.segment,
                 alignItems: 'center',
                 justifyContent: 'center',
                 paddingHorizontal: 6,
               },
-              selected && [{ backgroundColor: theme.card }, theme.cardShadow],
+              selected && (colors ? { backgroundColor: colors.bg } : [{ backgroundColor: theme.card }, theme.subtleShadow, theme.cardShadow]),
             ]}
           >
             <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
               style={{
-                fontFamily: 'Nunito_800ExtraBold',
                 fontSize: 15,
-                color: selected ? theme.textPrimary : theme.textSecondary,
+                fontWeight: selected ? '800' : '600',
+                color: selected ? (colors?.text ?? theme.textPrimary) : theme.textSecondary,
               }}
             >
               {option.label}
@@ -280,28 +433,26 @@ export function PrimaryButton({
   style?: StyleProp<ViewStyle>;
 }) {
   const theme = useTheme();
-  const inactive = disabled || loading;
+  const off = disabled && !loading;
   return (
     <Pressable
       accessibilityRole="button"
-      disabled={inactive}
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
+      disabled={disabled || loading}
       onPress={onPress}
       style={({ pressed }) => [
         {
-          height: 56,
+          minHeight: 56,
           borderRadius: radius.button,
-          backgroundColor: theme.accentFill,
+          backgroundColor: off ? theme.track : theme.accentFill,
           alignItems: 'center',
           justifyContent: 'center',
           flexDirection: 'row',
           gap: 8,
-          opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+          paddingHorizontal: 16,
+          opacity: pressed ? 0.85 : 1,
         },
-        !theme.dark &&
-          Platform.select<ViewStyle>({
-            web: { boxShadow: '0 8px 18px rgba(75,59,230,0.28)' } as ViewStyle,
-            default: { shadowColor: '#4B3BE6', shadowOpacity: 0.28, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
-          }),
+        !off && theme.accentShadow,
         style,
       ]}
     >
@@ -309,8 +460,8 @@ export function PrimaryButton({
         <ActivityIndicator color="#FFF" />
       ) : (
         <>
-          {icon ? <Ionicons name={icon} size={20} color="#FFF" /> : null}
-          <Text style={[typo.button, { color: '#FFF' }]}>{title}</Text>
+          {icon ? <Ionicons name={icon} size={20} color={off ? theme.textSecondary : '#FFF'} /> : null}
+          <Text style={[typo.button, { color: off ? theme.textSecondary : '#FFF' }]}>{title}</Text>
         </>
       )}
     </Pressable>
@@ -322,11 +473,15 @@ export function SecondaryButton({
   onPress,
   color,
   disabled,
+  style,
+  fontSize = 16,
 }: {
   title: string;
   onPress: () => void;
   color?: string;
   disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+  fontSize?: number;
 }) {
   const theme = useTheme();
   return (
@@ -334,35 +489,191 @@ export function SecondaryButton({
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => ({ minHeight: 44, alignItems: 'center', justifyContent: 'center', opacity: pressed || disabled ? 0.5 : 1 })}
+      style={({ pressed }) => [
+        { minHeight: 44, alignItems: 'center', justifyContent: 'center', opacity: pressed || disabled ? 0.5 : 1 },
+        style,
+      ]}
     >
-      <Text style={{ fontFamily: 'Nunito_800ExtraBold', fontSize: 16, color: color ?? theme.accent }}>{title}</Text>
+      <Text style={{ fontSize, fontWeight: '700', color: color ?? theme.accent }}>{title}</Text>
     </Pressable>
   );
 }
 
-export function Field({ label, ...props }: TextInputProps & { label?: string }) {
+/** A round icon button (44 pt): `card` (a card circle) or `translucent` (white 22 %, on a colored hero). */
+export function CircleIconButton({
+  icon,
+  label,
+  onPress,
+  variant = 'card',
+  color,
+  size = 44,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  variant?: 'card' | 'translucent';
+  color?: string;
+  size?: number;
+}) {
   const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      hitSlop={4}
+      style={({ pressed }) => [
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: variant === 'card' ? theme.card : 'rgba(255,255,255,0.22)',
+          opacity: pressed ? 0.7 : 1,
+        },
+        variant === 'card' && theme.cardShadow,
+      ]}
+    >
+      <Ionicons name={icon} size={size * 0.5} color={color ?? (variant === 'card' ? theme.accent : '#FFF')} />
+    </Pressable>
+  );
+}
+
+/** A capsule text button on a card (« Annuler », « Créer » of a sheet header, « Retour »). */
+export function CapsuleButton({
+  title,
+  onPress,
+  icon,
+  bold,
+  disabled,
+  loading,
+}: {
+  title: string;
+  onPress: () => void;
+  icon?: IconName;
+  bold?: boolean;
+  disabled?: boolean;
+  loading?: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      disabled={disabled || loading}
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          minHeight: 44,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 2,
+          paddingLeft: icon ? 10 : 18,
+          paddingRight: 18,
+          borderRadius: 999,
+          backgroundColor: theme.card,
+          opacity: pressed ? 0.7 : 1,
+        },
+        theme.cardShadow,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color={theme.accent} />
+      ) : (
+        <>
+          {icon ? <Ionicons name={icon} size={22} color={disabled ? theme.textTertiary : theme.accent} /> : null}
+          <Text style={{ fontSize: 17, fontWeight: bold ? '700' : '500', color: disabled ? theme.textTertiary : theme.accent }}>{title}</Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
+/**
+ * A text field. With `icon`, the v2 look of the sign-in screens: a white rounded row (radius 16, 56 pt) with a leading
+ * icon, an eye toggle for `secureTextEntry`, and `error` under it (the outline turns red).
+ */
+export function Field({
+  label,
+  icon,
+  error,
+  ...props
+}: TextInputProps & { label?: string; icon?: IconName; error?: string | null }) {
+  const theme = useTheme();
+  const [revealed, setRevealed] = useState(false);
+  if (icon) {
+    const secure = props.secureTextEntry === true;
+    return (
+      <View style={{ gap: 6 }}>
+        {label ? <Text style={[typo.subheadline, { color: theme.textSecondary, fontWeight: '600', marginLeft: 4 }]}>{label}</Text> : null}
+        <View
+          style={[
+            {
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              minHeight: 56,
+              paddingLeft: 16,
+              paddingRight: secure ? 4 : 16,
+              backgroundColor: theme.card,
+              borderRadius: radius.field,
+              borderWidth: 1.5,
+              borderColor: error ? theme.danger.text : 'transparent',
+            },
+            theme.subtleShadow,
+          ]}
+        >
+          <View style={{ width: 24, alignItems: 'center' }}>
+            <Ionicons name={icon} size={20} color={error ? theme.danger.text : theme.textSecondary} />
+          </View>
+          <TextInput
+            placeholderTextColor={theme.textTertiary}
+            {...props}
+            secureTextEntry={secure && !revealed}
+            style={[typo.body, { flex: 1, color: theme.textPrimary, paddingVertical: 14 }, props.style]}
+          />
+          {secure ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={revealed ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+              onPress={() => setRevealed((value) => !value)}
+              style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Ionicons name={revealed ? 'eye-off-outline' : 'eye-outline'} size={22} color={theme.textSecondary} />
+            </Pressable>
+          ) : null}
+        </View>
+        {error ? (
+          <View style={{ flexDirection: 'row', gap: 6, paddingLeft: 4 }}>
+            <Ionicons name="alert-circle" size={15} color={theme.danger.text} style={{ marginTop: 1 }} />
+            <Text style={[typo.footnote, { color: theme.danger.text, flex: 1 }]}>{error}</Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
   return (
     <View style={{ gap: 6 }}>
       {label ? <Text style={[typo.footnote, { color: theme.textSecondary, fontWeight: '600' }]}>{label}</Text> : null}
       <TextInput
-        placeholderTextColor={theme.textSecondary}
+        placeholderTextColor={theme.textTertiary}
         {...props}
         style={[
           typo.body,
           {
             backgroundColor: theme.card,
             color: theme.textPrimary,
-            borderRadius: 14,
-            paddingHorizontal: 14,
+            borderRadius: radius.field,
+            paddingHorizontal: 16,
             minHeight: 50,
             borderWidth: 1,
-            borderColor: theme.track,
+            borderColor: error ? theme.danger.text : theme.track,
           },
           props.style,
         ]}
       />
+      {error ? <Text style={[typo.footnote, { color: theme.danger.text }]}>{error}</Text> : null}
     </View>
   );
 }
@@ -378,13 +689,26 @@ export function ErrorText({ message }: { message: string | null | undefined }) {
   );
 }
 
-export function ProgressBar({ fraction, color, height = 8 }: { fraction: number; color: string; height?: number }) {
+// MARK: - Progress
+
+export function ProgressBar({
+  fraction,
+  color,
+  height = 8,
+  track,
+}: {
+  fraction: number;
+  color: string;
+  height?: number;
+  track?: string;
+}) {
   const theme = useTheme();
+  const clamped = Math.max(0, Math.min(1, fraction));
   return (
-    <View style={{ height, borderRadius: height / 2, backgroundColor: theme.track, overflow: 'hidden' }}>
-      <View
-        style={{ width: `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%`, height, borderRadius: height / 2, backgroundColor: color }}
-      />
+    <View style={{ height, borderRadius: height / 2, backgroundColor: track ?? theme.track, overflow: 'hidden' }}>
+      {clamped > 0 ? (
+        <View style={{ width: `${Math.max(clamped * 100, 3)}%`, minWidth: height, height, borderRadius: height / 2, backgroundColor: color }} />
+      ) : null}
     </View>
   );
 }
@@ -394,12 +718,14 @@ export function ProgressRing({
   size = 76,
   stroke = 9,
   color,
+  track,
   children,
 }: {
   fraction: number;
   size?: number;
   stroke?: number;
   color: string;
+  track?: string;
   children?: ReactNode;
 }) {
   const theme = useTheme();
@@ -409,106 +735,163 @@ export function ProgressRing({
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={theme.track} strokeWidth={stroke} fill="none" />
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={color}
-          strokeWidth={stroke}
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray={`${circumference} ${circumference}`}
-          strokeDashoffset={circumference * (1 - clamped)}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={track ?? theme.accentSoft.bg} strokeWidth={stroke} fill="none" />
+        {clamped > 0 ? (
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            stroke={color}
+            strokeWidth={stroke}
+            fill="none"
+            strokeLinecap="round"
+            strokeDasharray={`${circumference} ${circumference}`}
+            strokeDashoffset={circumference * (1 - clamped)}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        ) : null}
       </Svg>
       {children}
     </View>
   );
 }
 
-/** Status control of a task row: ring in the group fill, amber half for « en cours », green check for « terminée ». */
+// MARK: - Tasks
+
+/** The glyph of a status: a ring in `tint`; « en cours », an amber ring half filled; « terminée », a green disc with a check. */
+export function StatusGlyph({ status, tint, size = 24 }: { status: TaskStatus; tint: string; size?: number }) {
+  const theme = useTheme();
+  const line = Math.max(2, size * 0.105);
+  const c = size / 2;
+  if (status === 'done') {
+    return (
+      <View style={{ width: size, height: size, borderRadius: c, backgroundColor: theme.fill.green, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name="checkmark" size={size * 0.62} color="#FFF" />
+      </View>
+    );
+  }
+  const amber = colorAccent(theme, 'amber');
+  const inner = c - line - size * 0.08;
+  return (
+    <Svg width={size} height={size}>
+      <Circle cx={c} cy={c} r={c - line / 2} stroke={status === 'in_progress' ? amber : tint} strokeWidth={line} fill="none" />
+      {status === 'in_progress' ? <Path d={`M ${c} ${c - inner} A ${inner} ${inner} 0 0 0 ${c} ${c + inner} Z`} fill={amber} /> : null}
+    </Svg>
+  );
+}
+
+/** Status control of a task row: the glyph in a 44 pt target; a tap asks for the next status. */
 export function StatusControl({
   status,
   color,
+  tint,
   onPress,
   disabled,
+  busy,
 }: {
   status: TaskStatus;
   color: ColorKey;
+  /** The ring color; defaults to the accent of `color`. */
+  tint?: string;
   onPress?: () => void;
   disabled?: boolean;
+  busy?: boolean;
 }) {
   const theme = useTheme();
-  const fill = theme.fill[color];
-  let inner: ReactNode;
-  if (status === 'done') {
-    inner = (
-      <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: theme.fill.green, alignItems: 'center', justifyContent: 'center' }}>
-        <Ionicons name="checkmark" size={16} color="#FFF" />
-      </View>
-    );
-  } else if (status === 'in_progress') {
-    inner = (
-      <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 2.5, borderColor: theme.fill.amber, overflow: 'hidden' }}>
-        <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '50%', backgroundColor: theme.fill.amber }} />
-      </View>
-    );
-  } else {
-    inner = <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 2.5, borderColor: fill }} />;
-  }
+  const enabled = !disabled && onPress !== undefined;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Changer le statut"
-      disabled={disabled || !onPress}
+      accessibilityLabel={`Statut\u{a0}: ${statusLabel(status)}`}
+      accessibilityHint={enabled ? `Passer à «\u{a0}${statusLabel(nextStatus(status))}\u{a0}»` : undefined}
+      disabled={!enabled || busy}
       hitSlop={6}
       onPress={() => {
-        if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+        if (Platform.OS !== 'web') {
+          if (nextStatus(status) === 'done') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+          else void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+        }
         onPress?.();
       }}
-      style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.5 : 1 }}
+      style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
     >
-      {inner}
+      {busy ? (
+        <ActivityIndicator size="small" color={theme.accent} />
+      ) : (
+        <View style={{ opacity: enabled ? 1 : 0.45 }}>
+          <StatusGlyph status={status} tint={tint ?? colorAccent(theme, color)} />
+        </View>
+      )}
     </Pressable>
   );
 }
 
+function rowAccessibilityLabel(row: TaskRow): string {
+  const parts = [row.title];
+  if (row.isNew) parts.push(NEW_BADGE_TEXT.toLowerCase());
+  parts.push(statusLabel(row.status), `priorité ${priorityLabel(row.priority).toLowerCase()}`);
+  if (row.dueText) parts.push(row.isOverdue ? `en retard, échéance ${row.dueText.toLowerCase()}` : `échéance ${row.dueText.toLowerCase()}`);
+  if (row.isMyTurn) parts.push(MY_TURN_LABEL.toLowerCase());
+  else if (row.hasRotation) parts.push(ROTATION_LABEL.toLowerCase());
+  else if (row.recurrenceText) parts.push(row.recurrenceText.toLowerCase());
+  if (row.checklistProgress) parts.push(`checklist ${row.checklistProgress.done} sur ${row.checklistProgress.total}`);
+  if (row.groupName) parts.push(`groupe ${row.groupName}`);
+  if (row.assigneesText) parts.push(row.assignees.length === 0 ? row.assigneesText.toLowerCase() : `assignée à ${row.assigneesText}`);
+  return parts.join(', ');
+}
+
+/**
+ * A task as a card (radius 20): the status control, the title (struck through when done) and « Nouveau », a wrapping
+ * line of chips (group, due date, « Ton tour » / « À tour de rôle » / repetition, checklist, « En cours », priority
+ * unless « Moyenne »), and on the group screen the assignees or the dashed circle.
+ */
 export function TaskRowCard({
   row,
   color,
   onPress,
   onToggleStatus,
+  tint,
+  busy,
 }: {
   row: TaskRow;
   color: ColorKey;
   onPress: () => void;
   onToggleStatus?: () => void;
+  tint?: string;
+  busy?: boolean;
 }) {
   const theme = useTheme();
-  const shownAssignees: PersonBadge[] = row.assignees.slice(0, 3);
+  const secondary = { bg: 'transparent', text: theme.textSecondary };
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={rowAccessibilityLabel(row)}
       style={({ pressed }) => [
         {
           backgroundColor: theme.card,
           borderRadius: radius.row,
-          paddingVertical: 10,
+          paddingVertical: 12,
           paddingRight: 14,
-          paddingLeft: 4,
+          paddingLeft: 6,
           flexDirection: 'row',
           alignItems: 'center',
           gap: 6,
-          opacity: pressed ? 0.9 : 1,
+          transform: [{ scale: pressed ? 0.985 : 1 }],
         },
         theme.cardShadow,
       ]}
     >
-      <StatusControl status={row.status} color={color} onPress={onToggleStatus} disabled={!row.canChangeStatus} />
-      <View style={{ flex: 1, gap: 6 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <StatusControl
+        status={row.status}
+        color={color}
+        tint={tint}
+        busy={busy}
+        onPress={onToggleStatus}
+        disabled={!row.canChangeStatus}
+      />
+      <View style={{ flex: 1, gap: 6, paddingLeft: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text
             style={[
               typo.headline,
@@ -518,13 +901,9 @@ export function TaskRowCard({
           >
             {row.title}
           </Text>
-          {row.isNew ? (
-            <View style={{ backgroundColor: theme.accentFill, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2 }}>
-              <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '700' }}>Nouveau</Text>
-            </View>
-          ) : null}
+          {row.isNew ? <NewBadge /> : null}
         </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 10, rowGap: 6 }}>
           {row.groupAppearance && row.groupShortName ? (
             <Chip
               soft={theme.soft[row.groupAppearance.color]}
@@ -533,44 +912,158 @@ export function TaskRowCard({
           ) : null}
           {row.dueText ? (
             <Chip
-              soft={row.isOverdue && !row.isDone ? theme.danger : { bg: theme.track, text: theme.textSecondary }}
-              icon="calendar-outline"
+              plain
+              bold={row.isOverdue}
+              soft={row.isOverdue ? { bg: 'transparent', text: theme.danger.text } : secondary}
+              icon="time-outline"
               label={row.dueText}
             />
           ) : null}
-          {row.isMyTurn ? <Chip soft={theme.accentSoft} icon="repeat" label="Ton tour" /> : null}
-          {row.recurrenceText && !row.isMyTurn ? (
-            <Chip soft={{ bg: theme.track, text: theme.textSecondary }} icon="repeat" label={row.recurrenceText} />
+          {row.isMyTurn ? (
+            <Chip plain bold soft={{ bg: 'transparent', text: theme.accent }} icon="sync" label={MY_TURN_LABEL} />
+          ) : row.hasRotation ? (
+            <Chip plain soft={secondary} icon="sync" label={ROTATION_LABEL} />
+          ) : row.recurrenceText ? (
+            <Chip plain soft={secondary} icon="sync" label={row.recurrenceText} />
           ) : null}
           {row.checklistProgress ? (
             <Chip
-              soft={theme.soft.teal}
+              plain
+              bold
+              soft={{
+                bg: 'transparent',
+                text: colorAccent(theme, progressIsComplete(row.checklistProgress) ? 'green' : 'teal'),
+              }}
               icon="list"
-              label={`${row.checklistProgress.done}/${row.checklistProgress.total}`}
+              label={progressCompactText(row.checklistProgress)}
             />
           ) : null}
-          {row.status === 'in_progress' ? <Chip soft={statusSoft(theme, 'in_progress')} label="En cours" /> : null}
+          {row.status === 'in_progress' ? <Chip soft={statusSoft(theme, 'in_progress')} label={statusLabel('in_progress')} /> : null}
+          {row.priority !== 'medium' ? <Chip soft={prioritySoft(theme, row.priority)} icon="flag" label={priorityLabel(row.priority)} /> : null}
         </View>
       </View>
-      {row.assigneesText !== null ? (
-        shownAssignees.length > 0 ? (
-          <AvatarStack
-            avatars={shownAssignees.map((badge) => badge.appearance)}
-            more={row.assignees.length > 3 ? `+${row.assignees.length - 3}` : null}
-            size={28}
-          />
-        ) : (
-          <View
-            accessibilityLabel="Personne"
-            style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.textSecondary }}
-          />
-        )
-      ) : null}
+      {row.assigneesText !== null ? <AssigneesStack people={row.assignees} /> : null}
     </Pressable>
   );
 }
 
-export function FloatingAddButton({ onPress, label }: { onPress: () => void; label: string }) {
+/** « ! Haute », « — Moyenne », « ↓ Basse » (the rows of « Mes tâches »). */
+export function PriorityBadge({ priority }: { priority: TaskPriority }) {
+  const theme = useTheme();
+  const soft = prioritySoft(theme, priority);
+  const glyph = priority === 'high' ? '!' : priority === 'medium' ? '—' : '↓';
+  return (
+    <View
+      accessibilityLabel={`Priorité ${priorityLabel(priority).toLowerCase()}`}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: soft.bg, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 }}
+    >
+      <Text style={{ color: soft.text, fontSize: 13, fontWeight: '800' }}>{glyph}</Text>
+      <Text style={{ color: soft.text, fontSize: 13, fontWeight: '600' }}>{priorityLabel(priority)}</Text>
+    </View>
+  );
+}
+
+/**
+ * A row of « Mes tâches » (screenshot 07) as a card: the status, the title and « Nouveau », the group line, the
+ * priority and the due date, then the repetition, turn and checklist, and a chevron.
+ */
+export function MyTaskRowCard({
+  row,
+  onPress,
+  onToggleStatus,
+  busy,
+}: {
+  row: TaskRow;
+  onPress: () => void;
+  onToggleStatus?: () => void;
+  busy?: boolean;
+}) {
+  const theme = useTheme();
+  const color = row.groupAppearance?.color ?? 'indigo';
+  const secondary = { bg: 'transparent', text: theme.textSecondary };
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={rowAccessibilityLabel(row)}
+      style={({ pressed }) => [
+        {
+          backgroundColor: theme.card,
+          borderRadius: radius.row + 4,
+          paddingVertical: 14,
+          paddingRight: 12,
+          paddingLeft: 10,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          transform: [{ scale: pressed ? 0.985 : 1 }],
+        },
+        theme.cardShadow,
+      ]}
+    >
+      <View style={{ alignSelf: 'flex-start', marginTop: -8 }}>
+        <StatusControl
+          status={row.status}
+          color={color}
+          tint={theme.textSecondary}
+          busy={busy}
+          onPress={onToggleStatus}
+          disabled={!row.canChangeStatus}
+        />
+      </View>
+      <View style={{ flex: 1, gap: 5, opacity: row.isDone ? 0.75 : 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+          <Text
+            style={[
+              typo.headline,
+              { flex: 1, fontSize: 18, fontWeight: '500', color: row.isDone ? theme.textSecondary : theme.textPrimary },
+              row.isDone && { textDecorationLine: 'line-through' },
+            ]}
+            numberOfLines={2}
+          >
+            {row.title}
+          </Text>
+          {row.isNew ? <NewBadge /> : null}
+        </View>
+        {row.groupName ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Ionicons name="people-outline" size={15} color={theme.textSecondary} />
+            <Text style={[typo.footnote, { color: theme.textSecondary, flexShrink: 1 }]} numberOfLines={1}>
+              {row.groupAppearance?.emoji ? `${row.groupAppearance.emoji} ` : ''}
+              {row.groupName}
+            </Text>
+          </View>
+        ) : null}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 10, rowGap: 6 }}>
+          <PriorityBadge priority={row.priority} />
+          {row.dueText ? (
+            <Chip
+              plain
+              bold={row.isOverdue}
+              soft={row.isOverdue ? { bg: 'transparent', text: theme.danger.text } : secondary}
+              icon={row.isOverdue ? 'alert-circle' : 'calendar-outline'}
+              label={row.dueText}
+            />
+          ) : null}
+          {row.isMyTurn ? <Chip plain bold soft={{ bg: 'transparent', text: theme.accent }} icon="sync" label={MY_TURN_LABEL} /> : null}
+          {!row.isMyTurn && row.recurrenceText ? <Chip plain soft={secondary} icon="sync" label={row.recurrenceText} /> : null}
+          {row.checklistProgress ? (
+            <Chip
+              plain
+              bold
+              soft={{ bg: 'transparent', text: colorAccent(theme, progressIsComplete(row.checklistProgress) ? 'green' : 'teal') }}
+              icon="list"
+              label={progressCompactText(row.checklistProgress)}
+            />
+          ) : null}
+        </View>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={theme.textTertiary} />
+    </Pressable>
+  );
+}
+
+export function FloatingAddButton({ onPress, label, bottom = 20 }: { onPress: () => void; label: string; bottom?: number }) {
   const theme = useTheme();
   return (
     <Pressable
@@ -581,7 +1074,7 @@ export function FloatingAddButton({ onPress, label }: { onPress: () => void; lab
         {
           position: 'absolute',
           right: 20,
-          bottom: 20,
+          bottom,
           width: 60,
           height: 60,
           borderRadius: 20,
@@ -590,10 +1083,10 @@ export function FloatingAddButton({ onPress, label }: { onPress: () => void; lab
           justifyContent: 'center',
           opacity: pressed ? 0.85 : 1,
         },
-        theme.cardShadow,
+        theme.accentShadow,
       ]}
     >
-      <Ionicons name="add" size={32} color="#FFF" />
+      <Ionicons name="add" size={34} color="#FFF" />
     </Pressable>
   );
 }
@@ -680,10 +1173,40 @@ export function ListRow({
   );
 }
 
-export function SectionTitle({ children, color }: { children: ReactNode; color?: string }) {
+/**
+ * A title above a list or a card. `large` (default): rounded heavy title3; `small`: subheadline heavy in
+ * `textSecondary`. Optional leading icon and a trailing text (a count).
+ */
+export function SectionTitle({
+  children,
+  color,
+  icon,
+  trailing,
+  size = 'large',
+}: {
+  children: ReactNode;
+  color?: string;
+  icon?: IconName;
+  trailing?: string | number | null;
+  size?: 'small' | 'large';
+}) {
   const theme = useTheme();
+  const tint = color ?? (size === 'large' ? theme.textPrimary : theme.textSecondary);
+  const textStyle: StyleProp<TextStyle> =
+    size === 'large' ? [typo.title3, { color: tint }] : [{ fontSize: 17, fontWeight: '600', color: tint }];
+  if (!icon && trailing == null) {
+    return (
+      <Text accessibilityRole="header" style={[textStyle, { marginTop: 8, marginBottom: 2 }]}>
+        {children}
+      </Text>
+    );
+  }
   return (
-    <Text style={[typo.title3, { color: color ?? theme.textPrimary, marginTop: 8, marginBottom: 2 }]}>{children}</Text>
+    <View accessibilityRole="header" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, marginBottom: 2, paddingHorizontal: 4 }}>
+      {icon ? <Ionicons name={icon} size={20} color={tint} /> : null}
+      <Text style={[textStyle, { flex: 1 }]}>{children}</Text>
+      {trailing != null ? <Text style={{ fontSize: 17, fontWeight: '600', color: tint }}>{trailing}</Text> : null}
+    </View>
   );
 }
 
