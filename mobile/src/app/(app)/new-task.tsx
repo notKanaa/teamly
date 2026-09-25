@@ -141,6 +141,11 @@ function Editor({ task, groupId }: { task: TaskItem | null; groupId: string }) {
   const hasChangesRef = useRef(changed);
   hasChangesRef.current = changed;
 
+  // A sheet with changes cannot be swiped away: « Annuler » asks first.
+  useEffect(() => {
+    navigation.setOptions({ gestureEnabled: !changed && !saving });
+  }, [navigation, changed, saving]);
+
   // Ask before discarding changes (swipe down, back button).
   useEffect(() => {
     return navigation.addListener('beforeRemove', (event) => {
