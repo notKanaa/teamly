@@ -165,6 +165,14 @@ export class AppError extends Error {
   }
 }
 
+/** A request cancelled on purpose (an aborted fetch, a load replaced by a newer one): never shown to the user. */
+export class CancelledError extends Error {
+  constructor() {
+    super('cancelled');
+    this.name = 'CancelledError';
+  }
+}
+
 /** A cancelled request (an aborted fetch): never shown to the user. */
 export function isCancellation(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
