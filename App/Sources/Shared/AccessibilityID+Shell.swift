@@ -10,4 +10,11 @@ extension AccessibilityID {
         /// them like the tab bar (what lies under them cannot be tapped).
         static let pinnedBottomBar = "shell.pinnedBottomBar"
     }
+
+    /// The design system gallery (`-uiTestDesignGallery`, UI tests only).
+    enum Gallery {
+        static let screen = "gallery.screen"
+        /// A page selector: 1 base, 2 tâches, 3 contrôles, 4 groupes.
+        static func page(_ number: Int) -> String { "gallery.page.\(number)" }
+    }
 }

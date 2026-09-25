@@ -10,9 +10,9 @@ import TeamTasksCore
 /// - trailing, on the group screen (`row.assigneesText != nil`): the assignees (`row.assignees`) or the dashed circle
 ///   of « Personne ». At accessibility text sizes they move under the chips.
 ///
-/// Wrap it in the screen's `NavigationLink` (with `.buttonStyle(.plain)` in a scroll view) and put the row's identifier
-/// on the link (`AccessibilityID.Tasks.row(row.title)`). VoiceOver reads the card as one sentence starting with the
-/// title and the status, with a « Passer à « … » » action; the status button stays a separate element.
+/// Wrap it in the screen's `NavigationLink` (with `.buttonStyle(.pressable)` or `.plain` in a scroll view) and put the
+/// row's identifier on the link (`AccessibilityID.Tasks.row(row.title)`). VoiceOver reads the card as one sentence
+/// starting with the title and the status, with a « Passer à « … » » action; the status button stays a separate element.
 ///
 /// ```swift
 /// NavigationLink(value: AppRoute.task(groupId: row.task.groupId, taskId: row.id)) {
@@ -20,7 +20,7 @@ import TeamTasksCore
 ///         setStatus(row.status.next, for: row)
 ///     }
 /// }
-/// .buttonStyle(.plain)
+/// .buttonStyle(.pressable)
 /// .accessibilityIdentifier(AccessibilityID.Tasks.row(row.title))
 /// ```
 struct TaskRowCard: View {

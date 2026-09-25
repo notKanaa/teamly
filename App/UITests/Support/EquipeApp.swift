@@ -151,10 +151,12 @@ final class EquipeApp {
     ///   - notifications: initial permission of the in-app notification fake (`notDetermined` by default, which the
     ///     app's request grants without any system prompt).
     ///   - appearance: dark mode or the largest text size (design checks); the system's otherwise.
+    ///   - arguments: more launch arguments (`-uiTestDesignGallery`).
     static func launch(
         _ scenario: UITestScenario,
         notifications: String? = nil,
         appearance: UITestAppearance? = nil,
+        arguments extraArguments: [String] = [],
         for testCase: XCTestCase
     ) -> EquipeApp {
         testCase.continueAfterFailure = false
@@ -171,6 +173,7 @@ final class EquipeApp {
         if let appearance {
             arguments += appearance.launchArguments
         }
+        arguments += extraArguments
         app.launchArguments = arguments
         app.launch()
         return EquipeApp(app: app, testCase: testCase)

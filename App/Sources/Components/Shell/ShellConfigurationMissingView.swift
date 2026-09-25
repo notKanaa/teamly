@@ -1,4 +1,5 @@
 import SwiftUI
+import TeamTasksCore
 import UIKit
 
 /// « Configuration manquante »: the app was built without the address of its Supabase project

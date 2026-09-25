@@ -156,8 +156,30 @@ final class ScreenshotTests: XCTestCase {
 }
 
 /// Design checks of the v2 screens (docs/DESIGN-V2.md §1): the same screens in dark mode and at the largest
-/// accessibility text size. Their captures are not part of the 14: the CI exports them under `debug/`, to be looked at.
+/// accessibility text size, and the gallery of every component. Their captures are not part of the 14: the CI exports
+/// them under `debug/`, to be looked at.
 final class DesignCheckTests: XCTestCase {
+    /// The 4 pages of the design system gallery (`-uiTestDesignGallery`), top and bottom, in light then dark mode.
+    @MainActor
+    func testComponentGallery() {
+        let variants: [(name: String, appearance: UITestAppearance?)] = [("clair", nil), ("sombre", .dark)]
+        for variant in variants {
+            let ui = EquipeApp.launch(
+                .signedOut, appearance: variant.appearance, arguments: ["-uiTestDesignGallery"], for: self
+            )
+            ui.waitFor(ui.elements(AccessibilityID.Gallery.screen), "the design gallery")
+            for page in 1...4 {
+                let segment = ui.buttons(AccessibilityID.Gallery.page(page))
+                ui.tap(segment, "the gallery page \(page)", until: .selects(segment))
+                ui.capture("galerie-\(page)-haut-\(variant.name)")
+                for _ in 0..<3 {
+                    ui.scroll(.towardsBottom)
+                }
+                ui.capture("galerie-\(page)-bas-\(variant.name)")
+            }
+        }
+    }
+
     @MainActor
     func testDarkMode() {
         let ui = EquipeApp.launch(.signedOut, appearance: .dark, for: self)
