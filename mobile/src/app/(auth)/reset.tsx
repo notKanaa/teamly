@@ -10,7 +10,6 @@ import { AuthHeader } from '@/ui/AuthHeader';
 import { Screen } from '@/ui/Screen';
 import { type as typo, useTheme } from '@/ui/theme';
 
-
 /** « Mot de passe oublié » : e-mail, then the 6-digit code received by e-mail. */
 export default function ResetScreen() {
   const theme = useTheme();

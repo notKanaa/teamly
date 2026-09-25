@@ -9,7 +9,6 @@ import { AuthHeader } from '@/ui/AuthHeader';
 import { Screen } from '@/ui/Screen';
 import { type as typo, useTheme } from '@/ui/theme';
 
-
 /** « Créer un compte ». */
 export default function SignUpScreen() {
   const theme = useTheme();

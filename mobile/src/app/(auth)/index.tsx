@@ -2,11 +2,10 @@ import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 
-import { AuthHeader } from '@/ui/AuthHeader';
-
 import { errorMessage } from '@/core/appError';
 import { auth } from '@/data/api';
 import { Field, ErrorText, PrimaryButton, SecondaryButton } from '@/ui/components';
+import { AuthHeader } from '@/ui/AuthHeader';
 import { Screen } from '@/ui/Screen';
 import { type as typo, useTheme } from '@/ui/theme';
 

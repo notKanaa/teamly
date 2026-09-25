@@ -7,7 +7,6 @@ import { ErrorText, Field, PrimaryButton, SecondaryButton } from '@/ui/component
 import { AuthHeader } from '@/ui/AuthHeader';
 import { Screen } from '@/ui/Screen';
 
-
 /** After a valid recovery code: the new password. */
 export default function NewPasswordScreen() {
   const { setRecovering } = useSession();
