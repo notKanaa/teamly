@@ -71,6 +71,12 @@ final class TasksScreenshotTests: XCTestCase {
         ui.openGroup(UITestDemo.lilasGroup)
         let titleField = ui.elements(AccessibilityID.Tasks.titleField)
         ui.tap(ui.addTaskButton, "« + »", until: .shows(titleField))
+        // The due date first: a frequency would turn it on and insert its (tall, at AX5) row above « Répéter », moving
+        // the pill away from under the finger.
+        ui.turnOn(
+            AccessibilityID.Tasks.dueDateToggle, "« Échéance »",
+            until: ui.elements(AccessibilityID.Tasks.dueDatePicker)
+        )
         let weekly = ui.buttons(AccessibilityID.Tasks.repeatOption("weekly"))
         ui.tap(weekly, "« Semaine »", until: .selects(weekly))
         // Closer to « Qui s’en occupe ? » (far down at large text sizes); the scrolls also put the keyboard away.
