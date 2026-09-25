@@ -79,10 +79,14 @@ final class TasksFlowTests: XCTestCase {
         )
         ui.waitForDisappearance(titleField, "the « Nouvelle tâche » sheet")
 
-        // The group lists the task (its title as saved: see FlowTests.testCreateTaskAssignedToMember).
+        // The group lists the task « à tour de rôle » (its title as saved: see FlowTests.testCreateTaskAssignedToMember);
+        // its card reads « …, à tour de rôle, … » (Inès's turn, not Camille's « ton tour »).
         let firstWord = String(title.prefix { $0 != " " })
         let savedTitle = ui.taskTitle(startingWith: firstWord) ?? title
-        ui.waitForContent(ui.elements(AccessibilityID.Tasks.row(savedTitle)), "the new task in the group")
+        ui.reveal(
+            ui.elements(AccessibilityID.Tasks.row(savedTitle), labelContaining: "à tour de rôle"),
+            "« \(savedTitle) » à tour de rôle in the group"
+        )
 
         ui.openTask(savedTitle)
         ui.reveal(

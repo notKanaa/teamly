@@ -79,17 +79,17 @@ final class TasksScreenshotTests: XCTestCase {
         )
         let weekly = ui.buttons(AccessibilityID.Tasks.repeatOption("weekly"))
         ui.tap(weekly, "« Semaine »", until: .selects(weekly))
-        // Closer to « Qui s’en occupe ? » (far down at large text sizes); the scrolls also put the keyboard away.
-        for _ in 0..<scrolls {
-            ui.scroll(.towardsBottom)
-        }
-        ui.turnOn(
-            AccessibilityID.Tasks.rotationToggle, "« À tour de rôle »",
-            until: ui.elements(AccessibilityID.Tasks.rotationMember(UITestDemo.inesName))
-        )
+        // The whole form with « Assigner à » (the scrolls also put the keyboard away)…
         ui.scrollToTop(until: titleField, maxScrolls: 4 * scrolls + 4)
         ui.capture("nouvelle-tache-\(suffix)")
         scrollAndCapture(ui, "nouvelle-tache-\(suffix)", scrolls: scrolls + 1)
+        // … then « À tour de rôle » and its order instead.
+        let ines = ui.elements(AccessibilityID.Tasks.rotationMember(UITestDemo.inesName))
+        ui.turnOn(AccessibilityID.Tasks.rotationToggle, "« À tour de rôle »", until: ines)
+        ui.waitForContent(ines, "Inès in the rotation")
+        ui.capture("nouvelle-tache-rotation-\(suffix)")
+        ui.scroll(.towardsBottom)
+        ui.capture("nouvelle-tache-rotation-\(suffix)-1")
     }
 
     /// Captures `name-1`, `name-2`… after each of `scrolls` scrolls (two drags each) towards the bottom.
