@@ -1,9 +1,10 @@
 import SwiftUI
 import TeamTasksCore
 
-/// « Rejoindre un groupe » sheet (docs/DESIGN-V2.md §7.2): a big monospaced field where the invite code is formatted
-/// live as `ABCD-EFGH`, and the hint. After a successful join the sheet says whether the group was joined or already
-/// joined, and « Ouvrir le groupe » calls `onOpenGroup` (the presenter closes the sheet and shows the group).
+/// « Rejoindre un groupe » sheet (docs/DESIGN-V2.md §7.2): the hint, a big monospaced field where the invite code is
+/// formatted live as `ABCD-EFGH`, and « Rejoindre » under it. After a successful join the sheet says whether the group
+/// was joined or already joined, and « Ouvrir le groupe » calls `onOpenGroup` (the presenter closes the sheet and shows
+/// the group).
 struct JoinGroupSheet: View {
     let onOpenGroup: (UUID) -> Void
 
@@ -45,19 +46,6 @@ struct JoinGroupSheet: View {
                     }
                     .disabled(model.isSubmitting)
                     .accessibilityIdentifier(AccessibilityID.Groups.cancelButton)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if model.isSubmitting {
-                        ProgressView()
-                            .accessibilityLabel("Vérification du code")
-                    } else if model.result == nil {
-                        Button("Rejoindre") {
-                            submit()
-                        }
-                        .fontWeight(.bold)
-                        .disabled(!model.canSubmit)
-                        .accessibilityIdentifier(AccessibilityID.Groups.saveButton)
-                    }
                 }
             }
         }
@@ -108,11 +96,18 @@ struct JoinGroupSheet: View {
                         .strokeBorder(Theme.accent, lineWidth: 2)
                 }
                 .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+                .disabled(model.isSubmitting)
                 .accessibilityLabel("Code d’invitation")
                 .accessibilityIdentifier(AccessibilityID.Groups.codeField)
+            // Under the field, above the keyboard (the return key joins too); a spinner while the code is checked.
+            PrimaryButton("Rejoindre", systemImage: "arrow.right", iconPlacement: .trailing, isLoading: model.isSubmitting) {
+                submit()
+            }
+            .disabled(!model.canSubmit)
+            .accessibilityIdentifier(AccessibilityID.Groups.saveButton)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
-        .disabled(model.isSubmitting)
         .onAppear {
             isCodeFocused = true
         }

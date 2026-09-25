@@ -298,18 +298,24 @@ struct GroupDetailView: View {
     /// The members' avatars and « 3 membres · Tu es admin »: opens « Membres ». The avatars are ringed in white: one
     /// may have the group's own color.
     private func membersLink(_ appearance: AvatarAppearance) -> some View {
-        NavigationLink(value: AppRoute.members(groupId: model.groupId)) {
-            HStack(alignment: .center, spacing: 8) {
+        // At accessibility text sizes the avatars go above the text, which then gets the whole width.
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
+        return NavigationLink(value: AppRoute.members(groupId: model.groupId)) {
+            layout {
                 AvatarStack(people: model.memberBadges, limit: 3, size: 26, surface: Color.white)
-                Text(model.membersSummary)
-                    .font(Font.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.onFill)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                Image(systemName: "chevron.right")
-                    .font(Font.caption.weight(.heavy))
-                    .foregroundStyle(Theme.onFill.opacity(0.85))
-                    .accessibilityHidden(true)
+                HStack(alignment: .center, spacing: 8) {
+                    Text(model.membersSummary)
+                        .font(Font.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.onFill)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Image(systemName: "chevron.right")
+                        .font(Font.caption.weight(.heavy))
+                        .foregroundStyle(Theme.onFill.opacity(0.85))
+                        .accessibilityHidden(true)
+                }
             }
             .frame(minHeight: 44)
             .contentShape(Rectangle())
@@ -585,8 +591,9 @@ struct GroupDetailView: View {
         .accessibilityIdentifier(AccessibilityID.Groups.emptyTasks)
     }
 
-    /// The floating « + » of « Tâches » (not on « Activité »). It floats over the cards: the UI tests treat it like the
-    /// tab bar (`Shell.pinnedBottomBar`), never tapping a card through it.
+    /// The floating « + » of « Tâches » (not on « Activité »). It is not marked `Shell.pinnedBottomBar`: it stays in the
+    /// accessibility tree behind the sheets, where the keyboard avoidance lifts it, and the UI-test helpers would then
+    /// take the sheet's rows at its height for covered. Their taps land in the middle of the cards, away from it.
     @ViewBuilder
     private var addButton: some View {
         if model.tab == .tasks && model.canCreateTask {
@@ -596,8 +603,6 @@ struct GroupDetailView: View {
             .accessibilityIdentifier(AccessibilityID.Tasks.addButton)
             .padding(.trailing, Theme.Spacing.page)
             .padding(.bottom, 12)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier(AccessibilityID.Shell.pinnedBottomBar)
         }
     }
 
