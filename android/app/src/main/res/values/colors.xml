@@ -3,4 +3,8 @@
     <!-- Launcher icon gradient, sampled from the iOS AppIcon (top-left → bottom-right). -->
     <color name="icon_gradient_start">#FF416CD9</color>
     <color name="icon_gradient_end">#FF5838B3</color>
+    <!-- Window and splash background: the grouped background of the screens (values-night: dark). -->
+    <color name="window_background">#FFF2F2F7</color>
+    <!-- Accent of the notifications (small icon tint). -->
+    <color name="notification_accent">#FF416CD9</color>
 </resources>

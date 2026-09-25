@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Window theme only: the UI is drawn by Compose (Material 3). -->
-    <style name="Theme.Equipe" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Window theme only: the UI is drawn by Compose (Material 3, ui/theme/EquipeTheme). -->
+    <style name="Theme.Equipe" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+
+    <!-- Launch theme (core-splashscreen): shown until the stored session is restored, then Theme.Equipe. -->
+    <style name="Theme.Equipe.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/window_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_mark</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/icon_gradient_start</item>
+        <item name="postSplashScreenTheme">@style/Theme.Equipe</item>
+    </style>
 </resources>

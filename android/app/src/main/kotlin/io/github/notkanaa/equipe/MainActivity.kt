@@ -1,81 +1,102 @@
 package io.github.notkanaa.equipe
 
+import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import io.github.notkanaa.equipe.config.AppContainer
+import io.github.notkanaa.equipe.config.MockLaunchOptions
+import io.github.notkanaa.equipe.core.viewmodel.AppPhase
+import io.github.notkanaa.equipe.navigation.EquipeApp
+import io.github.notkanaa.equipe.platform.NotificationPermissionBridge
 
+/**
+ * The only activity (portrait, edge-to-edge, not recreated by configuration changes). Shows the system splash screen
+ * while the stored session is restored, then [EquipeApp]; forwards `equipe://` links (deep links, notification taps)
+ * and the foreground/background transitions to the process-wide [AppContainer].
+ *
+ * Debug builds: a launch intent with the `mockScenario` extra runs on a fresh in-memory backend ([MockLaunchOptions]).
+ */
 class MainActivity : ComponentActivity() {
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            NotificationPermissionBridge.onResult(granted)
+        }
+
+    private val container: AppContainer
+        get() = (application as EquipeApplication).container
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        NotificationPermissionBridge.attach(notificationPermission)
+
+        // A recreated activity (the system reclaimed it in the background) keeps the running launch and must not open
+        // the link of its original intent again.
+        val isNewLaunch = savedInstanceState == null
+        if (isNewLaunch) {
+            MockLaunchOptions.fromIntent(intent)?.let(container::startMock)
+        }
+        container.launch()
+
+        // The system splash covers the (usually instant) session restore; past a second, the Compose splash with its
+        // progress indicator takes over.
+        val splashStart = SystemClock.uptimeMillis()
+        splashScreen.setKeepOnScreenCondition {
+            container.appModel?.phase == AppPhase.Launching &&
+                SystemClock.uptimeMillis() - splashStart < SPLASH_SCREEN_MAX_MILLIS
+        }
+
+        if (isNewLaunch) openDeepLink(intent)
+
         setContent {
-            EquipeTheme {
-                PlaceholderScreen()
-            }
+            EquipeApp(container)
         }
     }
-}
 
-private val EquipeIndigo = Color(0xFF4F55C9)
-
-@Composable
-fun EquipeTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) {
-        darkColorScheme(primary = Color(0xFFBFC2FF))
-    } else {
-        lightColorScheme(primary = EquipeIndigo)
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openDeepLink(intent)
     }
-    MaterialTheme(colorScheme = colors, content = content)
-}
 
-@Composable
-fun PlaceholderScreen() {
-    Scaffold { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = stringResource(R.string.placeholder_subtitle),
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center,
-            )
-        }
+    override fun onStart() {
+        super.onStart()
+        container.onAppForeground()
     }
-}
 
-@Preview(showBackground = true, locale = "fr")
-@Composable
-private fun PlaceholderScreenPreview() {
-    EquipeTheme {
-        PlaceholderScreen()
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) container.onAppBackground()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Dark mode changes do not recreate the activity: the system bar icons must follow the new theme.
+        enableEdgeToEdge()
+    }
+
+    override fun onDestroy() {
+        NotificationPermissionBridge.detach(notificationPermission)
+        super.onDestroy()
+    }
+
+    /** `equipe://task/<groupId>/<taskId>` (and group, mytasks): shown now, or once a session starts. */
+    private fun openDeepLink(intent: Intent?) {
+        if (intent == null || intent.action != Intent.ACTION_VIEW) return
+        // Reopened from the recent apps: its link was already handled.
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        val url = intent.dataString ?: return
+        container.open(url)
+    }
+
+    private companion object {
+        const val SPLASH_SCREEN_MAX_MILLIS = 1_000L
     }
 }

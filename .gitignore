@@ -47,3 +47,6 @@ android/.kotlin/
 android/captures/
 *.apk
 *.aab
+
+# CI artifacts downloaded next to the repo (IPA/APK zips)
+/*.zip

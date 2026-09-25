@@ -34,7 +34,11 @@ jobs:
         with:
           cache-provider: basic
       - run: chmod +x ./gradlew
+      # The debug APK talks to the hosted project (same repository variables as the iOS job).
       - run: ./gradlew --console=plain test :app:assembleDebug
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_HOST && format('https://{0}', vars.SUPABASE_HOST) || '' }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
