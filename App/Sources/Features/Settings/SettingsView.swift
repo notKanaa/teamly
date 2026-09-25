@@ -15,6 +15,7 @@ struct SettingsView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isConfirmingSignOut = false
     @State private var isConfirmingPushDisable = false
     @State private var isShowingDeleteAccount = false
@@ -187,9 +188,10 @@ struct SettingsView: View {
     private var profileSection: some View {
         Section {
             LabeledContent {
+                // On one line (cut in the middle) beside its label; whole when the label is above it.
                 Text(model.email ?? "—")
                     .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
             } label: {

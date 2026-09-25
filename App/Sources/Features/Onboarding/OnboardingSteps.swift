@@ -134,6 +134,8 @@ struct OnboardingCreateGroupCard: View {
                         .font(.rounded(.title3, weight: .bold))
                         .foregroundStyle(Theme.textPrimary)
                         .textInputAutocapitalization(.sentences)
+                        // A name, not a sentence: no corrections (« Coloc » stays « Coloc »).
+                        .autocorrectionDisabled()
                         .submitLabel(.done)
                         .focused(focus, equals: .groupName)
                         .accessibilityLabel(OnboardingViewModel.groupNameLabel)
