@@ -1,10 +1,15 @@
 import SwiftUI
 import TeamTasksCore
 
-/// Task screen, pushed on a tab's `NavigationStack` for `AppRoute.task(groupId:taskId:)`: title, description, status
-/// (changeable by admins, the creator and the assignees), priority, due date, assignees, creator; « Modifier » (sheet)
-/// and « Supprimer la tâche » for admins and the creator. Leaves the stack by itself when the task disappears
-/// (deleted here or elsewhere, or no longer visible).
+/// Task screen (docs/DESIGN-V2.md §7.6), pushed on a tab's `NavigationStack` for `AppRoute.task(groupId:taskId:)`:
+/// - the group's chip (when « Mes tâches » handed the task over, see `MyTasksHandoff`), the title, « En retard » or
+///   « Terminée … », and the status pill (admins, the creator and the assignees may change it);
+/// - the info card: Échéance, Se répète (the rule and the next dates), À tour de rôle (the turn order, the current
+///   turn ringed), Priorité, Assignée à; then who created the task and when;
+/// - the Checklist card (`TaskDetailChecklistRows`), the notes, and « Supprimer la tâche ».
+///
+/// « Modifier » (sheet) and « Supprimer la tâche » for admins and the creator. Leaves the stack by itself when the task
+/// disappears (deleted here or elsewhere, or no longer visible).
 struct TaskDetailView: View {
     @Environment(AppModel.self) private var appModel: AppModel?
     @Environment(\.dismiss) private var dismiss
@@ -14,10 +19,16 @@ struct TaskDetailView: View {
     @State private var isConfirmingDelete = false
     @State private var pendingStatus: TaskStatus?
     @State private var hasLeft = false
+    @State private var renamedItem: ChecklistItem?
+    @State private var renamedTitle = ""
 
-    /// - Parameter task: the task from the list, when known (shown before the first load completes).
+    /// - Parameter task: the task from the list, when known (shown before the first load completes). Without it, the
+    ///   task « Mes tâches » showed, if any (it carries the group's name, color and emoji).
     init(groupId: UUID, taskId: UUID, session: SessionModel, task: TaskItem? = nil) {
-        _model = State(initialValue: TaskDetailViewModel(session: session, groupId: groupId, taskId: taskId, task: task))
+        let handedOver = task ?? MyTasksHandoff.task(taskId, in: groupId, of: session)
+        _model = State(
+            initialValue: TaskDetailViewModel(session: session, groupId: groupId, taskId: taskId, task: handedOver)
+        )
     }
 
     var body: some View {
@@ -32,6 +43,7 @@ struct TaskDetailView: View {
                         Button("Modifier") {
                             openEditor()
                         }
+                        .fontWeight(.semibold)
                         .disabled(model.isWorking)
                         .accessibilityIdentifier(AccessibilityID.Tasks.editButton)
                     }
@@ -45,11 +57,7 @@ struct TaskDetailView: View {
                     leave()
                 }
             }
-            .alert("Erreur", isPresented: $model.isShowingError) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(model.errorMessage ?? "")
-            }
+            .shellErrorAlert(model)
             .confirmationDialog(
                 "Supprimer la tâche\u{00A0}?",
                 isPresented: $isConfirmingDelete,
@@ -87,7 +95,7 @@ struct TaskDetailView: View {
                 Button("Réessayer") {
                     Task { await model.reload() }
                 }
-                .shellProminentButtonStyle()
+                .buttonStyle(SecondaryButtonStyle(isFullWidth: false))
             }
         } else {
             ProgressView("Chargement…")
@@ -98,175 +106,217 @@ struct TaskDetailView: View {
     private func loadedList(_ task: TaskItem) -> some View {
         List {
             if let message = model.loadState.failureMessage {
+                reloadSection(message)
+            }
+            headerSection(task)
+            infoSection(task)
+            if model.canManageChecklist || !model.checklist.isEmpty {
                 Section {
-                    Label(message, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(ShellPalette.orange)
-                    Button("Réessayer") {
-                        Task { await model.reload() }
+                    TaskDetailChecklistRows(model: model) { item in
+                        renamedTitle = item.title
+                        renamedItem = item
                     }
                 }
+                .listRowBackground(Theme.card)
             }
-
-            headerSection(task)
-            descriptionSection
-            statusSection(task)
-            informationSection(task)
-            assigneesSection
-
+            notesSection
             if model.canDelete {
                 Section {
                     Button(role: .destructive) {
                         isConfirmingDelete = true
                     } label: {
                         Label("Supprimer la tâche", systemImage: "trash")
+                            .foregroundStyle(Theme.danger)
                     }
                     .disabled(model.isWorking)
                     .accessibilityIdentifier(AccessibilityID.Tasks.deleteButton)
                 }
+                .listRowBackground(Theme.card)
             }
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(16)
+        .scrollDismissesKeyboard(.interactively)
         .refreshable {
             await model.reload()
         }
+        .alert("Renommer l’élément", isPresented: isRenaming, presenting: renamedItem) { item in
+            TextField("Titre de l’élément", text: $renamedTitle)
+            Button("Enregistrer") {
+                let title = renamedTitle
+                Task { await model.renameChecklistItem(item.id, to: title) }
+            }
+            Button("Annuler", role: .cancel) {}
+        }
     }
 
-    private func headerSection(_ task: TaskItem) -> some View {
+    // MARK: - Sections
+
+    /// The task is shown (handed over by the list) but could not be loaded.
+    private func reloadSection(_ message: String) -> some View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
-                Text(task.title)
-                    .font(.title2.weight(.bold))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier(AccessibilityID.Tasks.detailTitle)
-                if model.isOverdue {
-                    Label("En retard", systemImage: "exclamationmark.circle.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(ShellPalette.red)
+                Label(message, systemImage: "wifi.exclamationmark")
+                    .foregroundStyle(Theme.textPrimary)
+                Button("Réessayer") {
+                    Task { await model.reload() }
                 }
-                if let completedText = model.completedText {
-                    Label(completedText, systemImage: "checkmark.seal.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(ShellPalette.green)
-                }
+                .fontWeight(.semibold)
+                .buttonStyle(.borderless)
             }
             .padding(.vertical, 4)
         }
+        .listRowBackground(Theme.card)
     }
 
-    private var descriptionSection: some View {
+    /// The group's chip, the title, « En retard » / « Terminée … », and the status, on the screen's ground.
+    private func headerSection(_ task: TaskItem) -> some View {
         Section {
-            if let details = model.details, !details.isEmpty {
-                Text(details)
-                    .textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 12) {
+                if let group = model.groupAppearance, let name = model.groupName {
+                    Chip(group.emoji.map { "\($0) \(name)" } ?? name, tone: group.color.tone, weight: .bold)
+                        .accessibilityLabel("Groupe \(name)")
+                }
+                Text(task.title)
+                    .font(.rounded(.title))
+                    .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text("Aucune description.")
-                    .foregroundStyle(Color.secondary)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier(AccessibilityID.Tasks.detailTitle)
+                if model.isOverdue || model.completedText != nil {
+                    FlowLayout(spacing: 8, lineSpacing: 6) {
+                        if model.isOverdue {
+                            Chip("En retard", systemImage: "exclamationmark.circle.fill", tone: .danger, weight: .bold)
+                        }
+                        if let completedText = model.completedText {
+                            Chip(completedText, systemImage: "checkmark.seal.fill", tone: .done, weight: .bold)
+                        }
+                    }
+                }
+                statusPill(task)
+                    .padding(.top, 4)
             }
-        } header: {
-            Text("Description")
+            .padding(.bottom, 4)
+        }
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .listRowSeparator(.hidden)
+    }
+
+    /// À faire / En cours / Terminée. It moves at once (`pendingStatus`) and back if the change fails; read-only for
+    /// the others, with the reason.
+    private func statusPill(_ task: TaskItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SegmentedPill(
+                model.statusOptions,
+                selection: pendingStatus ?? task.status,
+                title: { $0.label },
+                tone: { .soft($0.tone) },
+                identifier: { AccessibilityID.Tasks.statusOption($0.rawValue) }
+            ) { status in
+                change(to: status)
+            }
+            .disabled(!model.canChangeStatus || model.isWorking)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Statut")
+            if !model.canChangeStatus && model.loadState.isLoaded {
+                Text("Seuls les admins, le créateur de la tâche et les personnes assignées peuvent changer le statut.")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
-    @ViewBuilder
-    private func statusSection(_ task: TaskItem) -> some View {
-        if model.canChangeStatus {
-            Section {
-                TasksStatusPicker(
-                    selection: pendingStatus ?? task.status,
-                    options: model.statusOptions,
-                    isBusy: model.isWorking
-                ) { status in
-                    change(to: status)
-                }
-                .padding(.vertical, 4)
-            } header: {
-                Text("Statut")
-            }
-        } else {
-            Section {
-                LabeledContent("Statut") {
-                    TasksStatusBadge(status: task.status)
-                }
-            } header: {
-                Text("Statut")
-            } footer: {
-                if model.loadState.isLoaded {
-                    Text("Seuls les admins, le créateur de la tâche et les personnes assignées peuvent changer le statut.")
-                }
-            }
-        }
-    }
-
-    private func informationSection(_ task: TaskItem) -> some View {
+    private func infoSection(_ task: TaskItem) -> some View {
         Section {
-            LabeledContent("Priorité") {
-                TasksPriorityBadge(priority: task.priority)
+            TaskInfoRow("Échéance", systemImage: "calendar", tone: .accent) {
+                TaskInfoValue(model.dueText ?? "Aucune", color: model.isOverdue ? Theme.danger : Theme.textPrimary)
             }
-            LabeledContent("Échéance") {
-                TasksDueDateLabel(text: model.dueText, isOverdue: model.isOverdue, showsPlaceholder: true)
-                    .multilineTextAlignment(.trailing)
+            if let recurrence = model.recurrenceText {
+                TaskInfoRow("Se répète", systemImage: "arrow.triangle.2.circlepath", tone: ColorKey.coral.tone) {
+                    TaskInfoValue(recurrence)
+                } detail: {
+                    upcomingDates
+                }
+                .accessibilityIdentifier(AccessibilityID.Tasks.recurrenceInfo)
             }
-        } header: {
-            Text("Informations")
+            if !model.rotationEntries.isEmpty {
+                TaskInfoRow(TaskRow.rotationLabel, systemImage: "person.2.fill", tone: ColorKey.teal.tone) {
+                    TaskRotationChain(entries: model.rotationEntries)
+                } detail: {
+                    if let rotationText = model.rotationText {
+                        Text(rotationText)
+                            .font(.footnote)
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityIdentifier(AccessibilityID.Tasks.rotationInfo)
+            }
+            TaskInfoRow("Priorité", systemImage: "flag.fill", tone: task.priority.tone) {
+                Chip(task.priority.label, tone: task.priority.tone, weight: .bold)
+            }
+            TaskInfoRow("Assignée à", systemImage: "person.fill", tone: ColorKey.blue.tone) {
+                TaskAssigneesList(people: model.assignees)
+            }
+            .accessibilityIdentifier(AccessibilityID.Tasks.assigneesInfo)
         } footer: {
             if let createdText = model.createdText {
                 Text(createdText)
+                    .foregroundStyle(Theme.textSecondary)
             }
         }
+        .listRowBackground(Theme.card)
     }
 
-    private var assigneesSection: some View {
-        let people = assignees
-        return Section {
-            if people.isEmpty {
-                Label(MemberDirectory.unassignedText, systemImage: "person.crop.circle.badge.questionmark")
-                    .foregroundStyle(Color.secondary)
-            } else {
-                ForEach(people) { person in
-                    HStack(spacing: 12) {
-                        // The same initials and color as on the group screen and in « Membres ».
-                        GroupsPersonAvatar(id: person.id, name: person.name, size: 32)
-                        Text(displayName(of: person))
-                    }
-                    .accessibilityElement(children: .combine)
+    /// « Prochaines fois », then the next due dates of a recurring task.
+    @ViewBuilder
+    private var upcomingDates: some View {
+        let texts = model.upcomingDueTexts
+        if !texts.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(TaskDetailViewModel.upcomingTitle)
+                    .font(Font.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                ForEach(texts, id: \.self) { text in
+                    Text(text)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
-        } header: {
-            Text("Personnes assignées")
         }
     }
 
-    /// The task's assignees with their real names: the current user first, then by name (« Ancien membre » for
-    /// someone who left the group).
-    private var assignees: [GroupsAvatarStack.Person] {
-        let directory = model.directory
-        let me = directory.currentUserId
-        let people = Set(model.task?.assigneeIds ?? []).map { (userId: UUID) -> GroupsAvatarStack.Person in
-            var name = directory.name(of: userId)
-            if userId == me, name == MemberDirectory.formerMemberName {
-                // The members are not loaded yet.
-                name = MemberDirectory.meName
+    private var notesSection: some View {
+        Section {
+            if let details = model.details, !details.isEmpty {
+                Text(details)
+                    .foregroundStyle(Theme.textPrimary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Aucune note.")
+                    .foregroundStyle(Theme.textSecondary)
             }
-            return GroupsAvatarStack.Person(id: userId, name: name)
+        } header: {
+            Text("Notes")
         }
-        return people.sorted { lhs, rhs in
-            if lhs.id == me { return rhs.id != me }
-            if rhs.id == me { return false }
-            return NameOrder.precedes(lhs.name, rhs.name) ?? (lhs.id.uuidString < rhs.id.uuidString)
-        }
-    }
-
-    /// « Camille Martin (vous) » for the current user, as in « Membres » (« Vous » until the members are loaded).
-    private func displayName(of person: GroupsAvatarStack.Person) -> String {
-        guard person.id == model.directory.currentUserId, person.name != MemberDirectory.meName else {
-            return person.name
-        }
-        return "\(person.name) (vous)"
+        .listRowBackground(Theme.card)
     }
 
     // MARK: - Actions
+
+    private var isRenaming: Binding<Bool> {
+        Binding(
+            get: { renamedItem != nil },
+            set: { isShown in
+                if !isShown {
+                    renamedItem = nil
+                }
+            }
+        )
+    }
 
     private func change(to status: TaskStatus) {
         pendingStatus = status

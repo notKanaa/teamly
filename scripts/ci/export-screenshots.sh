@@ -13,6 +13,9 @@ RAW="$OUT-raw"
 EXPECTED=(01-connexion 02-groupes 03-creer-groupe 04-code-invitation 05-nouvelle-tache 06-detail-groupe 07-mes-taches 08-membres 09-reglages
   10-reglages-compte 11-onboarding-bienvenue 12-onboarding-avatar 13-onboarding-groupe 14-onboarding-notifications)
 
+# v2 task screens (App/UITests/TasksFlowTests.swift and TasksScreenshotTests.swift).
+EXPECTED+=(07-mes-taches-sombre 18-mes-taches-vitrine 19-tache-checklist 20-nouvelle-tache-repetition)
+
 if [ ! -d "$RESULT" ]; then
   echo "No result bundle at $RESULT — nothing to export."
   exit 0

@@ -1,8 +1,16 @@
 import SwiftUI
 import TeamTasksCore
 
-/// « Nouvelle tâche » / « Modifier la tâche » sheet: title, description, priority, optional due date and assignees.
-/// Embeds its own `NavigationStack`: present it with `.sheet`. Calls `onSaved` with the saved task, then dismisses.
+/// « Nouvelle tâche » / « Modifier la tâche » sheet (docs/DESIGN-V2.md §7.7), as cards:
+/// - Titre and Notes;
+/// - Quand: the due date, then « Répéter » (Jamais / Jour / Semaine / Mois, the interval, the weekdays of a weekly rule,
+///   the next dates);
+/// - Qui s’en occupe ?: the assignee picker, or « À tour de rôle » and its order while the task repeats;
+/// - Checklist (creation only);
+/// - Priorité.
+///
+/// Each field shows the view model's message under it. Embeds its own `NavigationStack`: present it with `.sheet`.
+/// Calls `onSaved` with the saved task, then dismisses.
 ///
 ///     .sheet(isPresented: $isCreatingTask) {
 ///         TaskEditorView(mode: .create(groupId: model.groupId), session: model.session, members: model.members) { task in
@@ -41,20 +49,31 @@ struct TaskEditorView: View {
             Form {
                 if isReadOnly {
                     Section {
-                        Label("Vous ne pouvez pas modifier cette tâche.", systemImage: "lock.fill")
-                            .foregroundStyle(Color.secondary)
+                        Label("Tu ne peux pas modifier cette tâche.", systemImage: "lock.fill")
+                            .foregroundStyle(Theme.textSecondary)
                     }
+                    .listRowBackground(Theme.card)
                 }
                 Group {
-                    titleSection
-                    detailsSection
+                    textSection
+                    whenSection
+                    whoSection
+                    if model.showsChecklist {
+                        Section {
+                            TaskEditorChecklistRows(model: model, focusedField: $focusedField)
+                        } header: {
+                            Text(TaskEditorViewModel.checklistTitle)
+                        }
+                        .listRowBackground(Theme.card)
+                    }
                     prioritySection
-                    dueDateSection
-                    assigneesSection
                 }
                 .disabled(areFieldsDisabled)
             }
-            .scrollDismissesKeyboard(.interactively)
+            .listSectionSpacing(16)
+            .screenBackground()
+            // Scrolling to the cards below (repetition, people, priority) puts the keyboard away.
+            .scrollDismissesKeyboard(.immediately)
             .navigationTitle(model.navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -78,8 +97,7 @@ struct TaskEditorView: View {
                         .accessibilityIdentifier(AccessibilityID.Tasks.saveButton)
                     }
                 }
-                // Return adds a line to the description: « OK » closes the keyboard, which otherwise hides
-                // « Échéance » and « Assignation ».
+                // Return adds a line to the notes: « OK » closes the keyboard, which otherwise hides the cards below.
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("OK") {
@@ -121,124 +139,191 @@ struct TaskEditorView: View {
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Titre and Notes
 
-    private var titleSection: some View {
+    private var textSection: some View {
         Section {
-            TextField("Titre de la tâche", text: $model.title)
-                .focused($focusedField, equals: .title)
-                .submitLabel(.next)
-                .onSubmit {
-                    focusedField = .details
-                }
-                .accessibilityIdentifier(AccessibilityID.Tasks.titleField)
-        } header: {
-            Text("Titre")
-        } footer: {
-            if let message = model.titleError {
-                TaskEditorErrorText(message: message)
-            }
-        }
-    }
-
-    private var detailsSection: some View {
-        Section {
-            TextField("Ajoutez des précisions (facultatif)", text: $model.details, axis: .vertical)
-                .lineLimit(4...10)
-                .focused($focusedField, equals: .details)
-                .accessibilityIdentifier(AccessibilityID.Tasks.detailsField)
-        } header: {
-            Text("Description")
-        } footer: {
-            if let message = model.detailsError {
-                TaskEditorErrorText(message: message)
-            }
-        }
-    }
-
-    private var prioritySection: some View {
-        Section {
-            Picker("Priorité", selection: $model.priority) {
-                ForEach(TeamTasksCore.TaskPriority.pickerOrder, id: \.self) { priority in
-                    Text(priority.label)
-                        .tag(priority)
+            VStack(alignment: .leading, spacing: 4) {
+                TaskEditorFieldCaption("Titre")
+                TextField("Titre de la tâche", text: $model.title)
+                    .font(.rounded(.title3, weight: .bold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .focused($focusedField, equals: .title)
+                    .submitLabel(.next)
+                    .onSubmit {
+                        focusedField = .details
+                    }
+                    .accessibilityIdentifier(AccessibilityID.Tasks.titleField)
+                if let message = model.titleError {
+                    TaskEditorErrorText(message: message)
+                        .font(.footnote)
                 }
             }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier(AccessibilityID.Tasks.priorityPicker)
-        } header: {
-            Text("Priorité")
+            .padding(.vertical, 4)
+
+            VStack(alignment: .leading, spacing: 4) {
+                TaskEditorFieldCaption("Notes")
+                TextField("Ajoute des précisions (facultatif)", text: $model.details, axis: .vertical)
+                    .lineLimit(2...10)
+                    .foregroundStyle(Theme.textPrimary)
+                    .focused($focusedField, equals: .details)
+                    .accessibilityIdentifier(AccessibilityID.Tasks.detailsField)
+                if let message = model.detailsError {
+                    TaskEditorErrorText(message: message)
+                        .font(.footnote)
+                }
+            }
+            .padding(.vertical, 4)
         }
+        .listRowBackground(Theme.card)
     }
 
-    private var dueDateSection: some View {
+    // MARK: - Quand
+
+    private var whenSection: some View {
         Section {
             Toggle(isOn: $model.hasDueDate.animation()) {
-                Label("Date d’échéance", systemImage: "calendar")
+                TaskEditorRowLabel("Échéance", systemImage: "calendar", tone: .accent)
             }
+            // A repeating task always has a due date (the view model turns it on with the frequency).
+            .disabled(model.isDueDateRequired)
             .accessibilityIdentifier(AccessibilityID.Tasks.dueDateToggle)
 
             if model.hasDueDate {
-                DatePicker(
-                    "Échéance",
-                    selection: $model.dueDate,
-                    displayedComponents: [.date, .hourAndMinute]
-                )
-                .environment(\.locale, Locale(identifier: "fr_FR"))
-                .environment(\.calendar, calendar)
-                .environment(\.timeZone, calendar.timeZone)
-                .accessibilityIdentifier(AccessibilityID.Tasks.dueDatePicker)
+                VStack(alignment: .leading, spacing: 6) {
+                    DatePicker(
+                        "Date et heure",
+                        selection: $model.dueDate,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                    .foregroundStyle(Theme.textPrimary)
+                    .environment(\.locale, Locale(identifier: "fr_FR"))
+                    .environment(\.calendar, calendar)
+                    .environment(\.timeZone, calendar.timeZone)
+                    .accessibilityIdentifier(AccessibilityID.Tasks.dueDatePicker)
+                    dueDateCaption
+                }
+                .listRowSeparator(.hidden, edges: .top)
             }
+
+            TaskEditorRepeatRows(model: model)
         } header: {
-            Text("Échéance")
-        } footer: {
-            if let message = model.dueDateError {
-                TaskEditorErrorText(message: message)
-            } else if model.hasDueDate {
+            Text("Quand")
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    /// « Demain à 18:00 », the date's error, or why the due date stays while the task repeats.
+    @ViewBuilder
+    private var dueDateCaption: some View {
+        if let message = model.dueDateError {
+            TaskEditorErrorText(message: message)
+                .font(.footnote)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(dueDateSummary)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textSecondary)
+                if model.isDueDateRequired {
+                    Text(TaskEditorViewModel.dueDateRequiredText)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.textSecondary)
+                }
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private var assigneesSection: some View {
+    // MARK: - Qui s’en occupe ?
+
+    private var whoSection: some View {
         Section {
             switch model.loadState {
             case .loaded:
-                NavigationLink {
-                    TaskEditorAssigneePicker(model: model)
-                } label: {
-                    HStack(spacing: 12) {
-                        Label("Assigner à", systemImage: "person.2")
-                        Spacer(minLength: 8)
-                        Text(model.assigneesSummary)
-                            .foregroundStyle(Color.secondary)
-                            .multilineTextAlignment(.trailing)
-                            .lineLimit(2)
+                if model.canUseRotation {
+                    Toggle(isOn: $model.isRotationEnabled.animation()) {
+                        TaskEditorRowLabel(
+                            TaskEditorViewModel.rotationTitle,
+                            subtitle: TaskEditorViewModel.rotationSubtitle,
+                            systemImage: "person.2.fill",
+                            tone: ColorKey.teal.tone
+                        )
                     }
+                    .accessibilityIdentifier(AccessibilityID.Tasks.rotationToggle)
                 }
-                .accessibilityIdentifier(AccessibilityID.Tasks.assigneesButton)
+                if model.showsRotation {
+                    TaskEditorRotationRows(model: model)
+                } else {
+                    assigneesLink
+                }
             case let .failed(message):
                 VStack(alignment: .leading, spacing: 8) {
                     Label(message, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(Color.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                     Button("Réessayer") {
                         Task { await model.reload() }
                     }
+                    .fontWeight(.semibold)
+                    .buttonStyle(.borderless)
                 }
+                .padding(.vertical, 4)
             case .idle, .loading:
                 HStack(spacing: 8) {
                     ProgressView()
                     Text("Chargement des membres…")
-                        .foregroundStyle(Color.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
         } header: {
-            Text("Assignation")
+            Text("Qui s’en occupe\u{00A0}?")
         } footer: {
-            if let message = model.assigneesError {
+            if let message = model.assigneesError, model.showsAssigneePicker {
                 TaskEditorErrorText(message: message)
             }
         }
+        .listRowBackground(Theme.card)
+    }
+
+    /// « Assigner à », the chosen people's avatars and names; opens `TaskEditorAssigneePicker`.
+    private var assigneesLink: some View {
+        NavigationLink {
+            TaskEditorAssigneePicker(model: model)
+        } label: {
+            HStack(spacing: 12) {
+                TaskEditorRowLabel("Assigner à", systemImage: "person.fill", tone: ColorKey.blue.tone)
+                    .layoutPriority(1)
+                Spacer(minLength: 8)
+                if !selectedAssignees.isEmpty {
+                    AvatarStack(people: selectedAssignees, limit: 3, size: 26)
+                }
+                Text(model.assigneesSummary)
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
+            }
+        }
+        .accessibilityIdentifier(AccessibilityID.Tasks.assigneesButton)
+    }
+
+    // MARK: - Priorité
+
+    private var prioritySection: some View {
+        Section {
+            SegmentedPill(
+                [TeamTasksCore.TaskPriority.low, .medium, .high],
+                selection: $model.priority,
+                tone: { .soft($0.tone) },
+                identifier: { AccessibilityID.Tasks.priorityOption($0.rawValue) },
+                track: Theme.card
+            ) { $0.label }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Priorité")
+            .accessibilityIdentifier(AccessibilityID.Tasks.priorityPicker)
+            .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
+        } header: {
+            Text("Priorité")
+        }
+        .listRowBackground(Theme.card)
     }
 
     // MARK: - Helpers
@@ -253,6 +338,12 @@ struct TaskEditorView: View {
     /// « Demain à 18:00 ».
     private var dueDateSummary: String {
         DateText.relative(model.dueDate, now: model.session.platform.now(), calendar: calendar)
+    }
+
+    /// The chosen assignees as badges, the current user first.
+    private var selectedAssignees: [PersonBadge] {
+        MemberDirectory(members: model.members, currentUserId: model.session.userId)
+            .badges(of: Array(model.assigneeIds))
     }
 
     private func cancel() {
@@ -276,17 +367,74 @@ struct TaskEditorView: View {
     }
 }
 
-private enum TaskEditorField: Hashable {
+/// The fields of the task editor that take the keyboard focus.
+enum TaskEditorField: Hashable {
     case title
     case details
+    /// « Ajouter un élément » of the checklist.
+    case newChecklistItem
 }
 
-/// Inline validation message under a field.
-private struct TaskEditorErrorText: View {
+/// A row title of the editor's cards, led by its icon tile (like the rows of Réglages), with an optional subtitle.
+struct TaskEditorRowLabel: View {
+    let title: String
+    var subtitle: String?
+    let systemImage: String
+    let tone: SoftTone
+
+    init(_ title: String, subtitle: String? = nil, systemImage: String, tone: SoftTone) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.tone = tone
+    }
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .foregroundStyle(Theme.textPrimary)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } icon: {
+            IconTile(systemImage: systemImage, tone: tone, size: 30)
+        }
+    }
+}
+
+/// The small title above a text field of the editor (« Titre », « Notes »). Hidden from VoiceOver: the field's own
+/// label says the same.
+struct TaskEditorFieldCaption: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(Font.footnote.weight(.bold))
+            .foregroundStyle(Theme.textSecondary)
+            .accessibilityHidden(true)
+    }
+}
+
+/// Inline validation message under a field, in the danger color.
+struct TaskEditorErrorText: View {
     let message: String
+
+    init(message: String) {
+        self.message = message
+    }
 
     var body: some View {
         Label(message, systemImage: "exclamationmark.circle.fill")
-            .foregroundStyle(ShellPalette.red)
+            .foregroundStyle(Theme.danger)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

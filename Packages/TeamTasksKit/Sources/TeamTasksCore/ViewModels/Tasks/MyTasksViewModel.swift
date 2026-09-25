@@ -69,11 +69,12 @@ public struct DaySummary: Sendable, Hashable {
 ///
 /// Reads, one per load: `TaskService.myTasks(doneSince:)` from the start of today in the injected calendar, i.e. the
 /// tasks not done and those done today (« Ta journée » and the tasks done today need no more), so that the read does
-/// not grow with the done occurrences of recurring tasks; while « Terminées » is shown (`includeDone`), every done task
-/// with `myTasks(includeDone: true)`, as in v1. `tasks` keeps the v1 content (without the done tasks unless
-/// `includeDone`), and `doneTasks` holds the done ones. Every successful load also synchronizes the due-date reminders
-/// with the loaded list (never after a failed load). Reloads when the « Mes tâches » revision changes (a new day bumps
-/// every revision: `SessionModel.handleSignificantTimeChange()`) and when `includeDone` flips.
+/// not grow with the done occurrences of recurring tasks; while « Terminées » is shown (`includeDone`), from
+/// `Limits.oldDoneTaskDays` days back (`now − 30 × 24 h`, the bound of the group screen): the done tasks of the last
+/// 30 days, never the whole history. `tasks` keeps the v1 content (without the done tasks unless `includeDone`), and
+/// `doneTasks` holds the done ones. Every successful load also synchronizes the due-date reminders with the loaded list
+/// (never after a failed load). Reloads when the « Mes tâches » revision changes (a new day bumps every revision:
+/// `SessionModel.handleSignificantTimeChange()`) and when `includeDone` flips.
 /// View: `.task(id: model.refreshKey) { await model.load() }`, `.refreshable { await model.reload() }`,
 /// `.onDisappear { model.markAllSeen() }`, tab badge `model.newCount`.
 @MainActor
@@ -86,11 +87,11 @@ public final class MyTasksViewModel: ErrorPresenting {
     /// The tasks shown in the sections: without the done ones unless `includeDone` (a task completed here stays until
     /// the next load).
     public private(set) var tasks: [TaskItem] = []
-    /// v2: the done tasks of the last load: those done since the start of that day, or every done task while
+    /// v2: the done tasks of the last load: those done since the start of that day, or those of the last 30 days while
     /// `includeDone`.
     public private(set) var doneTasks: [TaskItem] = []
     public private(set) var loadState: LoadState = .idle
-    /// Also show done tasks (« Terminées » section).
+    /// Also show the tasks done in the last 30 days (« Terminées » section, `Limits.oldDoneTaskDays`).
     public var includeDone = false
     /// Assignments after this date are « Nouveau » (nil: never looked, every assignment by someone else is new).
     public private(set) var lastSeenAt: Date?
@@ -143,13 +144,7 @@ public final class MyTasksViewModel: ErrorPresenting {
         if loadState != .loaded { loadState = .loading }
         let loaded: [TaskItem]
         do {
-            if key.includeDone {
-                loaded = try await session.services.tasks.myTasks(includeDone: true)
-            } else {
-                // v2: the done tasks of today only, for « Ta journée ».
-                let startOfToday = session.platform.calendar.startOfDay(for: session.platform.now())
-                loaded = try await session.services.tasks.myTasks(doneSince: startOfToday)
-            }
+            loaded = try await session.services.tasks.myTasks(doneSince: doneSince(includeDone: key.includeDone))
         } catch {
             guard let state = ErrorState(from: error) else {
                 if loadState == .loading { loadState = .idle }
@@ -169,6 +164,17 @@ public final class MyTasksViewModel: ErrorPresenting {
         loadState = .loaded
         // Only a successfully loaded list may drive the reminders (docs/CONTRACTS.md §7); done tasks are ignored.
         await session.synchronizeReminders(with: loaded)
+    }
+
+    /// The oldest completion a load reads: the start of today in the injected calendar (« Ta journée » and the tasks
+    /// done today), or, with « Terminées », `Limits.oldDoneTaskDays` days back from now (`now − 30 × 24 h`, like the
+    /// group screen's bound on old done tasks).
+    private func doneSince(includeDone: Bool) -> Date {
+        let now = session.platform.now()
+        if includeDone {
+            return now.addingTimeInterval(-TimeInterval(Limits.oldDoneTaskDays) * 86_400)
+        }
+        return session.platform.calendar.startOfDay(for: now)
     }
 
     // MARK: - Display

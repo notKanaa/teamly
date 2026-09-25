@@ -1,8 +1,8 @@
 import SwiftUI
 import TeamTasksCore
 
-/// « Assigner à » screen pushed from the task editor: the group's members (admins first, then by name) with a
-/// search field; a tap adds or removes an assignee (20 at most, the editor refuses more with a message).
+/// « Assigner à » screen pushed from the task editor: the group's members (admins first, then by name) with their
+/// avatar and a search field; a tap adds or removes an assignee (20 at most, the editor refuses more with a message).
 struct TaskEditorAssigneePicker: View {
     let model: TaskEditorViewModel
     @State private var searchText = ""
@@ -11,9 +11,9 @@ struct TaskEditorAssigneePicker: View {
         List {
             if let message = model.assigneesError {
                 Section {
-                    Label(message, systemImage: "exclamationmark.circle.fill")
-                        .foregroundStyle(ShellPalette.red)
+                    TaskEditorErrorText(message: message)
                 }
+                .listRowBackground(Theme.card)
             }
 
             Section {
@@ -22,9 +22,12 @@ struct TaskEditorAssigneePicker: View {
                 }
             } footer: {
                 Text(selectionSummary)
+                    .foregroundStyle(Theme.textSecondary)
             }
+            .listRowBackground(Theme.card)
         }
         .listStyle(.insetGrouped)
+        .screenBackground()
         .accessibilityIdentifier(AccessibilityID.Tasks.assigneeList)
         .overlay {
             if filteredOptions.isEmpty {
@@ -54,21 +57,23 @@ struct TaskEditorAssigneePicker: View {
             model.toggleAssignee(option.id)
         } label: {
             HStack(spacing: 12) {
-                GroupsPersonAvatar(id: option.id, name: option.name, size: 34)
+                AvatarView(appearances[option.id] ?? .unknown(id: option.id), size: 36)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(option.name)
-                        .foregroundStyle(Color.primary)
+                        .font(Font.body.weight(.semibold))
+                        .foregroundStyle(Theme.textPrimary)
                     if option.role == .admin {
                         Text(option.role.label)
-                            .font(.caption)
-                            .foregroundStyle(Color.secondary)
+                            .font(.footnote)
+                            .foregroundStyle(Theme.textSecondary)
                     }
                 }
                 Spacer(minLength: 8)
                 Image(systemName: option.isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(option.isSelected ? Color.accentColor : Color.secondary)
+                    .font(.title2)
+                    .foregroundStyle(option.isSelected ? Theme.accent : Theme.textSecondary)
             }
+            .frame(minHeight: 44)
             .opacity(isBlocked ? 0.45 : 1)
             .contentShape(Rectangle())
         }
@@ -97,6 +102,11 @@ struct TaskEditorAssigneePicker: View {
     }
 
     // MARK: - Helpers
+
+    /// The members' avatars, by user id.
+    private var appearances: [UUID: AvatarAppearance] {
+        Dictionary(model.members.map { ($0.user.id, $0.user.appearance) }, uniquingKeysWith: { first, _ in first })
+    }
 
     private var trimmedSearch: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)

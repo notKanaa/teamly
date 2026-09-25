@@ -493,7 +493,7 @@ import TeamTasksMocks
     }
 
     /// The read is bounded by the start of today (injected calendar): the done tasks of earlier days are not read,
-    /// except while « Terminées » is shown (every done task, as in v1); a new day moves the bound.
+    /// except while « Terminées » is shown (those of the last 30 days); a new day moves the bound.
     @Test func theDoneTasksReadAreBoundedByToday() async throws {
         let harness = VMHarness()
         let session = harness.makeSession()
@@ -511,11 +511,13 @@ import TeamTasksMocks
         #expect(model.daySummary.doneCount == 1)
         #expect(model.doneTodayText == "1 tâche terminée aujourd’hui")
 
-        // « Terminées »: every done task, with the v1 read (no bound recorded).
+        // « Terminées »: the done tasks of the last 30 days, still with the bounded read (from now − 30 × 24 h).
         model.includeDone = true
+        let beforeDoneRead = harness.clock.peek()
         await model.load()
         #expect(harness.faults.calls(.myTasks) == 3)
-        #expect(harness.faults.recordedDates(.myTasks).count == 2)
+        #expect(harness.faults.recordedDates(.myTasks).count == 3)
+        #expect(harness.faults.recordedDates(.myTasks).last == beforeDoneRead.addingTimeInterval(-30 * 86_400))
         #expect(Set(model.doneTasks.map(\.id)) == [T.faireCourses, T.nettoyerCuisine])
         #expect(model.sections.last?.rows.map(\.id) == [T.faireCourses, T.nettoyerCuisine])
 
@@ -527,6 +529,30 @@ import TeamTasksMocks
         #expect(harness.faults.recordedDates(.myTasks).last == F.date(2026, 9, 25))
         #expect(model.doneTasks.isEmpty)
         #expect(model.daySummary.doneCount == 0)
+    }
+
+    /// « Terminées » shows the tasks done in the last 30 days (`Limits.oldDoneTaskDays`, like the group screen): an
+    /// older completion is no longer read, and the section goes away with it.
+    @Test func theDoneSectionIsBoundedToThirtyDays() async throws {
+        let harness = VMHarness()
+        let model = MyTasksViewModel(session: harness.makeSession())
+        model.includeDone = true
+        let firstRead = harness.clock.peek()
+        await model.load()
+        #expect(harness.faults.recordedDates(.myTasks) == [firstRead.addingTimeInterval(-30 * 86_400)])
+        #expect(model.doneTasks.map(\.id) == [T.nettoyerCuisine], "done yesterday at 19:00")
+        #expect(model.sections.last?.bucket == .done)
+        #expect(model.sections.last?.rows.map(\.id) == [T.nettoyerCuisine])
+
+        // 30 days later, « Nettoyer la cuisine » is 30 days and 15 hours old: out of the bound.
+        harness.clock.advance(by: 30 * 86_400)
+        let laterRead = harness.clock.peek()
+        await model.reload()
+        #expect(harness.faults.recordedDates(.myTasks).last == laterRead.addingTimeInterval(-30 * 86_400))
+        #expect(harness.faults.recordedDates(.myTasks).count == 2)
+        #expect(model.doneTasks.isEmpty)
+        #expect(!model.sections.contains { $0.bucket == .done })
+        #expect(!model.tasks.contains { $0.id == T.nettoyerCuisine })
     }
 
     @Test func overdueAndNothingPlanned() async throws {
