@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "Équipe",
+    "slug": "equipe",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "equipe",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#F4F3F8",
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/images/favicon.png",
+      "name": "Équipe",
+      "shortName": "Équipe",
+      "lang": "fr",
+      "themeColor": "#4B3BE6",
+      "backgroundColor": "#F4F3F8"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F4F3F8",
+          "image": "./assets/images/icon.png",
+          "imageWidth": 120,
+          "dark": {
+            "backgroundColor": "#0F0E17"
+          }
+        }
+      ],
+      "expo-localization"
+    ],
+    "experiments": {
+      "typedRoutes": false,
+      "reactCompiler": true
+    }
+  }
+}
