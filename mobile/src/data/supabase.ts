@@ -28,6 +28,9 @@ export const supabase: SupabaseClient | null =
       })
     : null;
 
+/** The project URL and publishable key (the REST client builds its own requests). */
+export const supabaseConfig = 'config' in result ? result.config : null;
+
 export const configProblem = 'problem' in result ? result.problem : null;
 
 /** The configured client; throws `misconfigured` otherwise (screens check `supabase` first). */
