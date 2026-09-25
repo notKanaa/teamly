@@ -9,10 +9,12 @@
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#F4F3F8",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "io.github.notkanaa.equipe"
     },
     "android": {
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "io.github.notkanaa.equipe"
     },
     "web": {
       "output": "single",
