@@ -79,6 +79,7 @@ struct GroupDetailView: View {
             .alert("Renommer le groupe", isPresented: $isShowingRename) {
                 TextField("Nom du groupe", text: $renameText)
                     .textInputAutocapitalization(.sentences)
+                    .autocorrectionDisabled()
                     .accessibilityIdentifier(AccessibilityID.Groups.renameField)
                 Button("Annuler", role: .cancel) {}
                 Button("Renommer") {
@@ -204,33 +205,46 @@ struct GroupDetailView: View {
 
     /// The pinned top bar in the group's fill: back, then « Inviter » (admins) and « … ». On « Activité » it also shows
     /// the tile and the name, with rounded bottom corners; on « Tâches » it shows them (on one line) once the hero's
-    /// identity has scrolled away (iOS 18).
+    /// identity has scrolled away (iOS 18). At accessibility text sizes the name of « Activité » gets its own line
+    /// under the buttons, and « Tâches » keeps its buttons only.
     private func heroBar(_ appearance: AvatarAppearance) -> some View {
         let isActivity = model.tab == .activity
-        let showsTitle = isActivity || isHeroCollapsed
-        return HStack(alignment: .center, spacing: 10) {
-            CircleIconButton(systemImage: "chevron.left", accessibilityLabel: "Retour", style: .translucent) {
-                dismiss()
-            }
-            .accessibilityIdentifier(AccessibilityID.Groups.backButton)
-            if showsTitle {
-                GroupTile(appearance, size: 40, style: .onColor)
-                heroTitle(appearance, font: .rounded(.title3))
-                    .lineLimit(isActivity ? nil : 1)
-                    // On « Tâches » the name is already read in the hero's identity.
-                    .accessibilityHidden(!isActivity)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Spacer(minLength: 0)
-                if model.canSeeInviteCode {
-                    inviteButton(appearance)
+        let isLarge = dynamicTypeSize.isAccessibilitySize
+        let showsInlineTitle = !isLarge && (isActivity || isHeroCollapsed)
+        let showsTitleLine = isLarge && isActivity
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                CircleIconButton(systemImage: "chevron.left", accessibilityLabel: "Retour", style: .translucent) {
+                    dismiss()
                 }
+                .accessibilityIdentifier(AccessibilityID.Groups.backButton)
+                if showsInlineTitle || showsTitleLine {
+                    GroupTile(appearance, size: 40, style: .onColor)
+                }
+                if showsInlineTitle {
+                    heroTitle(appearance, font: .rounded(.title3))
+                        .lineLimit(isActivity ? 2 : 1)
+                        // On « Tâches » the name is already read in the hero's identity.
+                        .accessibilityHidden(!isActivity)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 0)
+                    if model.canSeeInviteCode && !isActivity {
+                        inviteButton(appearance)
+                    }
+                }
+                optionsMenu
             }
-            optionsMenu
+            if showsTitleLine {
+                heroTitle(appearance, font: .rounded(.title3))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.horizontal, Theme.Spacing.page)
         .padding(.top, 6)
         .padding(.bottom, isActivity ? 18 : 6)
+        // A bar: large enough at the accessibility sizes, without taking the room of the content.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .background {
             UnevenRoundedRectangle(
                 bottomLeadingRadius: isActivity ? 28 : 0,
@@ -240,7 +254,7 @@ struct GroupDetailView: View {
             .fill(appearance.color.fill)
             .ignoresSafeArea(edges: .top)
         }
-        .animation(reduceMotion ? nil : .snappy, value: showsTitle)
+        .animation(reduceMotion ? nil : .snappy, value: showsInlineTitle)
     }
 
     /// The white tile, the name and the members (a link to « Membres »), on the group's fill with rounded bottom
@@ -281,11 +295,12 @@ struct GroupDetailView: View {
             .accessibilityIdentifier(AccessibilityID.Groups.detailTitle)
     }
 
-    /// The members' avatars and « 3 membres · Tu es admin »: opens « Membres ».
+    /// The members' avatars and « 3 membres · Tu es admin »: opens « Membres ». The avatars are ringed in white: one
+    /// may have the group's own color.
     private func membersLink(_ appearance: AvatarAppearance) -> some View {
         NavigationLink(value: AppRoute.members(groupId: model.groupId)) {
             HStack(alignment: .center, spacing: 8) {
-                AvatarStack(people: model.memberBadges, limit: 3, size: 26, surface: appearance.color.fill)
+                AvatarStack(people: model.memberBadges, limit: 3, size: 26, surface: Color.white)
                 Text(model.membersSummary)
                     .font(Font.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.onFill)
@@ -431,8 +446,18 @@ struct GroupDetailView: View {
         if rows.isEmpty {
             emptyTasks
         } else {
-            LazyVStack(spacing: 10) {
-                ForEach(rows) { row in
+            // What is left to do first; the done tasks after it, under « Terminées », each part in the chosen order.
+            let openRows = rows.filter { !$0.isDone }
+            let doneRows = rows.filter(\.isDone)
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(openRows) { row in
+                    taskCard(row, tint: appearance.color.accent)
+                }
+                if !openRows.isEmpty && !doneRows.isEmpty {
+                    SectionTitle(TaskStatusFilter.done.label)
+                        .padding(.top, 10)
+                }
+                ForEach(doneRows) { row in
                     taskCard(row, tint: appearance.color.accent)
                 }
             }
@@ -560,7 +585,8 @@ struct GroupDetailView: View {
         .accessibilityIdentifier(AccessibilityID.Groups.emptyTasks)
     }
 
-    /// The floating « + » of « Tâches » (not on « Activité »).
+    /// The floating « + » of « Tâches » (not on « Activité »). It floats over the cards: the UI tests treat it like the
+    /// tab bar (`Shell.pinnedBottomBar`), never tapping a card through it.
     @ViewBuilder
     private var addButton: some View {
         if model.tab == .tasks && model.canCreateTask {
@@ -570,6 +596,8 @@ struct GroupDetailView: View {
             .accessibilityIdentifier(AccessibilityID.Tasks.addButton)
             .padding(.trailing, Theme.Spacing.page)
             .padding(.bottom, 12)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(AccessibilityID.Shell.pinnedBottomBar)
         }
     }
 

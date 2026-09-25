@@ -101,6 +101,8 @@ struct CreateGroupSheet: View {
                     .font(.rounded(.title3, weight: .bold))
                     .foregroundStyle(Theme.textPrimary)
                     .textInputAutocapitalization(.sentences)
+                    // A name, not a sentence: no corrections (« Coloc » stays « Coloc »), as in the onboarding.
+                    .autocorrectionDisabled()
                     .submitLabel(.done)
                     .focused($isNameFocused)
                     .onSubmit {

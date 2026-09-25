@@ -23,6 +23,12 @@ final class GroupsScreenshotTests: XCTestCase {
         ui.waitForContent(ui.elements(AccessibilityID.Groups.turnCard(UITestDemo.sortirPoubelles)), "the turn card")
         ui.waitForContent(ui.elements(AccessibilityID.Tasks.row(UITestDemo.payerLoyer)), "the first task")
         ui.capture("15-groupe-vitrine")
+
+        // Scrolled: the hero's identity under the pinned bar, which then shows the group's name (debug capture).
+        for _ in 0..<2 {
+            ui.scroll(.towardsBottom)
+        }
+        ui.capture("groupe-vitrine-defilee")
     }
 
     /// « Activité »: the week's recap with the podium and the streak, then the feed.
