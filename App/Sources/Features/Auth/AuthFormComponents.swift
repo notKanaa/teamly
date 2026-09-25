@@ -17,7 +17,8 @@ struct AuthFieldStyle: ViewModifier {
     let systemImage: String
     var error: String?
 
-    /// Width of the leading icon's column: grows with Dynamic Type like the `.body` icon it holds.
+    /// Width of the leading icon's column: grows with Dynamic Type like the `.body` icon it holds, up to the
+    /// accessibility1 size (the text of the field needs the width more than the icon).
     @ScaledMetric(relativeTo: .body) private var iconWidth: CGFloat = 24
 
     init(systemImage: String, error: String? = nil) {
@@ -30,8 +31,9 @@ struct AuthFieldStyle: ViewModifier {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
                     .font(Font.body.weight(.semibold))
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                     .foregroundStyle(error == nil ? Theme.textSecondary : Theme.danger)
-                    .frame(width: iconWidth)
+                    .frame(width: min(iconWidth, 40))
                     .accessibilityHidden(true)
                 content
                     .foregroundStyle(Theme.textPrimary)
@@ -99,8 +101,9 @@ struct AuthPasswordField: View {
                     focus.wrappedValue = field
                 }
             } label: {
-                // A 44 × 44 pt tap area at least; the frame grows with the glyph at large text sizes.
+                // A 44 × 44 pt tap area at least; the frame grows with the glyph, up to the accessibility1 size.
                 Image(systemName: isRevealed ? "eye.slash" : "eye")
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                     .foregroundStyle(Theme.textSecondary)
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())

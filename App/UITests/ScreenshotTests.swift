@@ -205,6 +205,11 @@ final class DesignCheckTests: XCTestCase {
         ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
         ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the display name field")
         ui.capture("dark-reglages")
+
+        let cancel = ui.buttons(AccessibilityID.Settings.avatarCancelButton, orLabel: "Annuler")
+        ui.tap(ui.buttons(AccessibilityID.Settings.avatarButton), "the avatar row", until: .shows(cancel))
+        ui.waitForContent(ui.elements(AccessibilityID.Picker.avatarPreview), "the avatar preview")
+        ui.capture("dark-avatar-editeur")
     }
 
     @MainActor

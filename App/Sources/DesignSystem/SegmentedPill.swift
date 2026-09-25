@@ -100,6 +100,7 @@ struct SegmentedPill<Option: Hashable>: View {
 
     private func segment(_ option: Option) -> some View {
         let isSelected = option == selection
+        let isStacked = dynamicTypeSize.isAccessibilitySize
         return Button {
             if !isSelected {
                 onSelect(option)
@@ -109,6 +110,10 @@ struct SegmentedPill<Option: Hashable>: View {
                 .font(Font.subheadline.weight(isSelected ? .heavy : .bold))
                 .foregroundStyle(isSelected ? selectedForeground(option) : Theme.textSecondary)
                 .multilineTextAlignment(.center)
+                // Side by side, a word never breaks (the heavier selected text shrinks a little instead); stacked, the
+                // segments are as wide as the pill and the text wraps.
+                .lineLimit(isStacked ? nil : 1)
+                .minimumScaleFactor(isStacked ? 1 : 0.7)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)
                 .frame(maxWidth: .infinity, minHeight: 44)
@@ -125,6 +130,10 @@ struct SegmentedPill<Option: Hashable>: View {
         .accessibilityIdentifierIfPresent(identifier(option))
     }
 
+    /// The selected `.standard` segment: white in light mode; in dark mode lighter than the track (#3A3656), as a
+    /// raised segment should be (the `card` color is darker than the track there).
+    private static var standardSelection: Color { Theme.dynamic(light: 0xFFFFFF, dark: 0x3A3656) }
+
     private func selectedForeground(_ option: Option) -> Color {
         switch tone(option) {
         case .standard: Theme.textPrimary
@@ -139,7 +148,7 @@ struct SegmentedPill<Option: Hashable>: View {
         switch tone(option) {
         case .standard:
             shape
-                .fill(Theme.card)
+                .fill(Self.standardSelection)
                 .shadow(color: Theme.shadow.opacity(colorScheme == .dark ? 0 : 0.12), radius: 1.5, x: 0, y: 1)
         case let .soft(soft):
             shape.fill(soft.background)

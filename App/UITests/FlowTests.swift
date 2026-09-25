@@ -143,6 +143,25 @@ final class FlowTests: XCTestCase {
         ui.waitForContent(ui.elements(AccessibilityID.Groups.emptyJoinButton), "« Rejoindre avec un code »")
     }
 
+    /// Réglages → the avatar row → « Ton avatar »: an emoji, « Enregistrer »; the sheet closes.
+    @MainActor
+    func testEditAvatarFromSettings() {
+        let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
+        ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
+        // The row opens the editor once the profile is loaded (with the display name field).
+        ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the loaded settings")
+
+        let save = ui.buttons(AccessibilityID.Settings.avatarSaveButton, orLabel: "Enregistrer")
+        ui.tap(ui.buttons(AccessibilityID.Settings.avatarButton), "the avatar row", until: .shows(save))
+        ui.waitForContent(ui.elements(AccessibilityID.Picker.avatarPreview), "the avatar preview")
+        ui.select(ui.buttons(AccessibilityID.Picker.emoji(UITestDemo.foxEmoji)), "the fox emoji")
+        ui.capture("avatar-editeur")
+
+        ui.tapWhenEnabled(save, "« Enregistrer »", until: .hides(save))
+        ui.waitForDisappearance(save, "the « Ton avatar » sheet")
+        ui.waitForContent(ui.buttons(AccessibilityID.Settings.avatarButton), "the avatar row")
+    }
+
     /// A new account goes through the 4 steps of the onboarding: « Bienvenue », an emoji avatar (and back to that step
     /// once), a first group created on the spot, « Plus tard » for the notifications; then the tabs show that group.
     @MainActor

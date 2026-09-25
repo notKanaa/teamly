@@ -722,18 +722,19 @@ final class EquipeApp {
         _ = waitUntil(timeout: UITestTimeout.medium) { !app.keyboards.firstMatch.exists }
     }
 
-    /// Submits a form: its button when a finger can reach it and it is enabled, else the keyboard's return key (the
-    /// last field has the focus and submits the form).
+    /// Submits a form whose last field was just typed into: the keyboard's return key while the keyboard is shown
+    /// (« Aller », « Rejoindre »: the field submits the form; the button may lie under the keyboard or its bars), the
+    /// button otherwise, when a finger can reach it and it is enabled.
     private func submitForm(_ button: XCUIElementQuery, isRetry: Bool) {
-        let reachableButton = settledMatch(button, timeout: 3) { matches in
+        if app.keyboards.firstMatch.exists {
+            app.typeText("\n")
+            return
+        }
+        let reachableButton = settledMatch(button, timeout: isRetry ? UITestTimeout.short : 3) { matches in
             matches.first { $0.reachable != nil && $0.isEnabled }
         }
         if let reachableButton {
             tap(reachableButton)
-        } else if !isRetry || app.keyboards.firstMatch.exists {
-            // Under the keyboard: « Aller » / « Rejoindre » submits the form as well (the password field has the
-            // focus). Not on a retry without keyboard: the first submission cleared the focus, typing would fail.
-            app.typeText("\n")
         }
     }
 
@@ -998,10 +999,23 @@ final class EquipeApp {
         return obstructions
     }
 
-    /// The keyboard with its toolbar (the « OK » bar of the task editor), which may be a separate element on top of
-    /// it (touching it, or floating a few points above): a tap there would hit the bar, not what lies under it.
+    /// The keyboard with what sits on top of it: its input assistant (the predictions or « Passwords » bar, in the
+    /// keyboard's own window: `SystemInputAssistantView`, inside `inputView`) and the toolbar of the screen (the « OK »
+    /// bar of the task editor), which may be a separate element touching it or floating a few points above. A tap
+    /// there would hit the bar, not what lies under it (it did: the « Passwords » bar took the taps meant for
+    /// « Créer mon compte » and for the e-mail field of the sign-up screen).
     private func keyboardFrame(from keyboard: CGRect) -> CGRect {
         var frame = keyboard
+        let assistants = elements("SystemInputAssistantView").allElementsBoundByIndex
+            + elements("inputView").allElementsBoundByIndex
+        for assistant in assistants {
+            guard let snapshot = try? assistant.snapshot() else { continue }
+            let area = snapshot.frame
+            let touchesKeyboard = area.maxY >= frame.minY - 12 && area.minY < frame.maxY
+            if area.width >= 1, area.height >= 1, touchesKeyboard, area.minX < frame.maxX, area.maxX > frame.minX {
+                frame = frame.union(area)
+            }
+        }
         for toolbar in app.toolbars.allElementsBoundByIndex {
             guard let snapshot = try? toolbar.snapshot() else { continue }
             let bar = snapshot.frame
