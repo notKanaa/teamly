@@ -4,7 +4,7 @@ import TeamTasksCore
 /// « Membre depuis le 14 septembre » under a member's name: the day only (the time of joining does not matter), with
 /// its article, short enough for one caption line.
 enum MembersJoinedText {
-    /// « Membre depuis aujourd'hui », « … hier », « … le 14 septembre », « … le 1er décembre 2025 » (the year when it
+    /// « Membre depuis aujourd’hui », « … hier », « … le 14 septembre », « … le 1er décembre 2025 » (the year when it
     /// is not the current one).
     static func sentence(joinedAt: Date, now: Date, calendar: Calendar) -> String {
         "Membre depuis \(day(joinedAt, now: now, calendar: calendar))"
@@ -15,7 +15,7 @@ enum MembersJoinedText {
         switch formatter.dayOffset(of: date, from: now) {
         case 0...:
             // Today, or « tomorrow » from a clock set late: never « depuis demain ».
-            return "aujourd'hui"
+            return "aujourd’hui"
         case -1:
             return "hier"
         default:

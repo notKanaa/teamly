@@ -1,12 +1,13 @@
 import SwiftUI
 import TeamTasksCore
 
-/// Root of the « Groupes » tab: the groups of the user (most recently active first) with their role, and the
-/// « Créer » / « Rejoindre » sheets.
+/// Root of the « Groupes » tab (docs/DESIGN-V2.md §7.2): under the large title the summary (« 3 groupes · 11 tâches
+/// à faire »), then a card per group, most recently active first (`GroupCard`: tile, members, the week's progress),
+/// and the dashed « Rejoindre un groupe » card. « + » opens a menu: « Créer un groupe », « Rejoindre un groupe ».
 ///
 /// The tab owns the `NavigationStack(path: $router.groupsPath)` and its
 /// `.navigationDestination(for: AppRoute.self) { GroupsDestinationView(route: $0, session: session) }`;
-/// rows push `AppRoute.group(id)`.
+/// cards push `AppRoute.group(id)`.
 struct GroupsListView: View {
     let session: SessionModel
 
@@ -20,36 +21,16 @@ struct GroupsListView: View {
     }
 
     var body: some View {
-        let now = session.platform.now()
-        List {
-            ForEach(model.groups) { summary in
-                NavigationLink(value: AppRoute.group(summary.id)) {
-                    GroupsListRow(summary: summary, activityText: activityText(for: summary, now: now))
-                }
-                .accessibilityIdentifier(AccessibilityID.Groups.row(summary.group.name))
-            }
+        ScrollView {
+            content
+                .padding(.horizontal, Theme.Spacing.pageDense)
+                .padding(.bottom, 24)
         }
         .accessibilityIdentifier(AccessibilityID.Groups.list)
-        .overlay {
-            overlay
-        }
         .navigationTitle("Groupes")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Rejoindre") {
-                    activeSheet = .join
-                }
-                .accessibilityHint("Rejoindre un groupe avec un code d’invitation")
-                .accessibilityIdentifier(AccessibilityID.Groups.joinButton)
-            }
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    activeSheet = .create
-                } label: {
-                    Label("Créer", systemImage: "plus")
-                }
-                .accessibilityHint("Créer un nouveau groupe")
-                .accessibilityIdentifier(AccessibilityID.Groups.createButton)
+                addMenu
             }
         }
         .task(id: model.refreshKey) {
@@ -70,49 +51,87 @@ struct GroupsListView: View {
                 }
             }
         }
-        .alert("Erreur", isPresented: $model.isShowingError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.errorMessage ?? "")
-        }
+        .shellErrorAlert(model)
     }
 
-    @ViewBuilder
-    private var overlay: some View {
+    @ViewBuilder private var content: some View {
         if model.isEmpty {
-            ContentUnavailableView {
-                Label(GroupsListViewModel.emptyTitle, systemImage: "person.3")
-            } description: {
-                Text(GroupsListViewModel.emptyMessage)
-            } actions: {
-                Button {
-                    activeSheet = .create
-                } label: {
-                    Label("Créer un groupe", systemImage: "plus")
-                }
-                .shellProminentButtonStyle()
-                .accessibilityIdentifier(AccessibilityID.Groups.emptyCreateButton)
-                Button {
-                    activeSheet = .join
-                } label: {
-                    Label("Rejoindre avec un code", systemImage: "ticket")
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier(AccessibilityID.Groups.emptyJoinButton)
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier(AccessibilityID.Groups.emptyState)
+            emptyState
+                .padding(.top, 32)
         } else if !model.loadState.isLoaded {
             GroupsLoadStateView(loadState: model.loadState) {
                 Task { await model.reload() }
             }
+            .padding(.top, 48)
+        } else {
+            cards
         }
     }
 
-    /// « Dernière activité : hier à 18:00 ».
-    private func activityText(for summary: GroupSummary, now: Date) -> String {
-        let when = DateText.relativeLowercase(summary.group.lastActivityAt, now: now, calendar: session.platform.calendar)
-        return "Dernière activité\u{00A0}: \(when)"
+    private var cards: some View {
+        LazyVStack(alignment: .leading, spacing: 14) {
+            if let header = model.headerText {
+                Text(header)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(AccessibilityID.Groups.headerSummary)
+            }
+            ForEach(model.groups) { summary in
+                NavigationLink(value: AppRoute.group(summary.id)) {
+                    GroupCard(summary: summary, overview: model.overview(of: summary.id))
+                }
+                .buttonStyle(.pressable)
+                .accessibilityIdentifier(AccessibilityID.Groups.row(summary.group.name))
+            }
+            JoinGroupCard {
+                activeSheet = .join
+            }
+            .accessibilityIdentifier(AccessibilityID.Groups.joinButton)
+        }
+    }
+
+    /// « + »: « Créer un groupe », « Rejoindre un groupe ».
+    private var addMenu: some View {
+        Menu {
+            Button {
+                activeSheet = .create
+            } label: {
+                Label("Créer un groupe", systemImage: "plus")
+            }
+            .accessibilityIdentifier(AccessibilityID.Groups.createButton)
+            Button {
+                activeSheet = .join
+            } label: {
+                Label("Rejoindre un groupe", systemImage: "key.fill")
+            }
+            .accessibilityIdentifier(AccessibilityID.Groups.menuJoinButton)
+        } label: {
+            Label("Créer ou rejoindre un groupe", systemImage: "plus")
+        }
+        .accessibilityIdentifier(AccessibilityID.Groups.addMenu)
+    }
+
+    /// No group yet: « Créer un groupe » and « Rejoindre avec un code ».
+    private var emptyState: some View {
+        GroupsStateView(
+            systemImage: "person.2.fill",
+            title: GroupsListViewModel.emptyTitle,
+            message: GroupsListViewModel.emptyMessage
+        ) {
+            PrimaryButton("Créer un groupe", systemImage: "plus") {
+                activeSheet = .create
+            }
+            .accessibilityIdentifier(AccessibilityID.Groups.emptyCreateButton)
+            Button {
+                activeSheet = .join
+            } label: {
+                Label("Rejoindre avec un code", systemImage: "key.fill")
+            }
+            .buttonStyle(.secondary)
+            .accessibilityIdentifier(AccessibilityID.Groups.emptyJoinButton)
+        }
+        .accessibilityIdentifier(AccessibilityID.Groups.emptyState)
     }
 
     /// A group was created or joined: close the sheet and show it.

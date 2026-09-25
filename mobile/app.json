@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "Équipe",
+    "slug": "equipe",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "equipe",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#F4F3F8",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "io.github.notkanaa.equipe"
+    },
+    "android": {
+      "predictiveBackGestureEnabled": false,
+      "package": "io.github.notkanaa.equipe"
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/images/favicon.png",
+      "name": "Équipe",
+      "shortName": "Équipe",
+      "lang": "fr",
+      "themeColor": "#4B3BE6",
+      "backgroundColor": "#F4F3F8"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F4F3F8",
+          "image": "./assets/images/icon.png",
+          "imageWidth": 120,
+          "dark": {
+            "backgroundColor": "#0F0E17"
+          }
+        }
+      ],
+      "expo-localization",
+      "@react-native-community/datetimepicker"
+    ],
+    "experiments": {
+      "typedRoutes": false,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "285e6a6d-c794-4b57-a399-6528374030d0"
+      }
+    },
+    "owner": "notkana",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/285e6a6d-c794-4b57-a399-6528374030d0"
+    }
+  }
+}

@@ -10,23 +10,23 @@ final class FlowTests: XCTestCase {
         ui.waitForDemoGroups()
     }
 
-    /// « Créer » → the new group opens (its creator is admin), then shows in the list.
+    /// « + » → « Créer un groupe » → the new group opens (its creator is admin), then shows in the list.
     @MainActor
     func testCreateGroup() {
         let ui = EquipeApp.launch(.populated, for: self)
         ui.waitForDemoGroups()
 
         let nameField = ui.textFields(AccessibilityID.Groups.nameField)
-        ui.tap(ui.createGroupButton, "« Créer »", until: .shows(nameField))
+        ui.openCreateGroupSheet()
         let name = ui.typeText("Club de lecture", into: nameField, "the group name field")
         ui.tapWhenEnabled(ui.buttons(AccessibilityID.Groups.saveButton), "« Créer » of the sheet", until: .hides(nameField))
         ui.waitForDisappearance(nameField, "the « Nouveau groupe » sheet")
 
-        ui.waitForNavigationTitle(name)
+        ui.waitForGroupScreen(name)
         ui.waitFor(ui.elements(AccessibilityID.Groups.emptyTasks), "the « Aucune tâche » state")
-        ui.waitFor(ui.elements(AccessibilityID.Groups.inviteButton), "« Inviter avec un code » (the creator is admin)")
+        ui.waitFor(ui.elements(AccessibilityID.Groups.inviteButton), "« Inviter » (the creator is admin)")
 
-        ui.goBack(from: name)
+        ui.leaveGroupScreen()
         ui.waitForContent(ui.elements(AccessibilityID.Groups.row(name)), "the new group in the list")
     }
 

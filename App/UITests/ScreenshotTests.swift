@@ -15,15 +15,22 @@ final class ScreenshotTests: XCTestCase {
         ui.capture("01-connexion")
     }
 
+    /// The groups list on the v2 content (`showcase`: the week's progress of each group), then « Nouveau groupe » with a
+    /// name, 📚 and violet.
     @MainActor
     func test02GroupsAndCreateGroup() {
-        let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
+        let ui = EquipeApp.launch(.showcase, notifications: "authorized", for: self)
         ui.waitForDemoGroups()
+        ui.waitForContent(ui.elements(AccessibilityID.Groups.headerSummary), "the summary under the title")
         ui.capture("02-groupes")
 
         let nameField = ui.textFields(AccessibilityID.Groups.nameField)
-        ui.tap(ui.createGroupButton, "« Créer »", until: .shows(nameField))
+        ui.openCreateGroupSheet()
         ui.typeText("Club de lecture", into: nameField, "the group name field")
+        ui.dismissKeyboard()
+        ui.select(ui.buttons(AccessibilityID.Picker.emoji(UITestDemo.booksEmoji)), "the books emoji")
+        ui.select(ui.buttons(AccessibilityID.Picker.color("violet")), "the violet swatch")
+        ui.scrollToTop(until: nameField)
         let createButton = ui.buttons(AccessibilityID.Groups.saveButton)
         ui.waitForContent(createButton, "« Créer » of the sheet")
         // The typed name is taken into account once « Créer » is enabled.

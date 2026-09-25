@@ -155,16 +155,6 @@ jobs:
           name: UITests-xcresult
           path: build/UITests.xcresult
           retention-days: 7
-      - name: Build unsigned IPA (for Sideloadly)
-        id: ipa
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-        run: scripts/ci/package-ipa.sh
-      - uses: actions/upload-artifact@v7
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-        with:
-          name: Equipe-unsigned-ipa
-          path: build/Equipe-unsigned.ipa
-          retention-days: 30
       # Only the logs of the steps that actually failed (a green step's log has harmless "error:" lines).
       - name: Annotate swift test failures
         if: failure() && steps.swift_macos.outcome == 'failure'
@@ -172,6 +162,47 @@ jobs:
       - name: Annotate UI test failures
         if: failure() && steps.uitests.outcome == 'failure'
         run: node scripts/ci/annotate-log.mjs ci-logs/xcodebuild-test.log "xcodebuild test"
+
+  # The installable build, in parallel with the UI tests so that it is ready in ~10 minutes (main and manual runs
+  # only; the same commit's ios job still has to pass before it is announced).
+  ipa:
+    name: Unsigned IPA (for Sideloadly)
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Select latest Xcode 26
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Write Config/Secrets.xcconfig
+        env:
+          SUPABASE_HOST: ${{ vars.SUPABASE_HOST }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+          APP_BUNDLE_ID: ${{ vars.APP_BUNDLE_ID }}
+        run: node scripts/write-secrets.mjs
+      - run: xcodegen generate
+      - uses: actions/cache@v6
+        with:
+          path: .spm
+          key: spm-${{ hashFiles('Packages/TeamTasksKit/Package.resolved') }}
+          restore-keys: spm-
+      - name: Build unsigned IPA
+        id: ipa
+        run: scripts/ci/package-ipa.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Equipe-unsigned-ipa
+          path: build/Equipe-unsigned.ipa
+          retention-days: 30
       - name: Annotate IPA failures
         if: failure() && steps.ipa.outcome == 'failure'
         run: node scripts/ci/annotate-log.mjs ci-logs/xcodebuild-ipa.log "IPA build"
