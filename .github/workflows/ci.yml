@@ -54,7 +54,22 @@ jobs:
           path: .swift-build
           key: swift-6.3-linux-${{ hashFiles('Packages/TeamTasksKit/Package.resolved', 'Packages/TeamTasksKit/Package.swift') }}
           restore-keys: swift-6.3-linux-
-      - run: supabase start -x studio,postgres-meta
+      # A cold runner sometimes fails `supabase start` (image pulls, a slow health check): one clean retry, and the
+      # container logs in an annotation if the retry fails too (job logs need a token to read).
+      - name: Start the local Supabase stack
+        run: |
+          supabase start -x studio,postgres-meta && exit 0
+          echo "supabase start failed, retrying once"
+          supabase stop --no-backup || true
+          sleep 10
+          if ! supabase start -x studio,postgres-meta 2>&1 | tee supabase-start.log; then
+            docker ps -a --format '{{.Names}} {{.Status}}' >> supabase-start.log
+            for c in $(docker ps -a --filter status=exited --format '{{.Names}}'); do
+              echo "--- $c" >> supabase-start.log; docker logs --tail 40 "$c" >> supabase-start.log 2>&1
+            done
+            node scripts/ci/annotate-log.mjs supabase-start.log "supabase start"
+            exit 1
+          fi
       - name: swift test (unit + integration)
         run: |
           set -o pipefail
