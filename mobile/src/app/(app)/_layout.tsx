@@ -35,6 +35,9 @@ export default function AppLayout() {
         <Stack.Screen name="new-group" options={{ presentation: 'modal' }} />
         <Stack.Screen name="new-task" options={{ presentation: 'modal' }} />
         <Stack.Screen name="avatar" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="group/members" />
+        <Stack.Screen name="group/invite" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="group/appearance" options={{ presentation: 'modal' }} />
       </Stack.Protected>
       <Stack.Protected guard={showOnboarding}>
         <Stack.Screen name="onboarding" options={{ gestureEnabled: false, animation: 'fade' }} />
