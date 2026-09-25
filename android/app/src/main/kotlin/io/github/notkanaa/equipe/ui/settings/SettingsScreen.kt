@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -52,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -631,6 +634,10 @@ private fun ConfirmationDialog(
  * « Supprimer le compte » (iOS `SettingsDeleteAccountView`): explains what is deleted and requires typing
  * « SUPPRIMER ». Shows the errors of the deletion itself. On success the session ends and the login screen replaces
  * the app.
+ *
+ * The field keeps its text in a `TextFieldState` (a new, empty one each time the dialog opens) that the model follows,
+ * like the other dialogs' fields: a value-based `TextField` in an `AlertDialog` kept Compose from ever going idle in the
+ * UI tests.
  */
 @Composable
 private fun DeleteAccountDialog(
@@ -639,12 +646,10 @@ private fun DeleteAccountDialog(
     onDelete: () -> Unit,
     onClose: () -> Unit,
 ) {
-    val confirmation = rememberBoundText(
-        model,
-        state.deleteConfirmation,
-        { model.deleteConfirmation },
-        { model.deleteConfirmation = it },
-    )
+    val confirmation = rememberTextFieldState()
+    LaunchedEffect(confirmation) {
+        snapshotFlow { confirmation.text.toString() }.collect { model.deleteConfirmation = it }
+    }
     val word = SettingsViewModel.DELETE_CONFIRMATION_WORD
 
     fun delete() {
@@ -664,18 +669,17 @@ private fun DeleteAccountDialog(
             ) {
                 Text(SettingsViewModel.DELETE_ACCOUNT_WARNING, style = MaterialTheme.typography.bodyMedium)
                 TextField(
-                    value = confirmation.value,
-                    onValueChange = confirmation::onValueChange,
+                    state = confirmation,
                     label = { Text("Confirmation") },
                     placeholder = { Text(word) },
-                    singleLine = true,
+                    lineLimits = TextFieldLineLimits.SingleLine,
                     enabled = !state.isDeletingAccount,
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.Characters,
                         autoCorrectEnabled = false,
                         imeAction = ImeAction.Done,
                     ),
-                    keyboardActions = KeyboardActions(onDone = { delete() }),
+                    onKeyboardAction = { delete() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(SettingsTestTags.DELETE_CONFIRMATION_FIELD)

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -48,6 +49,9 @@ import io.github.notkanaa.equipe.ui.theme.extendedColors
 
 /** Horizontal padding of the rows inside a section card. */
 private val RowPadding = 16.dp
+
+/** Widest label of a label / value row: the rest of the row is left to the value. */
+private val LabelMaxWidth = 160.dp
 
 /**
  * A group of rows on a card, with an optional header above and footer below (a section of the iOS `Form`).
@@ -132,7 +136,9 @@ internal fun SettingsValueRow(
     selectable: Boolean = false,
 ) {
     SettingsRowFrame(modifier = modifier.semantics(mergeDescendants = !selectable) {}, icon = icon) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f, fill = false))
+        // The label keeps its own width (wrapped past LabelMaxWidth at large font scales); the value takes the rest of
+        // the row, right-aligned, and is shortened only when it really does not fit.
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.widthIn(max = LabelMaxWidth))
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
             val text = @Composable {
                 Text(

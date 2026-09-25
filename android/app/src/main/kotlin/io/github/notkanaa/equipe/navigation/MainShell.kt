@@ -33,18 +33,22 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Density
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.notkanaa.equipe.core.viewmodel.AppModel
 import io.github.notkanaa.equipe.core.viewmodel.AppRoute
@@ -252,20 +256,28 @@ private fun ForgetRemovedEntries(routerState: RouterState, stateHolder: Saveable
 
 @Composable
 private fun EquipeNavigationBar(selectedTab: AppTab, newTaskCount: Int, onSelect: (AppTab) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    // The selected icon sits on the indicator (primaryContainer): the primary blue in light mode (4.2:1), the light
+    // on-container tint in dark mode, where the dark primary would give only 2.7:1 (3:1 needed).
+    val selectedIconColor = if (scheme.background.luminance() < 0.5f) scheme.onPrimaryContainer else scheme.primary
     NavigationBar(containerColor = MaterialTheme.extendedColors.card) {
         for (tab in AppTab.entries) {
             val selected = tab == selectedTab
+            val showsBadge = tab == AppTab.MY_TASKS && newTaskCount > 0
             NavigationBarItem(
                 selected = selected,
                 onClick = { onSelect(tab) },
                 icon = {
                     val icon = tabIcon(tab, selected)
-                    if (tab == AppTab.MY_TASKS && newTaskCount > 0) {
-                        val description = newTasksDescription(newTaskCount)
+                    if (showsBadge) {
                         BadgedBox(
                             badge = {
-                                Badge(modifier = Modifier.clearAndSetSemantics { contentDescription = description }) {
-                                    Text(if (newTaskCount > 99) "99+" else newTaskCount.toString())
+                                Badge {
+                                    // At the largest font scales the badge would hide the icon: its digits grow
+                                    // at most 1.3 times (the count is also read with the tab by TalkBack).
+                                    LimitedFontScale(max = BADGE_MAX_FONT_SCALE) {
+                                        Text(if (newTaskCount > 99) "99+" else newTaskCount.toString())
+                                    }
                                 }
                             },
                         ) {
@@ -277,13 +289,19 @@ private fun EquipeNavigationBar(selectedTab: AppTab, newTaskCount: Int, onSelect
                 },
                 label = { Text(tab.title) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedIconColor = selectedIconColor,
                     selectedTextColor = MaterialTheme.colorScheme.primary,
                     indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
-                modifier = Modifier.testTag(TabTestTags.of(tab)),
+                // The item clears the semantics of its icon (the label names it): the badge is announced with the
+                // tab, « Mes tâches, 2 nouvelles tâches ».
+                modifier = Modifier
+                    .testTag(TabTestTags.of(tab))
+                    .semantics {
+                        if (showsBadge) contentDescription = "${tab.title}, ${newTasksDescription(newTaskCount)}"
+                    },
             )
         }
     }
@@ -296,10 +314,22 @@ private fun tabIcon(tab: AppTab, selected: Boolean): ImageVector = when (tab) {
     AppTab.SETTINGS -> if (selected) Icons.Filled.Settings else Icons.Outlined.Settings
 }
 
+/** Content whose text grows at most [max] times with the system font scale (never shrinks it). */
+@Composable
+private fun LimitedFontScale(max: Float, content: @Composable () -> Unit) {
+    val density = LocalDensity.current
+    if (density.fontScale <= max) {
+        content()
+    } else {
+        CompositionLocalProvider(LocalDensity provides Density(density.density, max), content = content)
+    }
+}
+
 /** « 1 nouvelle tâche », « 3 nouvelles tâches » (TalkBack, badge). */
 private fun newTasksDescription(count: Int): String =
     if (count <= 1) "$count nouvelle tâche" else "$count nouvelles tâches"
 
+private const val BADGE_MAX_FONT_SCALE = 1.3f
 private const val STACK_MILLIS = 300
 private const val TAB_FADE_IN_MILLIS = 180
 private const val TAB_FADE_OUT_MILLIS = 90

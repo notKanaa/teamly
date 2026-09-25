@@ -324,7 +324,8 @@ private fun EditorTopBar(state: TaskEditorState, onCancel: () -> Unit, onSave: (
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            // « Créer » ends on the form's 16 dp margin; « Annuler » is a text button, its label is inset already.
+            .padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TextButton(

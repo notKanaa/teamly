@@ -1,3 +1,4 @@
+import com.android.build.api.variant.HostTestBuilder
 import java.io.StringReader
 import java.util.Base64
 import java.util.Properties
@@ -61,6 +62,16 @@ val debugMockScenario = providers.gradleProperty("equipe.mockScenario").orElse("
  */
 val signingPropertiesPath =
     providers.gradleProperty("equipe.signingPropertiesFile").orNull?.trim()?.takeIf { it.isNotEmpty() }
+
+/**
+ * Where Robolectric downloads its Android SDK jars (~200 MB, Maven layout): `-Pequipe.robolectricRepository=<dir>` (or
+ * in `~/.gradle/gradle.properties`); `~/.m2/repository` by default.
+ */
+val robolectricRepository =
+    providers.gradleProperty("equipe.robolectricRepository").orNull?.trim()?.takeIf { it.isNotEmpty() }
+
+/** Screenshots of the unit tests (Roborazzi), relative to this module: the CI publishes them. */
+val screenshotsDir = "build/outputs/roborazzi"
 
 // endregion
 
@@ -146,6 +157,38 @@ android {
         // French-only app: keep the default resources and the French translations of the libraries.
         localeFilters += listOf("fr")
     }
+
+    testOptions {
+        unitTests {
+            // Robolectric runs the Compose tests with the merged resources and manifest (themes, test activity).
+            isIncludeAndroidResources = true
+            all { test ->
+                test.maxHeapSize = "1g"
+                // Like the JVM modules: a failing test prints its whole message (the UI tests add what the screen shows).
+                test.testLogging {
+                    events("failed")
+                    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                }
+                // Roborazzi: every run records the screenshots (no reference images are kept in the repository).
+                // Robolectric draws them with the real Android graphics stack, elevation shadows included.
+                test.systemProperty("roborazzi.test.record", "true")
+                test.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+                // Relative to the working directory of the tests (android/app). The PNGs are outputs of the task:
+                // a run answered from the build cache restores them too.
+                test.systemProperty("equipe.screenshotsDir", screenshotsDir)
+                test.outputs.dir(layout.projectDirectory.dir(screenshotsDir))
+                robolectricRepository?.let { test.systemProperty("maven.repo.local", it) }
+            }
+        }
+    }
+}
+
+androidComponents {
+    // The release build type only changes BuildConfig constants and adds R8: its unit tests would run the same tests a
+    // second time (and the Compose test activity is a debug-only dependency).
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        variant.hostTests[HostTestBuilder.UNIT_TEST_TYPE]?.enable = false
+    }
 }
 
 dependencies {
@@ -174,4 +217,14 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    // Compose UI tests and Roborazzi screenshots on Robolectric (JVM, no emulator).
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    // The empty ComponentActivity the Compose tests host their content in (debug manifest only).
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

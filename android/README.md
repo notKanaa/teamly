@@ -25,7 +25,7 @@ The machine is shared with other builds: always go through the lock wrapper, fro
 
 ```powershell
 node D:\mobileApp\_wt\gradle-locked.mjs :core:test            # :core unit tests
-node D:\mobileApp\_wt\gradle-locked.mjs test                  # every module
+node D:\mobileApp\_wt\gradle-locked.mjs test                  # every module (app: UI flows and screenshots too)
 node D:\mobileApp\_wt\gradle-locked.mjs :app:assembleDebug    # android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -33,8 +33,43 @@ Requirements: JDK 17 (`JAVA_HOME`), Android SDK with `platforms;android-37.0` an
 (`ANDROID_HOME`, or `sdk.dir` in `android/local.properties`). `gradle.properties` is tuned for 8 GB of RAM
 (2 GB Gradle daemon, 1 GB Kotlin daemon, 2 workers).
 
-CI: [`.github/workflows/android.yml`](../.github/workflows/android.yml) runs `./gradlew test :app:assembleDebug`
-and publishes the debug APK as the `Equipe-android-debug` artifact.
+### App tests (Robolectric, no emulator)
+
+`:app:testDebugUnitTest` (part of `test`; the release build type has no unit tests) runs the app's tests on the JVM
+with Robolectric (Android 15 SDK, a 411 × 891 dp phone: `app/src/test/resources/robolectric.properties`):
+
+- `flows.FlowTest`: end-to-end flows through the real shell (`EquipeRoot` / `MainShell`) on the in-memory backend of
+  `:mocks`, driven by the iOS accessibility identifiers (test tags), like `App/UITests/FlowTests.swift`;
+- `screenshots.ScreenshotTest`: the 10 screens of the iOS suite with the same file names (`01-connexion.png` …
+  `10-reglages-compte.png`), `-sombre` (dark) variants of 02, 06 and 07, and `07-mes-taches-police-xl.png` (font scale
+  1.8). Roborazzi records them at every run into `app/build/outputs/roborazzi/` (outputs of the test task), with the
+  component captures of the groups screens in `groups/`. Robolectric has no system bars: the tests give the window a
+  32 dp status bar and a 24 dp navigation bar; dialogs and bottom sheets are drawn without their device margins;
+- screen and logic tests (`ui.groups`, `ui.components.tasks`, `config`).
+
+Robolectric downloads its Android SDK jars (~200 MB) into `~/.m2/repository` on first use. To keep them elsewhere (on
+this machine: `D:\Dev\robolectric-m2`), add `-Pequipe.robolectricRepository=<folder>` to the command, or set
+`equipe.robolectricRepository` in `~/.gradle/gradle.properties`.
+
+### CI
+
+[`.github/workflows/android.yml`](../.github/workflows/android.yml) runs `./gradlew test :app:assembleDebug` (the
+`:supabase` integration tests are skipped there: they need `SUPABASE_KEY` and a local stack) and uploads the debug APK
+(`Equipe-android-debug`) and the screenshots (`Equipe-android-screenshots`). On `main`, a separate job, the only one
+with a write token, force-pushes the screenshots to the orphan branch `ci-screenshots-android`:
+`https://raw.githubusercontent.com/notKanaa/teamly/ci-screenshots-android/<name>.png`.
+
+### Signed release APK
+
+`-Pequipe.signingPropertiesFile=<file>` names a properties file kept outside the repository (`storeFile`,
+`storePassword`, `keyAlias`, `keyPassword`); `-Pequipe.supabaseUrl` and `-Pequipe.supabaseKey` (the publishable key)
+select the backend:
+
+```powershell
+node D:\mobileApp\_wt\gradle-locked.mjs :app:assembleRelease "-Pequipe.signingPropertiesFile=<file>" "-Pequipe.supabaseUrl=https://<ref>.supabase.co" "-Pequipe.supabaseKey=<sb_publishable_…>"
+```
+
+The APK is `app/build/outputs/apk/release/app-release.apk` (R8, French resources only).
 
 ## Versions
 

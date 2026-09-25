@@ -30,13 +30,29 @@ import io.github.notkanaa.equipe.ui.shell.ShellSplash
 import io.github.notkanaa.equipe.ui.theme.EquipeTheme
 import kotlinx.coroutines.CoroutineScope
 
-/**
- * Content of the activity: the configured app ([EquipeRoot]) or « Configuration manquante », in [EquipeTheme]. Test
- * tags are exposed as resource ids for UI Automator (`testTagsAsResourceId`) from here down.
- */
+/** Content of the activity: the configured app ([EquipeRoot]) or « Configuration manquante », in [EquipeAppFrame]. */
 @Composable
 fun EquipeApp(container: AppContainer) {
     val launch by container.launches.collectAsStateWithLifecycle()
+    EquipeAppFrame {
+        when (val current = launch) {
+            is AppContainer.Launch.Ready -> key(current) {
+                CompositionLocalProvider(LocalMockBackend provides current.environment.isMock) {
+                    EquipeRoot(appModel = current.appModel, actionScope = current.scope)
+                }
+            }
+            is AppContainer.Launch.Misconfigured -> ShellConfigurationMissing(current.issue)
+            null -> ShellSplash()
+        }
+    }
+}
+
+/**
+ * What the activity's content is drawn in: [EquipeTheme] and its background, with the test tags exposed as resource
+ * ids for UI Automator (`testTagsAsResourceId`) from here down. The UI tests compose [EquipeRoot] in it too.
+ */
+@Composable
+internal fun EquipeAppFrame(content: @Composable () -> Unit) {
     EquipeTheme {
         Box(
             modifier = Modifier
@@ -44,15 +60,7 @@ fun EquipeApp(container: AppContainer) {
                 .background(MaterialTheme.colorScheme.background)
                 .semantics { testTagsAsResourceId = true },
         ) {
-            when (val current = launch) {
-                is AppContainer.Launch.Ready -> key(current) {
-                    CompositionLocalProvider(LocalMockBackend provides current.environment.isMock) {
-                        EquipeRoot(appModel = current.appModel, actionScope = current.scope)
-                    }
-                }
-                is AppContainer.Launch.Misconfigured -> ShellConfigurationMissing(current.issue)
-                null -> ShellSplash()
-            }
+            content()
         }
     }
 }

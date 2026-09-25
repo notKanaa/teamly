@@ -16,14 +16,20 @@ concurrency:
 
 jobs:
   build:
-    name: Unit tests + debug APK
+    name: Unit tests, screenshots + debug APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
+    # Read-only token, not kept in .git/config: the build and the tests run without write access (the
+    # publish-screenshots job pushes the screenshots).
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: android
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -33,12 +39,38 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           cache-provider: basic
+      # The Android SDK jars Robolectric downloads from Maven Central for the app's UI tests (~200 MB).
+      - uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ hashFiles('android/gradle/libs.versions.toml') }}
+          restore-keys: robolectric-
       - run: chmod +x ./gradlew
-      # The debug APK talks to the hosted project (same repository variables as the iOS job).
-      - run: ./gradlew --console=plain test :app:assembleDebug
+      # Unit tests of every module, including the app's Compose UI tests and Roborazzi screenshots on Robolectric
+      # (recorded at every run into app/build/outputs/roborazzi). The :supabase integration tests need SUPABASE_KEY and
+      # a local stack: they are skipped here. The debug APK talks to the hosted project (same repository variables as
+      # the iOS job).
+      - name: Unit tests, screenshots and debug APK
+        id: gradle
+        run: |
+          set -o pipefail
+          mkdir -p ../ci-logs
+          ./gradlew --console=plain test :app:assembleDebug 2>&1 | tee ../ci-logs/gradle.log
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_HOST && format('https://{0}', vars.SUPABASE_HOST) || '' }}
           SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+      # Job logs need a token to download; annotations are public, so failures are readable without one.
+      - name: Annotate failures
+        if: failure() && steps.gradle.outcome == 'failure'
+        working-directory: ${{ github.workspace }}
+        run: node scripts/ci/annotate-log.mjs ci-logs/gradle.log "Android (Gradle)"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: Equipe-android-screenshots
+          path: android/app/build/outputs/roborazzi/
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -52,3 +84,34 @@ jobs:
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
+
+  # Artifacts need a token to download; a branch is public, so the screenshots can be reviewed
+  # (raw.githubusercontent.com/<repo>/ci-screenshots-android/<name>.png) without logging in.
+  # A separate job, so that only this one gets a write token: it runs no code of the repository.
+  publish-screenshots:
+    name: Publish screenshots (ci-screenshots-android branch)
+    needs: build
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # force-pushes the ci-screenshots-android branch
+    steps:
+      - uses: actions/download-artifact@v7
+        continue-on-error: true # no artifact when the build job stopped before the tests
+        with:
+          name: Equipe-android-screenshots
+          path: build/screenshots
+      # One force-pushed commit, so the branch never accumulates history.
+      - name: Publish screenshots to the ci-screenshots-android branch
+        if: hashFiles('build/screenshots/**') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd build/screenshots
+          printf '# Captures CI (Android)\n\nCommit %s, run %s.\n' "${GITHUB_SHA::7}" "$GITHUB_RUN_ID" > README.md
+          git init -q -b ci-screenshots-android
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Android screenshots of ${GITHUB_SHA::7} (run $GITHUB_RUN_ID)"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots-android

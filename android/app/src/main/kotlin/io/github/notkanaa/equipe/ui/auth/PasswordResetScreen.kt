@@ -181,12 +181,12 @@ fun PasswordResetScreen(model: PasswordResetViewModel, actionScope: CoroutineSco
 private fun StepHeader(step: PasswordResetStep) {
     val (icon, text) = when (step) {
         PasswordResetStep.EMAIL -> Icons.Outlined.Key to
-            "Saisissez l’adresse e-mail de votre compte : nous vous enverrons un code à 6 chiffres pour choisir " +
+            "Saisissez l’adresse e-mail de votre compte : nous vous enverrons un code à 6 chiffres pour choisir " +
             "un nouveau mot de passe."
         PasswordResetStep.CODE -> Icons.Outlined.Drafts to
-            "Saisissez le code à 6 chiffres reçu par e-mail. Pensez à vérifier vos courriers indésirables."
+            "Saisissez le code à 6 chiffres reçu par e-mail. Pensez à vérifier vos courriers indésirables."
         PasswordResetStep.NEW_PASSWORD -> Icons.Outlined.LockReset to
-            "Choisissez un nouveau mot de passe (8 caractères minimum)."
+            "Choisissez un nouveau mot de passe (8 caractères minimum)."
         PasswordResetStep.DONE -> Icons.Filled.Verified to PasswordResetViewModel.DONE_MESSAGE
     }
     val tint = if (step == PasswordResetStep.DONE) {

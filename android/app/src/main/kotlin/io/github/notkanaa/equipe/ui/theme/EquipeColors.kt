@@ -24,9 +24,12 @@ import androidx.compose.ui.graphics.Color
 // surfaceContainerLowest / dark surfaceContainerHigh (what the task screens use; the shell's own screens use
 // [EquipeExtendedColors.card]).
 //
-// Text contrast (WCAG AA, 4.5:1): every text colour passes on the background and on the cards in both themes, except
-// the light brand primary #416CD9 on the grey background (4.3:1): accent-coloured text drawn directly on the
-// background uses [EquipeExtendedColors.accentText] (#2F59C4 in light mode, like the iOS PaletteAccentText).
+// Text contrast (WCAG AA, 4.5:1): every text colour passes on the background and on the cards in both themes. The
+// light primary is the brand blue a shade darker (#3A64D2 instead of #416CD9, same hue): Material draws primary text
+// on every light surface (text buttons of the dialogs on #ECECF1, of the sheets on #F7F7FA, on the #F2F2F7
+// background), where the brand blue reaches only 4.1 to 4.5:1; #3A64D2 gives 4.5:1 or more everywhere (white on it:
+// 5.3:1). The brand blue itself stays on the app icon, the brand mark and the selected filter chips. Accent-coloured
+// text of the shell's own screens uses [EquipeExtendedColors.accentText] (#2F59C4, like the iOS PaletteAccentText).
 
 /** Brand colours (app icon, splash screen, brand mark). */
 object EquipeBrand {
@@ -68,7 +71,7 @@ internal val DarkExtendedColors = EquipeExtendedColors(
 )
 
 internal val EquipeLightColors = lightColorScheme(
-    primary = Color(0xFF416CD9),
+    primary = Color(0xFF3A64D2),
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFDCE3FB),
     onPrimaryContainer = Color(0xFF10307A),
@@ -87,7 +90,7 @@ internal val EquipeLightColors = lightColorScheme(
     onSurface = Color(0xFF111114),
     surfaceVariant = Color(0xFFE5E5EA),
     onSurfaceVariant = Color(0xFF636368),
-    surfaceTint = Color(0xFF416CD9),
+    surfaceTint = Color(0xFF3A64D2),
     inverseSurface = Color(0xFF2C2C2E),
     inverseOnSurface = Color(0xFFF2F2F7),
     error = Color(0xFFC4221A),
