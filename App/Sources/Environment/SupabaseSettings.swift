@@ -116,21 +116,21 @@ struct ConfigurationIssue: Error, Sendable, Equatable {
         var message: String {
             switch self {
             case .missingHost:
-                "SUPABASE_HOST est vide\u{00A0}: indiquez l’hôte de votre projet, par exemple «\u{00A0}abcdefgh.supabase.co\u{00A0}»."
+                "SUPABASE_HOST est vide\u{00A0}: indique l’hôte de ton projet, par exemple «\u{00A0}abcdefgh.supabase.co\u{00A0}»."
             case .exampleHost:
                 "SUPABASE_HOST contient encore la valeur d’exemple «\u{00A0}your-project-ref.supabase.co\u{00A0}»."
             case let .hostWithScheme(host):
-                "SUPABASE_HOST vaut «\u{00A0}\(host)\u{00A0}»\u{00A0}: indiquez seulement l’hôte, sans «\u{00A0}https://\u{00A0}» (dans un fichier .xcconfig, «\u{00A0}//\u{00A0}» commence un commentaire)."
+                "SUPABASE_HOST vaut «\u{00A0}\(host)\u{00A0}»\u{00A0}: indique seulement l’hôte, sans «\u{00A0}https://\u{00A0}» (dans un fichier .xcconfig, «\u{00A0}//\u{00A0}» commence un commentaire)."
             case let .invalidHost(host):
                 "SUPABASE_HOST «\u{00A0}\(host)\u{00A0}» n’est pas un nom d’hôte valide."
             case let .invalidScheme(scheme):
-                "SUPABASE_SCHEME vaut «\u{00A0}\(scheme)\u{00A0}»\u{00A0}: utilisez «\u{00A0}https\u{00A0}» (ou «\u{00A0}http\u{00A0}» pour un Supabase local)."
+                "SUPABASE_SCHEME vaut «\u{00A0}\(scheme)\u{00A0}»\u{00A0}: utilise «\u{00A0}https\u{00A0}» (ou «\u{00A0}http\u{00A0}» pour un Supabase local)."
             case .missingKey:
-                "SUPABASE_PUBLISHABLE_KEY est vide\u{00A0}: copiez la clé publique «\u{00A0}sb_publishable_…\u{00A0}» de votre projet."
+                "SUPABASE_PUBLISHABLE_KEY est vide\u{00A0}: copie la clé publique «\u{00A0}sb_publishable_…\u{00A0}» de ton projet."
             case .exampleKey:
                 "SUPABASE_PUBLISHABLE_KEY contient encore la valeur d’exemple."
             case .secretKey:
-                "SUPABASE_PUBLISHABLE_KEY contient une clé secrète, qui donnerait accès à toutes les données à quiconque l’extrait de l’app\u{00A0}: utilisez la clé publique «\u{00A0}sb_publishable_…\u{00A0}» de votre projet, et régénérez la clé secrète si cette version a été partagée."
+                "SUPABASE_PUBLISHABLE_KEY contient une clé secrète, qui donnerait accès à toutes les données à quiconque l’extrait de l’app\u{00A0}: utilise la clé publique «\u{00A0}sb_publishable_…\u{00A0}» de ton projet, et régénère la clé secrète si cette version a été partagée."
             }
         }
     }

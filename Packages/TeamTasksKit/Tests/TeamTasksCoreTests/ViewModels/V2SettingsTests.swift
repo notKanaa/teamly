@@ -60,7 +60,7 @@ import TeamTasksMocks
         let settings = SettingsViewModel(session: session)
         let id = WeeklyRecapNotifier.identifier
         #expect(settings.isWeeklyRecapEnabled)
-        #expect(SettingsViewModel.weeklyRecapTitle == "Récap de la semaine")
+        #expect(SettingsViewModel.weeklyRecapTitle == "Récap du lundi")
         #expect(await settings.setWeeklyRecapEnabled(true))
         #expect(harness.scheduler.pending[id]?.repeatsWeekly == WeeklyRecapNotifier.schedule)
 

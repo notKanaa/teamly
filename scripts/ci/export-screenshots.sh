@@ -9,9 +9,9 @@ RESULT="${1:?xcresult path}"
 OUT="${2:?output dir}"
 OUT="${OUT%/}"
 RAW="$OUT-raw"
-# Attachment names of App/UITests/ScreenshotTests.swift.
+# Attachment names of App/UITests/ScreenshotTests.swift (the design checks' captures go to debug/).
 EXPECTED=(01-connexion 02-groupes 03-creer-groupe 04-code-invitation 05-nouvelle-tache 06-detail-groupe 07-mes-taches 08-membres 09-reglages
-  10-reglages-compte)
+  10-reglages-compte 11-onboarding-bienvenue 12-onboarding-avatar 13-onboarding-groupe 14-onboarding-notifications)
 
 if [ ! -d "$RESULT" ]; then
   echo "No result bundle at $RESULT — nothing to export."

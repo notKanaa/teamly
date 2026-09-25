@@ -1,9 +1,10 @@
 import XCTest
 
-/// The 10 screenshots of the CI artifact « screenshots »: scripts/ci/export-screenshots.sh names each file after its
-/// attachment (01-connexion.png … 10-reglages-compte.png). In-memory demo data, signed in as Camille (admin of
-/// « Coloc' rue des Lilas ») except for the login screen. Each capture waits for the screen's real content; one test
-/// per screen (or pair of screens) so that one failure does not lose the other captures.
+/// The 14 screenshots of the CI artifact « screenshots »: scripts/ci/export-screenshots.sh names each file after its
+/// attachment (01-connexion.png … 14-onboarding-notifications.png). In-memory demo data, signed in as Camille (admin of
+/// « Coloc' rue des Lilas ») except for the login screen and the onboarding (a new account). Each capture waits for the
+/// screen's real content; one test per screen (or sequence of screens) so that one failure does not lose the other
+/// captures.
 final class ScreenshotTests: XCTestCase {
     @MainActor
     func test01Login() {
@@ -120,5 +121,90 @@ final class ScreenshotTests: XCTestCase {
         // The « Compte » section is under the tab bar at the top of the form: scrolled into view for its own capture.
         ui.reveal(ui.buttons(AccessibilityID.Settings.deleteAccount), "« Supprimer mon compte »")
         ui.capture("10-reglages-compte")
+    }
+
+    /// The 4 steps of the onboarding of a new account, as on the mockups: the initials on indigo, then a « Coloc des
+    /// Lilas » group with 🏠 on coral.
+    @MainActor
+    func test11To14Onboarding() {
+        let ui = EquipeApp.launch(.signedOut, for: self)
+        ui.signUp(name: "Camille Martin", email: "camille.martin@example.com", password: UITestDemo.password)
+
+        ui.waitForContent(ui.onboardingStep("welcome"), "the welcome step")
+        ui.waitForContent(ui.onboardingPrimaryButton, "« C’est parti »")
+        ui.capture("11-onboarding-bienvenue")
+
+        ui.advanceOnboarding("« C’est parti »", to: "avatar")
+        ui.select(ui.buttons(AccessibilityID.Picker.color("indigo")), "the indigo swatch")
+        ui.waitForContent(ui.elements(AccessibilityID.Picker.avatarPreview), "the avatar preview")
+        ui.capture("12-onboarding-avatar")
+
+        ui.advanceOnboarding("« Continuer »", to: "firstGroup")
+        let nameField = ui.textFields(AccessibilityID.Onboarding.groupNameField)
+        ui.typeText("Coloc des Lilas", into: nameField, "the group name field")
+        ui.dismissKeyboard()
+        ui.select(ui.buttons(AccessibilityID.Picker.emoji(UITestDemo.houseEmoji)), "the house emoji")
+        ui.select(ui.buttons(AccessibilityID.Picker.color("coral")), "the coral swatch")
+        ui.scrollToTop(until: nameField)
+        ui.waitForContent(ui.elements(AccessibilityID.Onboarding.mode("create")), "« Créer »")
+        ui.capture("13-onboarding-groupe")
+
+        ui.advanceOnboarding("« Créer le groupe »", to: "notifications")
+        ui.waitForContent(ui.buttons(AccessibilityID.Onboarding.laterButton), "« Plus tard »")
+        ui.capture("14-onboarding-notifications")
+    }
+}
+
+/// Design checks of the v2 screens (docs/DESIGN-V2.md §1): the same screens in dark mode and at the largest
+/// accessibility text size. Their captures are not part of the 14: the CI exports them under `debug/`, to be looked at.
+final class DesignCheckTests: XCTestCase {
+    @MainActor
+    func testDarkMode() {
+        let ui = EquipeApp.launch(.signedOut, appearance: .dark, for: self)
+        ui.waitForContent(ui.buttons(AccessibilityID.Auth.signInButton), "« Se connecter »")
+        ui.capture("dark-connexion")
+
+        ui.signUp(name: "Camille Martin", email: "camille.sombre@example.com", password: UITestDemo.password)
+        ui.waitForContent(ui.onboardingPrimaryButton, "« C’est parti »")
+        ui.capture("dark-onboarding-bienvenue")
+        ui.advanceOnboarding("« C’est parti »", to: "avatar")
+        ui.select(ui.buttons(AccessibilityID.Picker.emoji(UITestDemo.foxEmoji)), "the fox emoji")
+        ui.capture("dark-onboarding-avatar")
+        ui.advanceOnboarding("« Continuer »", to: "firstGroup")
+        ui.capture("dark-onboarding-groupe")
+        ui.tap(
+            ui.buttons(AccessibilityID.Onboarding.laterButton), "« Plus tard »",
+            until: .shows(ui.onboardingStep("notifications"))
+        )
+        ui.waitForContent(ui.buttons(AccessibilityID.Onboarding.laterButton), "« Plus tard »")
+        ui.capture("dark-onboarding-notifications")
+        ui.tap(ui.buttons(AccessibilityID.Onboarding.laterButton), "« Plus tard »", until: .shows(ui.app.tabBars))
+
+        ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
+        ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the display name field")
+        ui.capture("dark-reglages")
+    }
+
+    @MainActor
+    func testLargestText() {
+        let ui = EquipeApp.launch(.signedOut, appearance: .largestText, for: self)
+        ui.waitFor(ui.elements(AccessibilityID.Auth.loginScreen), "the login screen")
+        ui.capture("ax-connexion")
+
+        ui.signUp(name: "Camille Martin", email: "camille.grande@example.com", password: UITestDemo.password)
+        ui.waitForContent(ui.onboardingStep("welcome"), "the welcome step")
+        ui.capture("ax-onboarding-bienvenue")
+        ui.advanceOnboarding("« C’est parti »", to: "avatar")
+        ui.capture("ax-onboarding-avatar")
+        ui.advanceOnboarding("« Continuer »", to: "firstGroup")
+        ui.capture("ax-onboarding-groupe")
+        ui.tap(
+            ui.buttons(AccessibilityID.Onboarding.skipButton), "« Passer »",
+            until: .shows(ui.app.tabBars)
+        )
+
+        ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
+        ui.waitForContent(ui.elements(AccessibilityID.Settings.avatarButton), "the avatar row")
+        ui.capture("ax-reglages")
     }
 }

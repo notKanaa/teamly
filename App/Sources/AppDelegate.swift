@@ -3,7 +3,8 @@ import UIKit
 import UserNotifications
 
 /// UIKit entry points SwiftUI has no modifier for: the local notification delegate (banner while the app is in
-/// the foreground, tap → deep link through the `Router`, docs/CONTRACTS.md §7).
+/// the foreground, tap → deep link through the `Router`, docs/CONTRACTS.md §7) and the navigation bar appearance of
+/// the v2 design (docs/DESIGN-V2.md §2).
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
@@ -12,6 +13,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         // Must be set before launch finishes to receive the tap that launched the app.
         UNUserNotificationCenter.current().delegate = self
+        // Before the first navigation bar exists.
+        NavigationBarAppearance.apply()
         return true
     }
 
@@ -25,14 +28,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         [.banner, .list, .sound]
     }
 
-    /// A tap opens the task (or the group, or « Mes tâches » for a summary). While no session is active (launch,
-    /// signed out) the `Router` keeps the link until one starts.
+    /// A tap opens the task (or the group, or « Mes tâches » for a summary; « Groupes » for the weekly recap). While
+    /// no session is active (launch, signed out) the `Router` keeps the link until one starts.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
         guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
-        let link = DeepLink(notificationUserInfo: response.notification.request.content.userInfo)
+        let request = response.notification.request
+        let link = DeepLink(notificationIdentifier: request.identifier, userInfo: request.content.userInfo)
         await MainActor.run {
             AppContainer.shared.appModel?.router.open(link)
         }

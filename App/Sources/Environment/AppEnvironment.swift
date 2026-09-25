@@ -6,7 +6,9 @@ import TeamTasksSupabase
 /// The backend and platform services chosen once at launch.
 ///
 /// - `-uiTestMockBackend` (UI tests, demos): in-memory backend of TeamTasksMocks with the French demo data,
-///   in the state given by `-mockScenario <signedOut|populated|emptyGroups>` (default `signedOut`). Optional:
+///   in the state given by `-mockScenario <signedOut|populated|emptyGroups|showcase>` (default `signedOut`;
+///   `showcase` is `populated` plus the v2 content of `DemoData.Showcase`: a rotation, a checklist, an activity feed
+///   and a podium, for the v2 screenshots). Optional:
 ///   `-mockLatencyMs <n>` (artificial latency of every call) and
 ///   `-mockNotifications <notDetermined|denied|authorized>` (initial permission of the in-app notification fake).
 ///   Nothing is persisted and no system prompt is ever shown.

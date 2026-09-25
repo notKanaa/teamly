@@ -6,5 +6,8 @@ extension AccessibilityID {
         static let splash = "shell.splash"
         /// « Configuration manquante » screen (no Supabase settings in Info.plist).
         static let configurationMissing = "shell.configurationMissing"
+        /// Buttons pinned at the bottom of a screen, over its scrolling content (the onboarding's): the UI tests treat
+        /// them like the tab bar (what lies under them cannot be tapped).
+        static let pinnedBottomBar = "shell.pinnedBottomBar"
     }
 }

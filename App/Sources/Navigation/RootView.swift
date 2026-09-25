@@ -4,8 +4,8 @@ import TeamTasksCore
 import UIKit
 
 /// Follows `AppModel.phase`: splash while the stored session is restored, authentication screens, the
-/// « Nouveau mot de passe » screen of a password recovery, or the signed-in tabs (one `MainTabView` identity per
-/// session, so nothing survives a change of account).
+/// « Nouveau mot de passe » screen of a password recovery, the onboarding of a new account, or the signed-in tabs (one
+/// `MainTabView` identity per session, so nothing survives a change of account).
 ///
 /// Also forwards the app events to the model: `equipe://` links, return to foreground, significant time change,
 /// and requests the next background refresh when the app leaves the screen.
@@ -34,10 +34,10 @@ struct RootView: View {
                     .id(session.id)
                     .transition(.opacity)
             case let .onboarding(model):
-                // v2 onboarding (docs/CONTRACTS-V2.md §9): its screens draw `model`; until they exist, the tabs of
-                // the same session.
-                MainTabView(session: model.session)
-                    .id(model.session.id)
+                // v2 onboarding of a new account (docs/CONTRACTS-V2.md §9), full screen; when it ends, `AppModel`
+                // switches to `.signedIn` with the same session.
+                OnboardingView(model: model)
+                    .id(model.id)
                     .transition(.opacity)
             }
         }

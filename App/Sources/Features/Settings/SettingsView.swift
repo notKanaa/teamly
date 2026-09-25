@@ -3,11 +3,13 @@ import TeamTasksCore
 import UIKit
 import UniformTypeIdentifiers
 
-/// « Réglages »: profile (display name), reminder lead time, notification permission, optional ntfy push,
-/// sign-out and account deletion. Sign-out and deletion end the session: `AppModel` shows the login screen.
+/// « Réglages » (docs/DESIGN-V2.md §7.8): the avatar row (it opens the « Ton avatar » sheet) and the display name, the
+/// notifications (permission, « Récap du lundi »), the reminder lead time, the optional ntfy push, sign-out and account
+/// deletion. Sign-out and deletion end the session: `AppModel` shows the login screen.
 ///
-/// Sections that do not need the profile (reminders, notifications, account) stay usable when it cannot be
-/// loaded, so that signing out always works.
+/// Native form controls on cards over the grouped background, each row led by an icon tile. Sections that do not need
+/// the profile (reminders, notifications, account) stay usable when it cannot be loaded, so that signing out always
+/// works.
 struct SettingsView: View {
     @State private var model: SettingsViewModel
 
@@ -16,6 +18,7 @@ struct SettingsView: View {
     @State private var isConfirmingSignOut = false
     @State private var isConfirmingPushDisable = false
     @State private var isShowingDeleteAccount = false
+    @State private var avatarEditor: AvatarEditorViewModel?
     @State private var didCopyTopic = false
     @FocusState private var isNameFocused: Bool
 
@@ -31,13 +34,15 @@ struct SettingsView: View {
             if let message = model.loadState.failureMessage {
                 loadFailedSection(message)
             }
+            avatarSection
             profileSection
-            remindersSection
             notificationsSection
+            remindersSection
             pushSection
             accountSection
             aboutSection
         }
+        .screenBackground()
         .navigationTitle("Réglages")
         .task(id: model.refreshKey) {
             await model.load()
@@ -53,7 +58,7 @@ struct SettingsView: View {
                 }
             }
         }
-        // The deletion sheet shows the errors of the same model itself.
+        // The deletion and avatar sheets show the errors of their own model.
         .shellErrorAlert(model, isEnabled: !isShowingDeleteAccount)
         .confirmationDialog("Se déconnecter\u{00A0}?", isPresented: $isConfirmingSignOut, titleVisibility: .visible) {
             Button("Se déconnecter", role: .destructive) {
@@ -64,7 +69,7 @@ struct SettingsView: View {
             .accessibilityIdentifier(AccessibilityID.Settings.confirmSignOut)
             Button("Annuler", role: .cancel) {}
         } message: {
-            Text("Les rappels programmés sur cet iPhone seront supprimés. Vous pourrez vous reconnecter à tout moment.")
+            Text("Les rappels programmés sur cet iPhone seront supprimés. Tu pourras te reconnecter à tout moment.")
         }
         .confirmationDialog(
             "Désactiver les notifications push\u{00A0}?",
@@ -78,10 +83,17 @@ struct SettingsView: View {
             }
             Button("Annuler", role: .cancel) {}
         } message: {
-            Text("Votre sujet ntfy sera supprimé. Si vous les réactivez, il faudra vous abonner au nouveau sujet dans ntfy.")
+            Text("Ton sujet ntfy sera supprimé. Si tu les réactives, il faudra t’abonner au nouveau sujet dans ntfy.")
         }
         .sheet(isPresented: $isShowingDeleteAccount) {
             SettingsDeleteAccountView(model: model)
+        }
+        .sheet(isPresented: isShowingAvatarEditor) {
+            if let avatarEditor {
+                AvatarEditorSheet(model: avatarEditor) { profile in
+                    model.apply(profile)
+                }
+            }
         }
     }
 
@@ -92,9 +104,10 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Label("Profil indisponible", systemImage: "wifi.exclamationmark")
                     .font(.headline)
+                    .foregroundStyle(Theme.textPrimary)
                 Text(message)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
             }
             .padding(.vertical, 4)
             Button {
@@ -106,33 +119,98 @@ struct SettingsView: View {
             }
             .accessibilityIdentifier(AccessibilityID.Settings.retry)
         }
+        .listRowBackground(Theme.card)
+    }
+
+    // MARK: - Avatar (v2)
+
+    private var avatarSection: some View {
+        Section {
+            Button(action: openAvatarEditor) {
+                HStack(spacing: 14) {
+                    if let appearance = model.avatarAppearance {
+                        AvatarView(appearance, size: 56)
+                    } else {
+                        Circle()
+                            .fill(Theme.track)
+                            .frame(width: 56, height: 56)
+                            .overlay {
+                                if model.loadState.isLoading || model.loadState == .idle {
+                                    ProgressView()
+                                }
+                            }
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.profile?.displayName ?? "Ton profil")
+                            .font(.rounded(.title3, weight: .heavy))
+                            .foregroundStyle(Theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("Modifier l’avatar")
+                            .font(Font.subheadline.weight(.semibold))
+                            .foregroundStyle(model.profile == nil ? Theme.textSecondary : Theme.accent)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(Font.footnote.weight(.bold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .accessibilityHidden(true)
+                }
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.profile == nil)
+            .accessibilityLabel("Avatar de \(model.profile?.displayName ?? "ton profil")")
+            .accessibilityHint("Modifier ta couleur et ton symbole")
+            .accessibilityIdentifier(AccessibilityID.Settings.avatarButton)
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    private var isShowingAvatarEditor: Binding<Bool> {
+        Binding(
+            get: { avatarEditor != nil },
+            set: { isShown in
+                if !isShown {
+                    avatarEditor = nil
+                }
+            }
+        )
+    }
+
+    private func openAvatarEditor() {
+        avatarEditor = model.makeAvatarEditor()
     }
 
     // MARK: - Profile
 
     private var profileSection: some View {
         Section {
-            LabeledContent("E-mail") {
+            LabeledContent {
                 Text(model.email ?? "—")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
+            } label: {
+                rowLabel("E-mail", systemImage: "envelope.fill", tone: ColorKey.blue.tone)
             }
             .accessibilityIdentifier(AccessibilityID.Settings.email)
 
             if model.profile == nil {
-                LabeledContent("Nom affiché") {
+                LabeledContent {
                     if model.loadState.isLoading || model.loadState == .idle {
                         ProgressView()
                     } else {
                         Text("—")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                     }
+                } label: {
+                    rowLabel("Nom affiché", systemImage: "person.fill", tone: SoftTone.accent)
                 }
             } else {
-                LabeledContent("Nom affiché") {
-                    TextField("Votre nom", text: $model.displayName)
+                LabeledContent {
+                    TextField("Ton nom", text: $model.displayName)
                         .multilineTextAlignment(.trailing)
                         .textContentType(.name)
                         .textInputAutocapitalization(.words)
@@ -140,12 +218,15 @@ struct SettingsView: View {
                         .focused($isNameFocused)
                         .onSubmit(saveDisplayName)
                         .accessibilityIdentifier(AccessibilityID.Settings.displayNameField)
+                } label: {
+                    rowLabel("Nom affiché", systemImage: "person.fill", tone: SoftTone.accent)
                 }
 
                 if model.canSaveDisplayName || model.isSavingName {
                     Button(action: saveDisplayName) {
                         HStack {
                             Text("Enregistrer le nom")
+                                .fontWeight(.semibold)
                             Spacer()
                             if model.isSavingName {
                                 ProgressView()
@@ -161,11 +242,59 @@ struct SettingsView: View {
         } footer: {
             if let error = model.displayNameError {
                 Text(error)
-                    .foregroundStyle(ShellPalette.red)
+                    .foregroundStyle(Theme.danger)
             } else {
-                Text("Votre nom est visible par les membres de vos groupes.")
+                Text("Ton nom est visible par les membres de tes groupes.")
             }
         }
+        .listRowBackground(Theme.card)
+    }
+
+    // MARK: - Notifications
+
+    private var notificationsSection: some View {
+        Section {
+            LabeledContent {
+                Text(model.notificationStatusText)
+                    .foregroundStyle(Theme.textSecondary)
+            } label: {
+                rowLabel("Autorisation", systemImage: "bell.badge.fill", tone: ColorKey.coral.tone)
+            }
+            .accessibilityIdentifier(AccessibilityID.Settings.notificationStatus)
+
+            if model.canRequestNotifications {
+                Button {
+                    Task {
+                        await model.requestNotifications()
+                    }
+                } label: {
+                    Text("Autoriser les notifications")
+                        .fontWeight(.semibold)
+                }
+                .accessibilityIdentifier(AccessibilityID.Settings.requestNotifications)
+            } else if model.notificationStatus == .denied {
+                Button(action: openSystemNotificationSettings) {
+                    Text("Ouvrir les Réglages de l’iPhone")
+                        .fontWeight(.semibold)
+                }
+                .accessibilityIdentifier(AccessibilityID.Settings.openSystemSettings)
+            }
+
+            Toggle(isOn: $model.isWeeklyRecapEnabled) {
+                rowLabel(SettingsViewModel.weeklyRecapTitle, systemImage: "trophy.fill", tone: ColorKey.amber.tone)
+            }
+            .accessibilityIdentifier(AccessibilityID.Settings.weeklyRecapToggle)
+        } header: {
+            Text("Notifications")
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if let hint = model.notificationHint {
+                    Text(hint)
+                }
+                Text(SettingsViewModel.weeklyRecapFooter)
+            }
+        }
+        .listRowBackground(Theme.card)
     }
 
     // MARK: - Reminders
@@ -178,7 +307,7 @@ struct SettingsView: View {
                         .tag(option)
                 }
             } label: {
-                Label("Rappel", systemImage: "alarm")
+                rowLabel("Rappel", systemImage: "alarm.fill", tone: ColorKey.orange.tone)
             }
             .accessibilityIdentifier(AccessibilityID.Settings.leadTimePicker)
         } header: {
@@ -186,52 +315,18 @@ struct SettingsView: View {
         } footer: {
             Text(remindersFooter)
         }
+        .listRowBackground(Theme.card)
     }
 
     private var remindersFooter: String {
         guard model.leadTime.isEnabled else {
             return "Aucun rappel d’échéance ne sera programmé sur cet iPhone."
         }
-        var text = "Pour chaque tâche qui vous est assignée et qui a une échéance, un rappel est programmé sur cet iPhone."
+        var text = "Pour chaque tâche qui t’est assignée et qui a une échéance, un rappel est programmé sur cet iPhone."
         if model.notificationStatus == .denied {
             text += " Les notifications étant refusées, les rappels ne s’afficheront pas."
         }
         return text
-    }
-
-    // MARK: - Notifications
-
-    private var notificationsSection: some View {
-        Section {
-            LabeledContent {
-                Text(model.notificationStatusText)
-            } label: {
-                Label("Autorisation", systemImage: "bell")
-            }
-            .accessibilityIdentifier(AccessibilityID.Settings.notificationStatus)
-
-            if model.canRequestNotifications {
-                Button {
-                    Task {
-                        await model.requestNotifications()
-                    }
-                } label: {
-                    Label("Autoriser les notifications", systemImage: "bell.badge")
-                }
-                .accessibilityIdentifier(AccessibilityID.Settings.requestNotifications)
-            } else if model.notificationStatus == .denied {
-                Button(action: openSystemNotificationSettings) {
-                    Label("Ouvrir les Réglages de l’iPhone", systemImage: "gear")
-                }
-                .accessibilityIdentifier(AccessibilityID.Settings.openSystemSettings)
-            }
-        } header: {
-            Text("Notifications")
-        } footer: {
-            if let hint = model.notificationHint {
-                Text(hint)
-            }
-        }
     }
 
     // MARK: - Push (ntfy)
@@ -242,23 +337,25 @@ struct SettingsView: View {
                 ForEach(Array(SettingsViewModel.pushInstructionSteps.enumerated()), id: \.offset) { index, step in
                     Label {
                         Text(step)
+                            .foregroundStyle(Theme.textPrimary)
                     } icon: {
                         Image(systemName: "\(index + 1).circle.fill")
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Theme.accent)
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Votre sujet ntfy")
+                    Text("Ton sujet ntfy")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                     Text(topic)
                         .font(.callout.monospaced())
+                        .foregroundStyle(Theme.textPrimary)
                         .textSelection(.enabled)
                 }
                 .padding(.vertical, 2)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Votre sujet ntfy")
+                .accessibilityLabel("Ton sujet ntfy")
                 // Spelled out character by character by VoiceOver, to be typed elsewhere.
                 .accessibilityValue(Text(topic).speechSpellsOutCharacters())
                 .accessibilityIdentifier(AccessibilityID.Settings.pushTopic)
@@ -307,7 +404,12 @@ struct SettingsView: View {
                     }
                 } label: {
                     HStack {
-                        Label("Activer les notifications push", systemImage: "bell.badge")
+                        rowLabel(
+                            "Activer les notifications push",
+                            systemImage: "antenna.radiowaves.left.and.right",
+                            tone: ColorKey.teal.tone,
+                            textColor: model.loadState.isLoaded ? Theme.accent : Theme.textSecondary
+                        )
                         Spacer()
                         if model.isUpdatingPush {
                             ProgressView()
@@ -322,6 +424,7 @@ struct SettingsView: View {
         } footer: {
             Text(model.isPushEnabled ? SettingsViewModel.pushPrivacyNote : SettingsViewModel.pushDisabledExplanation)
         }
+        .listRowBackground(Theme.card)
     }
 
     // MARK: - Account
@@ -332,7 +435,12 @@ struct SettingsView: View {
                 isConfirmingSignOut = true
             } label: {
                 HStack {
-                    Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
+                    rowLabel(
+                        "Se déconnecter",
+                        systemImage: "rectangle.portrait.and.arrow.right",
+                        tone: SoftTone.neutral,
+                        textColor: Theme.textPrimary
+                    )
                     Spacer()
                     if model.isSigningOut {
                         ProgressView()
@@ -346,26 +454,33 @@ struct SettingsView: View {
                 model.deleteConfirmation = ""
                 isShowingDeleteAccount = true
             } label: {
-                Label("Supprimer mon compte", systemImage: "trash")
+                rowLabel("Supprimer mon compte", systemImage: "trash.fill", tone: SoftTone.danger, textColor: Theme.danger)
             }
             .disabled(model.isSigningOut || model.isDeletingAccount)
             .accessibilityIdentifier(AccessibilityID.Settings.deleteAccount)
         } header: {
             Text("Compte")
         } footer: {
-            Text("La suppression du compte efface définitivement votre profil et vos assignations.")
+            Text("La suppression du compte efface définitivement ton profil et tes assignations.")
         }
+        .listRowBackground(Theme.card)
     }
 
     // MARK: - About
 
     private var aboutSection: some View {
         Section {
-            LabeledContent("Version", value: Self.appVersion)
-                .accessibilityIdentifier(AccessibilityID.Settings.version)
+            LabeledContent {
+                Text(Self.appVersion)
+                    .foregroundStyle(Theme.textSecondary)
+            } label: {
+                rowLabel("Version", systemImage: "info.circle.fill", tone: SoftTone.neutral)
+            }
+            .accessibilityIdentifier(AccessibilityID.Settings.version)
         } footer: {
-            Text("Équipe — les tâches de votre groupe.")
+            Text("Équipe — les tâches de ton groupe.")
         }
+        .listRowBackground(Theme.card)
     }
 
     private static var appVersion: String {
@@ -373,6 +488,23 @@ struct SettingsView: View {
         let version = info?["CFBundleShortVersionString"] as? String ?? "—"
         let build = info?["CFBundleVersion"] as? String ?? "—"
         return "\(version) (\(build))"
+    }
+
+    // MARK: - Rows
+
+    /// A row's title led by its icon tile (docs/DESIGN-V2.md §7.8).
+    private func rowLabel(
+        _ title: String,
+        systemImage: String,
+        tone: SoftTone,
+        textColor: Color = Theme.textPrimary
+    ) -> some View {
+        Label {
+            Text(title)
+                .foregroundStyle(textColor)
+        } icon: {
+            IconTile(systemImage: systemImage, tone: tone, size: 30)
+        }
     }
 
     // MARK: - Actions

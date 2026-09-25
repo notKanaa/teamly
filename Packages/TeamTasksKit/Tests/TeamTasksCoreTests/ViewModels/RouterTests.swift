@@ -19,6 +19,8 @@ import Testing
     @Test func parsesGroupAndMyTasksLinks() throws {
         #expect(DeepLink(url: try #require(URL(string: "equipe://group/\(groupId.uuidString)"))) == .group(groupId))
         #expect(DeepLink(url: try #require(URL(string: "equipe://mytasks"))) == .myTasks)
+        #expect(DeepLink(url: try #require(URL(string: "equipe://groups"))) == .groups)
+        #expect(DeepLink(url: try #require(URL(string: "EQUIPE://Groups/"))) == .groups)
     }
 
     @Test func rejectsForeignOrMalformedLinks() throws {
@@ -32,6 +34,7 @@ import Testing
             "equipe://other/\(g)/\(t)",
             "equipe://group/\(g)/\(t)",
             "equipe://mytasks/\(g)",
+            "equipe://groups/\(g)",
         ]
         for string in rejected {
             let url = try #require(URL(string: string))
@@ -40,9 +43,10 @@ import Testing
     }
 
     @Test func urlRoundTrips() {
-        for link in [DeepLink.task(groupId: groupId, taskId: taskId), .group(groupId), .myTasks] {
+        for link in [DeepLink.task(groupId: groupId, taskId: taskId), .group(groupId), .myTasks, .groups] {
             #expect(DeepLink(url: link.url) == link)
         }
+        #expect(DeepLink.groups.url.absoluteString == "equipe://groups")
         #expect(DeepLink.task(groupId: groupId, taskId: taskId).url.absoluteString
             == "equipe://task/\(groupId.uuidString)/\(taskId.uuidString)")
     }
@@ -55,6 +59,17 @@ import Testing
         #expect(DeepLink(notificationUserInfo: ["taskId": taskId.uuidString]) == .myTasks)
         #expect(DeepLink(notificationUserInfo: ["taskId": "x", "groupId": "y"]) == .myTasks)
         #expect(DeepLink(notificationUserInfo: ["taskId": 12, "groupId": groupId.uuidString]) == .group(groupId))
+    }
+
+    /// v2: the weekly recap notification (no `userInfo`) opens « Groupes »; the others route by their `userInfo`.
+    @Test func notificationIdentifier() {
+        #expect(DeepLink(notificationIdentifier: WeeklyRecapNotifier.identifier, userInfo: [:]) == .groups)
+        #expect(DeepLink(notificationIdentifier: "recap-weekly", userInfo: ["groupId": groupId.uuidString]) == .groups)
+        let both: [AnyHashable: Any] = ["taskId": taskId.uuidString, "groupId": groupId.uuidString]
+        #expect(DeepLink(notificationIdentifier: "assigned-\(taskId.uuidString)", userInfo: both)
+            == .task(groupId: groupId, taskId: taskId))
+        #expect(DeepLink(notificationIdentifier: "summary-1", userInfo: ["groupId": groupId.uuidString]) == .group(groupId))
+        #expect(DeepLink(notificationIdentifier: "due-1", userInfo: [:]) == .myTasks)
     }
 }
 
@@ -107,6 +122,24 @@ import Testing
         router.openNotification(userInfo: [:])
         #expect(router.selectedTab == .myTasks)
         #expect(router.myTasksPath.isEmpty)
+
+        // v2: the weekly recap notification.
+        router.groupsPath = [.group(groupId), .members(groupId: groupId)]
+        router.open(DeepLink(notificationIdentifier: WeeklyRecapNotifier.identifier, userInfo: [:]))
+        #expect(router.selectedTab == .groups)
+        #expect(router.groupsPath.isEmpty)
+    }
+
+    @Test func recapLinkWaitsForASession() {
+        let router = Router()
+        router.selectedTab = .settings
+        router.open(.groups)
+        #expect(router.pendingDeepLink == .groups)
+        #expect(router.selectedTab == .settings)
+        router.activate()
+        #expect(router.pendingDeepLink == nil)
+        #expect(router.selectedTab == .groups)
+        #expect(router.groupsPath.isEmpty)
     }
 
     @Test func navigationHelpers() {

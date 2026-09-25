@@ -2,8 +2,9 @@ import SwiftUI
 import TeamTasksCore
 import UIKit
 
-/// « Créer un compte ». Each field shows its own message; on success the session opens (`AppModel` switches to
-/// the app), or — when the project requires e-mail confirmation — a message invites to confirm, then sign in.
+/// « Créer un compte ». Each field shows its own message; on success the session opens (`AppModel` switches to the
+/// onboarding, then the app), or — when the project requires e-mail confirmation — a message invites to confirm, then
+/// sign in.
 struct SignUpView: View {
     @Bindable var model: SignUpViewModel
     /// Back to the login screen with this e-mail pre-filled.
@@ -29,7 +30,7 @@ struct SignUpView: View {
             .accessibilityIdentifier(AccessibilityID.Auth.signUpScreen)
         }
         .scrollDismissesKeyboard(.interactively)
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .screenBackground()
         .navigationTitle("Créer un compte")
         .navigationBarTitleDisplayMode(.inline)
         .shellErrorAlert(model)
@@ -45,21 +46,25 @@ struct SignUpView: View {
 
     private var form: some View {
         VStack(spacing: 24) {
-            Text("Rejoignez vos groupes et suivez les tâches qui vous sont confiées.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-
             VStack(spacing: 14) {
-                TextField("Votre nom", text: $model.displayName)
+                ShellBrandMark(size: 64)
+                Text("Rejoins tes groupes et suis les tâches qui te sont confiées.")
+                    .font(.callout)
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+
+            VStack(spacing: 12) {
+                TextField("Ton nom", text: $model.displayName)
                     .textContentType(.name)
                     .textInputAutocapitalization(.words)
                     .submitLabel(.next)
                     .focused($focus, equals: .displayName)
                     .onSubmit { focus = .email }
                     .accessibilityIdentifier(AccessibilityID.Auth.displayName)
-                    .authFieldStyle(systemImage: "person", error: model.displayNameError)
+                    .authFieldStyle(systemImage: "person.fill", error: model.displayNameError)
 
                 TextField("Adresse e-mail", text: $model.email)
                     .keyboardType(.emailAddress)
@@ -70,7 +75,7 @@ struct SignUpView: View {
                     .focused($focus, equals: .email)
                     .onSubmit { focus = .password }
                     .accessibilityIdentifier(AccessibilityID.Auth.email)
-                    .authFieldStyle(systemImage: "envelope", error: model.emailError)
+                    .authFieldStyle(systemImage: "envelope.fill", error: model.emailError)
 
                 VStack(alignment: .leading, spacing: 6) {
                     AuthPasswordField(
@@ -88,31 +93,27 @@ struct SignUpView: View {
                     if model.passwordError == nil {
                         Text("8 caractères minimum.")
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                             .padding(.leading, 4)
                     }
                 }
             }
 
-            Button(action: signUp) {
-                ShellPrimaryButtonLabel(title: "Créer mon compte", isLoading: model.isSubmitting)
-            }
-            .shellProminentButtonStyle()
-            .controlSize(.large)
-            .disabled(!model.canSubmit)
-            .accessibilityIdentifier(AccessibilityID.Auth.signUpButton)
+            PrimaryButton("Créer mon compte", isLoading: model.isSubmitting, action: signUp)
+                .disabled(!model.canSubmit)
+                .accessibilityIdentifier(AccessibilityID.Auth.signUpButton)
 
-            VStack(spacing: 6) {
+            VStack(spacing: 2) {
                 Text("Déjà un compte\u{00A0}?")
-                    .foregroundStyle(.secondary)
+                    .font(.callout)
+                    .foregroundStyle(Theme.textSecondary)
                 Button("Se connecter") {
                     onBackToLogin(model.email)
                 }
-                .fontWeight(.semibold)
+                .buttonStyle(.secondary)
                 .disabled(model.isSubmitting)
                 .accessibilityIdentifier(AccessibilityID.Auth.goToSignIn)
             }
-            .font(.callout)
         }
     }
 
@@ -120,26 +121,22 @@ struct SignUpView: View {
 
     private var confirmation: some View {
         VStack(spacing: 20) {
-            Image(systemName: "envelope.badge.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(Color.accentColor)
+            IconTile(systemImage: "envelope.badge.fill", tone: SoftTone.accent, size: 72)
                 .padding(.top, 32)
-                .accessibilityHidden(true)
-            Text("Vérifiez vos e-mails")
-                .font(.title2.bold())
+            Text("Vérifie tes e-mails")
+                .font(.rounded(.title))
+                .foregroundStyle(Theme.textPrimary)
+                .multilineTextAlignment(.center)
                 .accessibilityAddTraits(.isHeader)
             Text(SignUpViewModel.confirmationRequiredMessage)
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier(AccessibilityID.Auth.signUpConfirmation)
-            Button {
+            PrimaryButton("Retour à la connexion") {
                 onBackToLogin(model.email)
-            } label: {
-                ShellPrimaryButtonLabel(title: "Retour à la connexion")
             }
-            .shellProminentButtonStyle()
-            .controlSize(.large)
             .accessibilityIdentifier(AccessibilityID.Auth.backToSignIn)
         }
         .frame(maxWidth: .infinity)

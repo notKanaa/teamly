@@ -12,8 +12,8 @@ import Observation
 @MainActor
 @Observable
 public final class SettingsViewModel: ErrorPresenting {
-    /// v2: the weekly recap switch.
-    public static let weeklyRecapTitle = "Récap de la semaine"
+    /// v2: the weekly recap switch (docs/DESIGN-V2.md §7.8).
+    public static let weeklyRecapTitle = "Récap du lundi"
     public static let weeklyRecapFooter =
         "Une notification chaque lundi à 09:00 pour découvrir le podium de la semaine de chaque groupe."
     public static let deleteConfirmationWord = "SUPPRIMER"

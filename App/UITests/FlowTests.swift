@@ -142,4 +142,46 @@ final class FlowTests: XCTestCase {
         ui.waitForContent(ui.elements(AccessibilityID.Groups.emptyCreateButton), "« Créer un groupe »")
         ui.waitForContent(ui.elements(AccessibilityID.Groups.emptyJoinButton), "« Rejoindre avec un code »")
     }
+
+    /// A new account goes through the 4 steps of the onboarding: « Bienvenue », an emoji avatar (and back to that step
+    /// once), a first group created on the spot, « Plus tard » for the notifications; then the tabs show that group.
+    @MainActor
+    func testOnboardingOfANewAccount() {
+        let ui = EquipeApp.launch(.signedOut, for: self)
+        ui.signUp(name: "Hugo Petit", email: "hugo.petit@example.com", password: UITestDemo.password)
+
+        // 1. Bienvenue.
+        ui.waitForContent(ui.onboardingStep("welcome"), "the welcome step")
+        ui.waitForText("Étape 1 sur 4", of: ui.elements(AccessibilityID.Onboarding.progress))
+        ui.assertNotShown(ui.buttons(AccessibilityID.Onboarding.backButton), within: 1, "No « Retour » on the first step")
+        ui.advanceOnboarding("« C’est parti »", to: "avatar")
+
+        // 2. Avatar: an emoji instead of the initials.
+        let fox = ui.buttons(AccessibilityID.Picker.emoji(UITestDemo.foxEmoji))
+        ui.select(fox, "the fox emoji")
+        ui.advanceOnboarding("« Continuer »", to: "firstGroup")
+
+        // Back to the avatar, which kept its emoji, then forward again.
+        ui.tap(
+            ui.buttons(AccessibilityID.Onboarding.backButton), "« Retour »",
+            until: .shows(ui.onboardingStep("avatar"))
+        )
+        XCTAssertTrue(ui.waitUntilSelected(fox), "The saved emoji is not selected any more")
+        ui.advanceOnboarding("« Continuer »", to: "firstGroup")
+
+        // 3. Premier groupe: « Créer ».
+        ui.waitForText("Étape 3 sur 4", of: ui.elements(AccessibilityID.Onboarding.progress))
+        let name = ui.typeText(
+            "Club de lecture", into: ui.textFields(AccessibilityID.Onboarding.groupNameField), "the group name field"
+        )
+        ui.advanceOnboarding("« Créer le groupe »", to: "notifications")
+
+        // 4. Notifications: « Plus tard » ends the onboarding.
+        ui.tap(
+            ui.buttons(AccessibilityID.Onboarding.laterButton), "« Plus tard »",
+            until: .shows(ui.app.tabBars)
+        )
+        ui.waitForTabBar()
+        ui.waitForContent(ui.elements(AccessibilityID.Groups.row(name)), "the group created during the onboarding")
+    }
 }

@@ -14,15 +14,15 @@ struct SettingsDeleteAccountView: View {
         NavigationStack {
             Form {
                 Section {
-                    Label {
+                    HStack(alignment: .top, spacing: 12) {
+                        IconTile(systemImage: "exclamationmark.triangle.fill", tone: SoftTone.danger, size: 36)
                         Text(SettingsViewModel.deleteAccountWarning)
+                            .foregroundStyle(Theme.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
                     }
                     .padding(.vertical, 4)
                 }
+                .listRowBackground(Theme.card)
 
                 Section {
                     TextField(SettingsViewModel.deleteConfirmationWord, text: $model.deleteConfirmation)
@@ -31,13 +31,14 @@ struct SettingsDeleteAccountView: View {
                         .submitLabel(.done)
                         .focused($isFieldFocused)
                         .onSubmit(deleteAccount)
-                        .accessibilityLabel("Tapez \(SettingsViewModel.deleteConfirmationWord) pour confirmer")
+                        .accessibilityLabel("Tape \(SettingsViewModel.deleteConfirmationWord) pour confirmer")
                         .accessibilityIdentifier(AccessibilityID.Settings.deleteConfirmationField)
                 } header: {
                     Text("Confirmation")
                 } footer: {
-                    Text("Tapez «\u{00A0}\(SettingsViewModel.deleteConfirmationWord)\u{00A0}» en majuscules pour confirmer.")
+                    Text("Tape «\u{00A0}\(SettingsViewModel.deleteConfirmationWord)\u{00A0}» en majuscules pour confirmer.")
                 }
+                .listRowBackground(Theme.card)
 
                 Section {
                     Button(role: .destructive, action: deleteAccount) {
@@ -47,7 +48,9 @@ struct SettingsDeleteAccountView: View {
                                 ProgressView()
                             } else {
                                 Text("Supprimer définitivement mon compte")
-                                    .fontWeight(.semibold)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(model.canDeleteAccount ? Theme.danger : Theme.textSecondary)
+                                    .multilineTextAlignment(.center)
                             }
                             Spacer()
                         }
@@ -55,7 +58,9 @@ struct SettingsDeleteAccountView: View {
                     .disabled(!model.canDeleteAccount)
                     .accessibilityIdentifier(AccessibilityID.Settings.confirmDeleteAccount)
                 }
+                .listRowBackground(Theme.card)
             }
+            .screenBackground()
             .navigationTitle("Supprimer le compte")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

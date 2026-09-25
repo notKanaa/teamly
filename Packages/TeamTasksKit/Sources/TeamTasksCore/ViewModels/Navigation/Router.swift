@@ -51,11 +51,14 @@ public enum DeepLink: Sendable, Hashable {
     case group(UUID)
     /// « Mes tâches » (e.g. a grouped notification about several groups).
     case myTasks
+    /// v2: « Groupes », at its root (the weekly recap notification: every group has its podium).
+    case groups
 
     public static let scheme = "equipe"
 
-    /// Parses `equipe://task/<groupId>/<taskId>` (also `equipe://group/<groupId>` and `equipe://mytasks`).
-    /// Scheme and host are case-insensitive; a trailing slash is accepted. Returns nil for anything else.
+    /// Parses `equipe://task/<groupId>/<taskId>` (also `equipe://group/<groupId>`, `equipe://mytasks` and
+    /// `equipe://groups`). Scheme and host are case-insensitive; a trailing slash is accepted. Returns nil for anything
+    /// else.
     public init?(url: URL) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme?.lowercased() == DeepLink.scheme,
@@ -74,9 +77,21 @@ public enum DeepLink: Sendable, Hashable {
         case "mytasks":
             guard parts.isEmpty else { return nil }
             self = .myTasks
+        case "groups":
+            guard parts.isEmpty else { return nil }
+            self = .groups
         default:
             return nil
         }
+    }
+
+    /// Routing of a tapped local notification from its request identifier and `userInfo`: the weekly recap
+    /// (`WeeklyRecapNotifier.identifierPrefix`, no `userInfo`) → « Groupes »; any other notification →
+    /// `init(notificationUserInfo:)`. Nonisolated, like `init(notificationUserInfo:)`.
+    public init(notificationIdentifier identifier: String, userInfo: [AnyHashable: Any]) {
+        self = identifier.hasPrefix(WeeklyRecapNotifier.identifierPrefix)
+            ? .groups
+            : DeepLink(notificationUserInfo: userInfo)
     }
 
     /// Routing of a tapped local notification from its `userInfo` (`taskId`, `groupId` as UUID strings):
@@ -99,6 +114,7 @@ public enum DeepLink: Sendable, Hashable {
         case let .task(groupId, taskId): path = "task/\(groupId.uuidString)/\(taskId.uuidString)"
         case let .group(groupId): path = "group/\(groupId.uuidString)"
         case .myTasks: path = "mytasks"
+        case .groups: path = "groups"
         }
         // Only UUIDs and fixed words: always a valid URL.
         return URL(string: "\(DeepLink.scheme)://\(path)") ?? URL(fileURLWithPath: "/")
@@ -178,6 +194,12 @@ public final class Router {
         myTasksPath = []
     }
 
+    /// v2: « Groupes » tab, at its root (the weekly recap notification).
+    public func showGroups() {
+        selectedTab = .groups
+        groupsPath = []
+    }
+
     /// Pops the given tab (the selected one by default) to its root.
     public func popToRoot(of tab: AppTab? = nil) {
         switch tab ?? selectedTab {
@@ -241,6 +263,7 @@ public final class Router {
         case let .task(groupId, taskId): showTask(groupId: groupId, taskId: taskId)
         case let .group(groupId): showGroup(groupId)
         case .myTasks: showMyTasks()
+        case .groups: showGroups()
         }
     }
 }

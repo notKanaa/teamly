@@ -44,7 +44,7 @@ struct PasswordResetView: View {
             .accessibilityIdentifier(AccessibilityID.Auth.resetScreen)
         }
         .scrollDismissesKeyboard(.interactively)
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .screenBackground()
         .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -70,7 +70,7 @@ struct PasswordResetView: View {
             }
             Button("Continuer", role: .cancel) {}
         } message: {
-            Text("Votre mot de passe ne sera pas modifié et vous reviendrez à l’écran de connexion.")
+            Text("Ton mot de passe ne sera pas modifié et tu reviendras à l’écran de connexion.")
         }
         .shellErrorAlert(model)
         .animation(.default, value: model.step)
@@ -85,15 +85,15 @@ struct PasswordResetView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(spacing: 12) {
-            Image(systemName: headerSymbol)
-                .font(.system(size: 44, weight: .semibold))
-                .foregroundStyle(model.step == .done ? Color.green : Color.accentColor)
-                .frame(height: 56)
-                .accessibilityHidden(true)
+        VStack(spacing: 14) {
+            IconTile(
+                systemImage: headerSymbol,
+                tone: model.step == .done ? SoftTone.done : SoftTone.accent,
+                size: 64
+            )
             Text(headerText)
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -112,11 +112,11 @@ struct PasswordResetView: View {
     private var headerText: String {
         switch model.step {
         case .email:
-            "Saisissez l’adresse e-mail de votre compte\u{00A0}: nous vous enverrons un code à 6 chiffres pour choisir un nouveau mot de passe."
+            "Saisis l’adresse e-mail de ton compte\u{00A0}: nous t’enverrons un code à 6 chiffres pour choisir un nouveau mot de passe."
         case .code:
-            "Saisissez le code à 6 chiffres reçu par e-mail. Pensez à vérifier vos courriers indésirables."
+            "Saisis le code à 6 chiffres reçu par e-mail. Pense à vérifier tes courriers indésirables."
         case .newPassword:
-            "Choisissez un nouveau mot de passe (8 caractères minimum)."
+            "Choisis un nouveau mot de passe (8 caractères minimum)."
         case .done:
             PasswordResetViewModel.doneMessage
         }
@@ -135,15 +135,11 @@ struct PasswordResetView: View {
                 .focused($focus, equals: .email)
                 .onSubmit(sendCode)
                 .accessibilityIdentifier(AccessibilityID.Auth.resetEmail)
-                .authFieldStyle(systemImage: "envelope")
+                .authFieldStyle(systemImage: "envelope.fill")
 
-            Button(action: sendCode) {
-                ShellPrimaryButtonLabel(title: "Envoyer le code", isLoading: model.isSubmitting)
-            }
-            .shellProminentButtonStyle()
-            .controlSize(.large)
-            .disabled(!model.canSendCode)
-            .accessibilityIdentifier(AccessibilityID.Auth.resetSendCode)
+            PrimaryButton("Envoyer le code", isLoading: model.isSubmitting, action: sendCode)
+                .disabled(!model.canSendCode)
+                .accessibilityIdentifier(AccessibilityID.Auth.resetSendCode)
         }
     }
 
@@ -152,43 +148,39 @@ struct PasswordResetView: View {
             TextField("Code à 6 chiffres", text: $model.code)
                 .keyboardType(.numberPad)
                 .textContentType(.oneTimeCode)
-                .font(.title2.monospacedDigit().weight(.semibold))
+                .font(.roundedNumber(.title2, weight: .bold))
                 .multilineTextAlignment(.center)
                 .focused($focus, equals: .code)
                 .accessibilityLabel("Code reçu par e-mail")
                 .accessibilityIdentifier(AccessibilityID.Auth.resetCode)
                 .authFieldStyle(systemImage: "number")
 
-            Button(action: verifyCode) {
-                ShellPrimaryButtonLabel(title: "Valider le code", isLoading: model.isSubmitting)
-            }
-            .shellProminentButtonStyle()
-            .controlSize(.large)
-            .disabled(!model.canVerifyCode)
-            .accessibilityIdentifier(AccessibilityID.Auth.resetVerifyCode)
+            PrimaryButton("Valider le code", isLoading: model.isSubmitting, action: verifyCode)
+                .disabled(!model.canVerifyCode)
+                .accessibilityIdentifier(AccessibilityID.Auth.resetVerifyCode)
 
-            VStack(spacing: 12) {
+            VStack(spacing: 4) {
                 Button("Renvoyer le code") {
                     Task {
                         await model.resendCode()
                     }
                 }
+                .buttonStyle(.secondary)
                 .accessibilityIdentifier(AccessibilityID.Auth.resetResendCode)
 
                 Button("Modifier l’adresse e-mail") {
                     model.goBack()
                 }
-                .foregroundStyle(.secondary)
+                .buttonStyle(SecondaryButtonStyle(tint: Theme.textSecondary))
                 .accessibilityIdentifier(AccessibilityID.Auth.resetChangeEmail)
             }
-            .font(.callout.weight(.medium))
             .disabled(model.isSubmitting)
         }
     }
 
     private var newPasswordStep: some View {
         VStack(spacing: 20) {
-            VStack(spacing: 14) {
+            VStack(spacing: 12) {
                 AuthPasswordField(
                     title: "Nouveau mot de passe",
                     text: $model.newPassword,
@@ -201,7 +193,7 @@ struct PasswordResetView: View {
                 .onSubmit { focus = .passwordConfirmation }
 
                 AuthPasswordField(
-                    title: "Confirmez le mot de passe",
+                    title: "Confirme le mot de passe",
                     text: $model.passwordConfirmation,
                     focus: $focus,
                     field: .passwordConfirmation,
@@ -212,19 +204,16 @@ struct PasswordResetView: View {
                 .onSubmit(updatePassword)
             }
 
-            Button(action: updatePassword) {
-                ShellPrimaryButtonLabel(title: "Enregistrer le mot de passe", isLoading: model.isSubmitting)
-            }
-            .shellProminentButtonStyle()
-            .controlSize(.large)
-            .disabled(!model.canUpdatePassword)
-            .accessibilityIdentifier(AccessibilityID.Auth.saveNewPassword)
+            PrimaryButton("Enregistrer le mot de passe", isLoading: model.isSubmitting, action: updatePassword)
+                .disabled(!model.canUpdatePassword)
+                .accessibilityIdentifier(AccessibilityID.Auth.saveNewPassword)
         }
     }
 
     private var doneStep: some View {
         // The app opens right after this step; the spinner covers the transition.
         ProgressView("Ouverture d’Équipe…")
+            .tint(Theme.accent)
             .padding(.top, 8)
             .accessibilityIdentifier(AccessibilityID.Auth.resetDone)
     }

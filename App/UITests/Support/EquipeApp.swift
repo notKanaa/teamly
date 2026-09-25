@@ -27,6 +27,27 @@ enum UITestScenario: String {
     case populated
     /// Signed in as a user of no group.
     case emptyGroups
+    /// `populated` plus the v2 content of TeamTasksMocks `DemoData.Showcase` (v2 screenshots): « Sortir les poubelles »
+    /// weekly and à tour de rôle (Camille's turn), a half-done checklist on « Faire les courses », an activity feed, and
+    /// a podium with Inès first on a 3-week streak.
+    case showcase
+}
+
+/// Appearance of the launched app (`-uiTestColorScheme`, `-UIPreferredContentSizeCategoryName`): the design checks.
+enum UITestAppearance {
+    /// Dark mode.
+    case dark
+    /// The largest accessibility text size (AX5).
+    case largestText
+
+    var launchArguments: [String] {
+        switch self {
+        case .dark:
+            ["-uiTestColorScheme", "dark"]
+        case .largestText:
+            ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        }
+    }
 }
 
 /// Demo data of the in-memory backend (TeamTasksMocks `DemoData`, identical to supabase/seed.sql). The UI test
@@ -68,6 +89,12 @@ enum UITestDemo {
     // Task of « Projet Asso Sport ».
     /// Created by Lucas, assigned to Camille.
     static let reserverGymnase = "Réserver le gymnase"
+
+    // v2 pickers (TeamTasksCore `EmojiChoices`).
+    /// First avatar emoji.
+    static let foxEmoji = "\u{1F98A}"
+    /// First group emoji.
+    static let houseEmoji = "\u{1F3E0}"
 }
 
 /// Navigation titles of the screens the tests leave with « back ».
@@ -120,11 +147,14 @@ final class EquipeApp {
     }
 
     /// Launches the app on the in-memory backend in `scenario`, in French. Stops the test at the first failure.
-    /// - Parameter notifications: initial permission of the in-app notification fake
-    ///   (`notDetermined` by default, which the app's request grants without any system prompt).
+    /// - Parameters:
+    ///   - notifications: initial permission of the in-app notification fake (`notDetermined` by default, which the
+    ///     app's request grants without any system prompt).
+    ///   - appearance: dark mode or the largest text size (design checks); the system's otherwise.
     static func launch(
         _ scenario: UITestScenario,
         notifications: String? = nil,
+        appearance: UITestAppearance? = nil,
         for testCase: XCTestCase
     ) -> EquipeApp {
         testCase.continueAfterFailure = false
@@ -137,6 +167,9 @@ final class EquipeApp {
         ]
         if let notifications {
             arguments += ["-mockNotifications", notifications]
+        }
+        if let appearance {
+            arguments += appearance.launchArguments
         }
         app.launchArguments = arguments
         app.launch()
@@ -629,7 +662,8 @@ final class EquipeApp {
             password, into: secureTextFields(AccessibilityID.Auth.password), "the password field",
             file: file, line: line
         )
-        submitSignIn(isRetry: false)
+        let signInButton = buttons(AccessibilityID.Auth.signInButton)
+        submitForm(signInButton, isRetry: false)
         let signedIn = [app.tabBars]
             + tabButtonCandidates(AccessibilityID.Tabs.myTasksTitle, identifier: AccessibilityID.Tabs.myTasks)
         if firstExisting(signedIn, timeout: UITestTimeout.medium) == nil {
@@ -638,7 +672,7 @@ final class EquipeApp {
                 return
             }
             // Still on the form and no error: the submission was lost (keyboard animation). Once more.
-            submitSignIn(isRetry: true)
+            submitForm(signInButton, isRetry: true)
         }
         waitForTabBar(file: file, line: line)
         // Best effort: the login screen fades out and its keyboard goes down; the next taps wait for the end.
@@ -647,18 +681,94 @@ final class EquipeApp {
         }
     }
 
-    /// Submits the login form: « Se connecter » when a finger can reach it, else the keyboard's « Aller ».
-    private func submitSignIn(isRetry: Bool) {
-        let signInButton = settledMatch(buttons(AccessibilityID.Auth.signInButton), timeout: 3) { matches in
+    /// From the login screen: « Créer un compte », fills the form and creates the account (the in-memory backend opens
+    /// the session at once), then waits for the onboarding of the new account.
+    func signUp(
+        name: String,
+        email: String,
+        password: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        waitFor(elements(AccessibilityID.Auth.loginScreen), "the login screen", file: file, line: line)
+        tap(
+            buttons(AccessibilityID.Auth.goToSignUp), "« Créer un compte »",
+            until: .shows(elements(AccessibilityID.Auth.signUpScreen)), file: file, line: line
+        )
+        typeText(name, into: textFields(AccessibilityID.Auth.displayName), "the name field", file: file, line: line)
+        typeText(
+            email, into: textFields(AccessibilityID.Auth.email), "the e-mail field", expecting: email,
+            file: file, line: line
+        )
+        typeText(
+            password, into: secureTextFields(AccessibilityID.Auth.password), "the password field",
+            file: file, line: line
+        )
+        let signUpButton = buttons(AccessibilityID.Auth.signUpButton)
+        let onboarding = elements(AccessibilityID.Onboarding.screen)
+        submitForm(signUpButton, isRetry: false)
+        if firstExisting([onboarding], timeout: UITestTimeout.medium) == nil {
+            if app.alerts.firstMatch.exists {
+                fail("Creating the account \(email) was refused", showing: app.alerts.staticTexts, file: file, line: line)
+                return
+            }
+            submitForm(signUpButton, isRetry: true)
+        }
+        waitFor(onboarding, "the onboarding of the new account", file: file, line: line)
+        // Best effort: the sign-up keyboard goes down with its screen.
+        _ = waitUntil(timeout: UITestTimeout.medium) { !app.keyboards.firstMatch.exists }
+    }
+
+    /// Submits a form: its button when a finger can reach it and it is enabled, else the keyboard's return key (the
+    /// last field has the focus and submits the form).
+    private func submitForm(_ button: XCUIElementQuery, isRetry: Bool) {
+        let reachableButton = settledMatch(button, timeout: 3) { matches in
             matches.first { $0.reachable != nil && $0.isEnabled }
         }
-        if let signInButton {
-            tap(signInButton)
+        if let reachableButton {
+            tap(reachableButton)
         } else if !isRetry || app.keyboards.firstMatch.exists {
-            // Under the keyboard: « Aller » submits the form as well (the password field has the focus). Not on
-            // a retry without keyboard: the first submission cleared the focus, typing would fail.
+            // Under the keyboard: « Aller » / « Rejoindre » submits the form as well (the password field has the
+            // focus). Not on a retry without keyboard: the first submission cleared the focus, typing would fail.
             app.typeText("\n")
         }
+    }
+
+    // MARK: - Onboarding
+
+    /// The content of an onboarding step, by `OnboardingStep.rawValue` (`welcome`, `avatar`, `firstGroup`,
+    /// `notifications`).
+    func onboardingStep(_ step: String) -> XCUIElementQuery {
+        elements(AccessibilityID.Onboarding.step(step))
+    }
+
+    /// The primary button of the onboarding (« C’est parti », « Continuer », « Créer le groupe »…).
+    var onboardingPrimaryButton: XCUIElementQuery {
+        buttons(AccessibilityID.Onboarding.primaryButton)
+    }
+
+    /// Taps the onboarding's primary button once it is enabled, until the step `next` shows (the tab bar when nil:
+    /// the onboarding ended).
+    func advanceOnboarding(
+        _ description: String,
+        to next: String?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let outcome = next.map { Outcome.shows(onboardingStep($0)) } ?? Outcome.shows(app.tabBars)
+        tapWhenEnabled(onboardingPrimaryButton, description, until: outcome, file: file, line: line)
+    }
+
+    /// Taps a picker option (a swatch, an emoji) until it is selected.
+    func select(_ query: XCUIElementQuery, _ description: String, file: StaticString = #filePath, line: UInt = #line) {
+        tap(query, description, until: .selects(query), file: file, line: line)
+    }
+
+    /// Best effort: closes the keyboard with its return key (the focused single-line field resigns).
+    func dismissKeyboard() {
+        guard app.keyboards.firstMatch.exists else { return }
+        app.typeText("\n")
+        _ = waitUntil(timeout: UITestTimeout.short) { !app.keyboards.firstMatch.exists }
     }
 
     /// Waits for the groups list with the two demo groups (signed in as Camille).
@@ -874,8 +984,11 @@ final class EquipeApp {
         if let keyboard = try? app.keyboards.firstMatch.snapshot(), visibleArea(of: keyboard.frame) != nil {
             obstructions.append(Obstruction(frame: keyboardFrame(from: keyboard.frame), ownFrames: []))
         }
-        for tabBar in app.tabBars.allElementsBoundByIndex {
-            if let snapshot = try? tabBar.snapshot(), visibleArea(of: snapshot.frame) != nil {
+        // The tab bar, and the buttons a screen pins at its bottom (the onboarding's): the content scrolls under them.
+        let bottomBars = app.tabBars.allElementsBoundByIndex
+            + elements(AccessibilityID.Shell.pinnedBottomBar).allElementsBoundByIndex
+        for bar in bottomBars {
+            if let snapshot = try? bar.snapshot(), visibleArea(of: snapshot.frame) != nil {
                 obstructions.append(Obstruction(frame: snapshot.frame, ownFrames: descendantFrames(of: snapshot)))
             }
         }

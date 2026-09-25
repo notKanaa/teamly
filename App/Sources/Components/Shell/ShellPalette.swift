@@ -17,9 +17,9 @@ enum ShellPalette {
     /// Text on a solid `orange` / `green` / `red` / `blue` / `gray` fill: white in light mode, black in dark mode
     /// (the dark-mode fills are bright).
     static var onTint: Color { Color("PaletteOnTint") }
-    /// Fill behind white text (selected chip, « Nouveau », prominent buttons): the light-mode accent in both
-    /// appearances (4.8:1 with white; the dark-mode accent only gives 2.9:1).
-    static var accentFill: Color { Color(red: 65 / 255, green: 108 / 255, blue: 217 / 255) }
+    /// Fill behind white text (selected chip, « Nouveau », prominent buttons): the v2 `Theme.accentFill` (#4B3BE6 /
+    /// #5B4CF0, 6.9:1 and 5.6:1 with white).
+    static var accentFill: Color { Theme.accentFill }
 }
 
 extension View {

@@ -1,31 +1,35 @@
 import SwiftUI
 
-/// The app's mark (same colors as the app icon): a rounded square with a check mark. Decorative.
+/// The app's mark: the app icon (« Carte cochée », the `AppLogo` image) in its rounded square, with a soft shadow in
+/// light mode. Decorative.
 struct ShellBrandMark: View {
     var size: CGFloat = 80
 
-    /// Gradient of the app icon (scripts/make-icon.mjs): accent blue to indigo.
-    static var gradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 65 / 255, green: 108 / 255, blue: 217 / 255),
-                Color(red: 88 / 255, green: 56 / 255, blue: 179 / 255),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-            .fill(Self.gradient)
+        // The continuous corner of an iOS app icon (22.37 % of its side).
+        let shape = RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous)
+        Image(decorative: "AppLogo")
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
             .frame(width: size, height: size)
-            .overlay {
-                Image(systemName: "checkmark.circle")
-                    .font(.system(size: size * 0.5, weight: .semibold))
-                    .foregroundStyle(.white)
+            .clipShape(shape)
+            .background {
+                shape
+                    .fill(Theme.card)
+                    .shadow(
+                        color: Color(red: 214 / 255, green: 56 / 255, blue: 90 / 255)
+                            .opacity(colorScheme == .dark ? 0 : 0.28),
+                        radius: size * 0.16, x: 0, y: size * 0.1
+                    )
             }
-            .shadow(color: Color.black.opacity(0.15), radius: size * 0.12, y: size * 0.06)
+            .overlay {
+                if colorScheme == .dark {
+                    shape.strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                }
+            }
             .accessibilityHidden(true)
     }
 }
@@ -37,15 +41,18 @@ struct ShellBrandHeader: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            ShellBrandMark(size: 76)
+            ShellBrandMark(size: 88)
+                .padding(.bottom, 4)
             Text(title)
-                .font(.largeTitle.bold())
+                .font(.rounded(.largeTitle))
+                .foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             if let subtitle {
                 Text(subtitle)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity)

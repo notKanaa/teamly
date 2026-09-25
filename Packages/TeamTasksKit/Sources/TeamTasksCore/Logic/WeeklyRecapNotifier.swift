@@ -10,7 +10,7 @@ import Foundation
 /// synchronization schedules nothing more and withdraws what it has just scheduled.
 ///
 /// Idempotent: a pending notification with the same content (a fingerprint kept in the `KeyValueStore`) is left as
-/// it is. A tap opens « Mes tâches » (no `userInfo`).
+/// it is. It has no `userInfo`: a tap opens « Groupes » (`DeepLink(notificationIdentifier:userInfo:)`).
 public actor WeeklyRecapNotifier {
     public static let identifierPrefix = "recap-"
     public static let identifier = "recap-weekly"

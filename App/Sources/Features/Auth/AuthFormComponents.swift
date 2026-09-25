@@ -11,7 +11,8 @@ enum AuthFocusField: Hashable {
     case passwordConfirmation
 }
 
-/// Rounded field with a leading icon and an inline error message (authentication screens).
+/// A field of the authentication screens (v2 look): a `card` surface, radius 16, at least 56 pt tall, a leading icon
+/// and an inline error message (the outline turns red).
 struct AuthFieldStyle: ViewModifier {
     let systemImage: String
     var error: String?
@@ -28,28 +29,27 @@ struct AuthFieldStyle: ViewModifier {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                    .font(Font.body.weight(.semibold))
+                    .foregroundStyle(error == nil ? Theme.textSecondary : Theme.danger)
                     .frame(width: iconWidth)
                     .accessibilityHidden(true)
                 content
+                    .foregroundStyle(Theme.textPrimary)
             }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 52)
-            .background(
-                Color(uiColor: .secondarySystemGroupedBackground),
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-            )
+            .padding(.horizontal, 16)
+            .frame(minHeight: 56)
+            .cardSurface(radius: Theme.Radius.field, elevation: .subtle)
             .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(error == nil ? Color.clear : ShellPalette.red, lineWidth: 1)
+                RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous)
+                    .strokeBorder(error == nil ? Color.clear : Theme.danger, lineWidth: 1.5)
             }
 
             if let error {
                 Label(error, systemImage: "exclamationmark.circle.fill")
                     .font(.footnote)
-                    .foregroundStyle(ShellPalette.red)
+                    .foregroundStyle(Theme.danger)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 4)
             }
         }
     }
@@ -101,18 +101,18 @@ struct AuthPasswordField: View {
             } label: {
                 // A 44 × 44 pt tap area at least; the frame grows with the glyph at large text sizes.
                 Image(systemName: isRevealed ? "eye.slash" : "eye")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isRevealed ? "Masquer le mot de passe" : "Afficher le mot de passe")
         }
-        .authFieldStyle(systemImage: "lock", error: error)
+        .authFieldStyle(systemImage: "lock.fill", error: error)
     }
 }
 
-/// Neutral information banner (« Si un compte existe… », « Un nouveau code… »).
+/// Neutral information banner (« Si un compte existe… », « Un nouveau code… »): the soft accent pair.
 struct AuthInfoBanner: View {
     let message: String
     var systemImage = "info.circle.fill"
@@ -120,14 +120,15 @@ struct AuthInfoBanner: View {
     var body: some View {
         Label {
             Text(message)
+                .foregroundStyle(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
         } icon: {
             Image(systemName: systemImage)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Theme.accentSoftText)
         }
         .font(.callout)
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous))
     }
 }
