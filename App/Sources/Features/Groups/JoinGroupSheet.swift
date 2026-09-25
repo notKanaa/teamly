@@ -1,9 +1,10 @@
 import SwiftUI
 import TeamTasksCore
 
-/// « Rejoindre un groupe » sheet: the invite code is formatted live as `ABCD-EFGH`. After a successful join the
-/// sheet says whether the group was joined or already joined, and « Ouvrir le groupe » calls `onOpenGroup`
-/// (the presenter closes the sheet and shows the group).
+/// « Rejoindre un groupe » sheet (docs/DESIGN-V2.md §7.2): the hint, a big monospaced field where the invite code is
+/// formatted live as `ABCD-EFGH`, and « Rejoindre » under it. After a successful join the sheet says whether the group
+/// was joined or already joined, and « Ouvrir le groupe » calls `onOpenGroup` (the presenter closes the sheet and shows
+/// the group).
 struct JoinGroupSheet: View {
     let onOpenGroup: (UUID) -> Void
 
@@ -23,90 +24,117 @@ struct JoinGroupSheet: View {
 
     var body: some View {
         NavigationStack {
-            content
-                .navigationTitle("Rejoindre un groupe")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(cancelTitle) {
-                            dismiss()
-                        }
-                        .disabled(model.isSubmitting)
-                        .accessibilityIdentifier(AccessibilityID.Groups.cancelButton)
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        if model.isSubmitting {
-                            ProgressView()
-                                .accessibilityLabel("Vérification du code")
-                        } else if model.result == nil {
-                            Button("Rejoindre") { submit() }
-                                .disabled(!model.canSubmit)
-                                .accessibilityIdentifier(AccessibilityID.Groups.saveButton)
-                        }
+            ScrollView {
+                Group {
+                    if let result = model.result {
+                        resultContent(result)
+                    } else {
+                        codeContent
                     }
                 }
+                .padding(.horizontal, Theme.Spacing.page)
+                .padding(.vertical, 24)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .screenBackground()
+            .navigationTitle("Rejoindre un groupe")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(cancelTitle) {
+                        dismiss()
+                    }
+                    .disabled(model.isSubmitting)
+                    .accessibilityIdentifier(AccessibilityID.Groups.cancelButton)
+                }
+            }
         }
         .interactiveDismissDisabled(model.isSubmitting)
-        .alert("Erreur", isPresented: $model.isShowingError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.errorMessage ?? "")
+        .shellErrorAlert(model)
+    }
+
+    /// The key tile, the title, the hint and the code field.
+    private var codeContent: some View {
+        VStack(spacing: 18) {
+            IconTile(systemImage: "key.fill", tone: .accent, size: 64)
+            VStack(spacing: 6) {
+                Text("Ton code d’invitation")
+                    .font(.rounded(.title2))
+                    .foregroundStyle(Theme.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text("Demande le code à un admin du groupe\u{00A0}: 8 lettres ou chiffres, par exemple \(JoinGroupViewModel.placeholder).")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            TextField(JoinGroupViewModel.placeholder, text: $codeText)
+                .font(.system(.title, design: .monospaced, weight: .bold))
+                .foregroundStyle(Theme.textPrimary)
+                .multilineTextAlignment(.center)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .keyboardType(.asciiCapable)
+                .submitLabel(.join)
+                .focused($isCodeFocused)
+                .onSubmit {
+                    submit()
+                }
+                .onChange(of: codeText) { _, newValue in
+                    model.code = newValue
+                    if codeText != model.code {
+                        codeText = model.code
+                    }
+                }
+                .padding(.horizontal, 12)
+                .frame(minHeight: 64)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous)
+                        .strokeBorder(Theme.accent, lineWidth: 2)
+                }
+                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+                .disabled(model.isSubmitting)
+                .accessibilityLabel("Code d’invitation")
+                .accessibilityIdentifier(AccessibilityID.Groups.codeField)
+            // Under the field, above the keyboard (the return key joins too); a spinner while the code is checked.
+            PrimaryButton("Rejoindre", systemImage: "arrow.right", iconPlacement: .trailing, isLoading: model.isSubmitting) {
+                submit()
+            }
+            .disabled(!model.canSubmit)
+            .accessibilityIdentifier(AccessibilityID.Groups.saveButton)
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .onAppear {
+            isCodeFocused = true
         }
     }
 
-    @ViewBuilder
-    private var content: some View {
-        if let result = model.result {
-            ContentUnavailableView {
-                Label {
-                    Text(result.alreadyMember ? Self.alreadyMemberTitle : Self.joinedTitle)
-                } icon: {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color.green)
-                }
-            } description: {
-                Text(model.resultMessage ?? "")
-                    .accessibilityIdentifier(AccessibilityID.Groups.joinResult)
-            } actions: {
-                Button {
-                    onOpenGroup(result.groupId)
-                } label: {
-                    Label("Ouvrir le groupe", systemImage: "arrow.right.circle")
-                }
-                .shellProminentButtonStyle()
-                .accessibilityIdentifier(AccessibilityID.Groups.openGroupButton)
+    /// « Bienvenue ! » or « Déjà membre », the message, and « Ouvrir le groupe ».
+    private func resultContent(_ result: JoinResult) -> some View {
+        VStack(spacing: 18) {
+            IconTile(systemImage: "checkmark", tone: .done, size: 64)
+            Text(result.alreadyMember ? Self.alreadyMemberTitle : Self.joinedTitle)
+                .font(.rounded(.title2))
+                .foregroundStyle(Theme.textPrimary)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+            Text(model.resultMessage ?? "")
+                .font(.body)
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(AccessibilityID.Groups.joinResult)
+            PrimaryButton("Ouvrir le groupe", systemImage: "arrow.right", iconPlacement: .trailing) {
+                onOpenGroup(result.groupId)
             }
-        } else {
-            Form {
-                Section {
-                    TextField(JoinGroupViewModel.placeholder, text: $codeText)
-                        .font(.system(.title2, design: .monospaced, weight: .semibold))
-                        .multilineTextAlignment(.center)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .keyboardType(.asciiCapable)
-                        .submitLabel(.join)
-                        .focused($isCodeFocused)
-                        .onSubmit { submit() }
-                        .onChange(of: codeText) { _, newValue in
-                            model.code = newValue
-                            if codeText != model.code {
-                                codeText = model.code
-                            }
-                        }
-                        .accessibilityLabel("Code d’invitation")
-                        .accessibilityIdentifier(AccessibilityID.Groups.codeField)
-                } header: {
-                    Text("Code d’invitation")
-                } footer: {
-                    Text("Demandez le code à un admin du groupe\u{00A0}: 8 lettres ou chiffres, par exemple \(JoinGroupViewModel.placeholder).")
-                }
-            }
-            .disabled(model.isSubmitting)
-            .onAppear {
-                isCodeFocused = true
-            }
+            .accessibilityIdentifier(AccessibilityID.Groups.openGroupButton)
+            .padding(.top, 8)
         }
+        .frame(maxWidth: .infinity)
     }
 
     private static let joinedTitle = "Bienvenue\u{00A0}!"

@@ -1,8 +1,8 @@
 import SwiftUI
 import TeamTasksCore
 
-/// « Code d’invitation » sheet (admins): the code in large monospaced type, « Partager le code » (`ShareLink` with
-/// the view model's share text) and « Générer un nouveau code ».
+/// « Code d’invitation » sheet (admins): the group's tile, the code in large monospaced type on the soft accent,
+/// « Partager le code » (`ShareLink` with the view model's share text) and « Générer un nouveau code ».
 struct InviteCodeSheet: View {
     @State private var model: MembersViewModel
     @State private var isConfirmingRegeneration = false
@@ -14,7 +14,12 @@ struct InviteCodeSheet: View {
 
     var body: some View {
         NavigationStack {
-            content
+            ScrollView {
+                content
+                    .padding(.horizontal, Theme.Spacing.page)
+                    .padding(.vertical, 20)
+            }
+            .screenBackground()
                 .navigationTitle("Code d’invitation")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -48,85 +53,87 @@ struct InviteCodeSheet: View {
         } message: {
             Text("L’ancien code ne fonctionnera plus. Les membres actuels restent dans le groupe.")
         }
-        .alert("Erreur", isPresented: $model.isShowingError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.errorMessage ?? "")
-        }
+        .shellErrorAlert(model)
     }
 
     @ViewBuilder
     private var content: some View {
         if let code = model.inviteCodeText, model.canSeeInviteCode {
-            ScrollView {
-                VStack(spacing: 20) {
-                    Text("Partagez ce code avec les personnes à inviter dans «\u{00A0}\(model.groupName)\u{00A0}». Elles le saisiront dans «\u{00A0}Rejoindre\u{00A0}».")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.secondary)
-                        .multilineTextAlignment(.center)
-                    // Spelled out by VoiceOver (« L, Y, L, A, tiret, S… »), not read as a word and a number.
-                    Text(code)
-                        .speechSpellsOutCharacters()
-                        .font(.system(size: 44, weight: .bold, design: .monospaced))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                        .textSelection(.enabled)
-                        .padding(.vertical, 20)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            Color.accentColor.opacity(0.12),
-                            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        )
-                        .accessibilityHint("Code d’invitation du groupe")
-                        .accessibilityIdentifier(AccessibilityID.Groups.inviteCode)
-                    if let shareText = model.shareText {
-                        ShareLink(item: shareText, subject: Text("Invitation dans Équipe")) {
-                            Label("Partager le code", systemImage: "square.and.arrow.up")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .shellProminentButtonStyle()
-                        .controlSize(.large)
-                        .accessibilityIdentifier(AccessibilityID.Groups.shareCodeButton)
-                    }
-                    Button {
-                        isConfirmingRegeneration = true
-                    } label: {
-                        if model.isRegeneratingCode {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            Label("Générer un nouveau code", systemImage: "arrow.triangle.2.circlepath")
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .disabled(model.isRegeneratingCode)
-                    .accessibilityIdentifier(AccessibilityID.Groups.regenerateCodeButton)
-                    Text("Le code reste valable jusqu’à ce qu’un admin en génère un nouveau.")
-                        .font(.footnote)
-                        .foregroundStyle(Color.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(24)
-            }
+            codeContent(code)
         } else if model.isGone {
-            ContentUnavailableView(
-                "Groupe indisponible",
-                systemImage: "person.3",
-                description: Text(MembersViewModel.goneMessage)
+            GroupsStateView(
+                systemImage: "person.2.slash",
+                tone: .neutral,
+                title: "Groupe indisponible",
+                message: MembersViewModel.goneMessage
             )
         } else if model.loadState.isLoaded {
-            ContentUnavailableView(
-                "Code réservé aux admins",
-                systemImage: "lock",
-                description: Text("Seuls les admins du groupe peuvent voir et partager le code d’invitation.")
+            GroupsStateView(
+                systemImage: "lock.fill",
+                tone: .neutral,
+                title: "Code réservé aux admins",
+                message: "Seuls les admins du groupe peuvent voir et partager le code d’invitation."
             )
         } else {
             GroupsLoadStateView(loadState: model.loadState) {
                 Task { await model.reload() }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private func codeContent(_ code: String) -> some View {
+        VStack(spacing: 18) {
+            if let group = model.group {
+                GroupTile(group.appearance, size: 56)
+            }
+            Text("Partage ce code avec les personnes à inviter dans «\u{00A0}\(model.groupName)\u{00A0}». Elles le saisiront dans «\u{00A0}Rejoindre un groupe\u{00A0}».")
+                .font(.subheadline)
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            // Spelled out by VoiceOver (« L, Y, L, A, tiret, S… »), not read as a word and a number.
+            Text(code)
+                .speechSpellsOutCharacters()
+                .font(.system(size: 40, weight: .heavy, design: .monospaced))
+                .foregroundStyle(Theme.accentSoftText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .textSelection(.enabled)
+                .padding(.vertical, 18)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .background(
+                    Theme.accentSoft,
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                )
+                .accessibilityHint("Code d’invitation du groupe")
+                .accessibilityIdentifier(AccessibilityID.Groups.inviteCode)
+            if let shareText = model.shareText {
+                ShareLink(item: shareText, subject: Text("Invitation dans Équipe")) {
+                    Label("Partager le code", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.primary)
+                .accessibilityIdentifier(AccessibilityID.Groups.shareCodeButton)
+            }
+            Button {
+                isConfirmingRegeneration = true
+            } label: {
+                if model.isRegeneratingCode {
+                    ProgressView()
+                        .accessibilityLabel("Génération d’un nouveau code")
+                } else {
+                    Label("Générer un nouveau code", systemImage: "arrow.triangle.2.circlepath")
+                }
+            }
+            .buttonStyle(.secondary)
+            .disabled(model.isRegeneratingCode)
+            .accessibilityIdentifier(AccessibilityID.Groups.regenerateCodeButton)
+            Text("Le code reste valable jusqu’à ce qu’un admin en génère un nouveau.")
+                .font(.footnote)
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
     }
 }

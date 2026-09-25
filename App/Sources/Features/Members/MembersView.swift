@@ -1,9 +1,11 @@
 import SwiftUI
 import TeamTasksCore
 
-/// « Membres » screen: the members of a group (admins first, then by name) with their role; for admins the invite
-/// code (share, regenerate) and the member actions (« Nommer admin » / « Retirer le rôle d’admin », « Retirer du
-/// groupe »); « Quitter le groupe » for everyone. Leaves the group's screens when the group is gone.
+/// « Membres » screen: the members of a group (admins first, then by name) with their avatar and a role chip; for
+/// admins the invite code (share, regenerate) and the member actions (« Nommer admin » / « Retirer le rôle d’admin »,
+/// « Retirer du groupe »: the « … » of a row, its long press and its swipe); « Quitter le groupe » for everyone.
+/// Cards on the grouped background, each action led by an icon tile, like « Réglages ». Leaves the group's screens
+/// when the group is gone.
 struct MembersView: View {
     let session: SessionModel
 
@@ -63,7 +65,7 @@ struct MembersView: View {
             Text("\(member.user.displayName) n’aura plus accès à «\u{00A0}\(model.groupName)\u{00A0}». Ses assignations dans ce groupe seront retirées.")
         }
         .confirmationDialog(
-            "Retirer votre rôle d’admin\u{00A0}?",
+            "Retirer ton rôle d’admin\u{00A0}?",
             isPresented: $isConfirmingSelfDemotion,
             titleVisibility: .visible,
             presenting: memberPendingDemotion
@@ -74,7 +76,7 @@ struct MembersView: View {
             .accessibilityIdentifier(AccessibilityID.Members.selfDemoteConfirmButton)
             Button("Annuler", role: .cancel) {}
         } message: { _ in
-            Text("Vous ne pourrez plus gérer les membres, le code d’invitation ni le nom du groupe.")
+            Text("Tu ne pourras plus gérer les membres, le code d’invitation ni le nom du groupe.")
         }
         .confirmationDialog("Quitter le groupe\u{00A0}?", isPresented: $isConfirmingLeave, titleVisibility: .visible) {
             Button(leaveConfirmTitle, role: .destructive) {
@@ -98,11 +100,7 @@ struct MembersView: View {
         } message: {
             Text("L’ancien code ne fonctionnera plus. Les membres actuels restent dans le groupe.")
         }
-        .alert("Erreur", isPresented: $model.isShowingError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.errorMessage ?? "")
-        }
+        .shellErrorAlert(model)
     }
 
     // MARK: - Sections
@@ -110,19 +108,10 @@ struct MembersView: View {
     /// Admins: the invite code, « Partager le code », « Générer un nouveau code ».
     private var inviteSection: some View {
         Section {
-            HStack {
-                Label("Code d’invitation", systemImage: "qrcode")
-                Spacer(minLength: 8)
-                // Spelled out by VoiceOver (« L, Y, L, A, tiret, S… »), not read as a word and a number.
-                Text(model.inviteCodeText ?? "—")
-                    .speechSpellsOutCharacters()
-                    .font(.title3.monospaced().weight(.bold))
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier(AccessibilityID.Members.inviteCode)
-            }
+            inviteCodeRow
             if let shareText = model.shareText {
                 ShareLink(item: shareText, subject: Text("Invitation dans Équipe")) {
-                    Label("Partager le code", systemImage: "square.and.arrow.up")
+                    rowLabel("Partager le code", systemImage: "square.and.arrow.up", tone: ColorKey.blue.tone)
                 }
                 .accessibilityIdentifier(AccessibilityID.Members.shareCodeButton)
             }
@@ -130,7 +119,11 @@ struct MembersView: View {
                 isConfirmingRegeneration = true
             } label: {
                 HStack {
-                    Label("Générer un nouveau code", systemImage: "arrow.triangle.2.circlepath")
+                    rowLabel(
+                        "Générer un nouveau code",
+                        systemImage: "arrow.triangle.2.circlepath",
+                        tone: ColorKey.orange.tone
+                    )
                     if model.isRegeneratingCode {
                         Spacer()
                         ProgressView()
@@ -144,6 +137,28 @@ struct MembersView: View {
         } footer: {
             Text("Toute personne qui a ce code peut rejoindre le groupe.")
         }
+        .listRowBackground(Theme.card)
+    }
+
+    /// « Code d’invitation » and the code in the accent (under the label at accessibility text sizes).
+    private var inviteCodeRow: some View {
+        let isLarge = typeSize.isAccessibilitySize
+        let layout = isLarge
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
+        return layout {
+            rowLabel("Code d’invitation", systemImage: "qrcode", tone: SoftTone.accent)
+            if !isLarge {
+                Spacer(minLength: 8)
+            }
+            // Spelled out by VoiceOver (« L, Y, L, A, tiret, S… »), not read as a word and a number.
+            Text(model.inviteCodeText ?? "—")
+                .speechSpellsOutCharacters()
+                .font(.system(.title3, design: .monospaced, weight: .bold))
+                .foregroundStyle(Theme.accent)
+                .textSelection(.enabled)
+                .accessibilityIdentifier(AccessibilityID.Members.inviteCode)
+        }
     }
 
     private var membersSection: some View {
@@ -152,9 +167,10 @@ struct MembersView: View {
                 memberRow(member)
             }
         } header: {
-            Text("«\u{00A0}\(model.groupName)\u{00A0}» · \(GroupsText.memberCount(model.members.count))")
+            Text("«\u{00A0}\(model.groupName)\u{00A0}» · \(FrenchText.count(model.members.count, "membre", "membres"))")
                 .textCase(nil)
         }
+        .listRowBackground(Theme.card)
     }
 
     private func memberRow(_ member: Membership) -> some View {
@@ -169,15 +185,15 @@ struct MembersView: View {
             : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
         return HStack(spacing: 4) {
             infoLayout {
-                GroupsPersonAvatar(id: member.user.id, name: member.user.displayName, size: 40)
+                AvatarView(member.user.appearance, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.displayName(of: member))
-                        .font(.body)
-                        .fontWeight(model.isMe(member) ? Font.Weight.semibold : Font.Weight.regular)
+                        .font(Font.body.weight(model.isMe(member) ? .bold : .semibold))
+                        .foregroundStyle(Theme.textPrimary)
                         .lineLimit(isLarge ? nil : 1)
                     Text(joined)
-                        .font(.caption)
-                        .foregroundStyle(Color.secondary)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.textSecondary)
                         .lineLimit(isLarge ? nil : 2)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -185,7 +201,7 @@ struct MembersView: View {
                     ProgressView()
                         .accessibilityLabel("Mise à jour")
                 } else {
-                    GroupsRoleBadge(role: member.role)
+                    roleChip(member.role)
                         .fixedSize()
                 }
             }
@@ -197,6 +213,7 @@ struct MembersView: View {
                     // A 44 × 44 pt tap area at least; the frame grows with the glyph at large text sizes.
                     Image(systemName: "ellipsis.circle")
                         .font(.title3)
+                        .foregroundStyle(Theme.accent)
                         .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
                 }
@@ -206,6 +223,7 @@ struct MembersView: View {
                 .accessibilityIdentifier(AccessibilityID.Members.actionsButton(member.user.displayName))
             }
         }
+        .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityID.Members.row(member.user.displayName))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -215,7 +233,7 @@ struct MembersView: View {
                 } label: {
                     Label("Retirer", systemImage: "person.badge.minus")
                 }
-                .tint(Color.red)
+                .tint(SoftTone.danger.fill)
             }
             if model.canChangeRole(of: member) {
                 Button {
@@ -223,7 +241,7 @@ struct MembersView: View {
                 } label: {
                     Label(model.roleActionTitle(for: member), systemImage: member.role == .admin ? "star.slash" : "star")
                 }
-                .tint(Color.orange)
+                .tint(ColorKey.orange.fill)
             }
         }
         .contextMenu {
@@ -231,6 +249,16 @@ struct MembersView: View {
                 memberActions(member)
             }
         }
+    }
+
+    /// « Admin » (a star, on the soft accent) or « Membre » (neutral).
+    private func roleChip(_ role: MemberRole) -> some View {
+        Chip(
+            role.label,
+            systemImage: role == .admin ? "star.fill" : nil,
+            tone: role == .admin ? SoftTone.accent : SoftTone.neutral
+        )
+        .accessibilityLabel("Rôle\u{00A0}: \(role.label)")
     }
 
     @ViewBuilder
@@ -255,41 +283,64 @@ struct MembersView: View {
 
     /// « Quitter le groupe » (everyone). Disabled for the last admin, whose footer says what to do first.
     private var leaveSection: some View {
-        Section {
+        let isBlocked = model.isLastAdmin
+        return Section {
             Button(role: .destructive) {
                 requestLeave()
             } label: {
                 HStack {
-                    Label("Quitter le groupe", systemImage: "rectangle.portrait.and.arrow.right")
+                    rowLabel(
+                        "Quitter le groupe",
+                        systemImage: "rectangle.portrait.and.arrow.right",
+                        tone: isBlocked ? SoftTone.neutral : SoftTone.danger,
+                        textColor: isBlocked ? Theme.textSecondary : Theme.danger
+                    )
                     if model.isLeaving {
                         Spacer()
                         ProgressView()
                     }
                 }
             }
-            .disabled(model.isLeaving || model.isLastAdmin)
+            .disabled(model.isLeaving || isBlocked)
             .accessibilityIdentifier(AccessibilityID.Members.leaveButton)
         } footer: {
-            if model.isLastAdmin {
+            if isBlocked {
                 Text(model.leaveConfirmationMessage)
             } else if model.isLastMember {
-                Text("Vous êtes le seul membre\u{00A0}: quitter le groupe le supprimera avec toutes ses tâches.")
+                Text("Tu es le seul membre\u{00A0}: quitter le groupe le supprimera avec toutes ses tâches.")
             }
         }
+        .listRowBackground(Theme.card)
     }
 
     @ViewBuilder
     private var overlay: some View {
         if model.isGone {
-            ContentUnavailableView(
-                "Groupe indisponible",
-                systemImage: "person.3",
-                description: Text(MembersViewModel.goneMessage)
+            GroupsStateView(
+                systemImage: "person.2.slash",
+                tone: .neutral,
+                title: "Groupe indisponible",
+                message: MembersViewModel.goneMessage
             )
         } else if !model.loadState.isLoaded {
             GroupsLoadStateView(loadState: model.loadState) {
                 Task { await model.reload() }
             }
+        }
+    }
+
+    /// A row's title led by an icon tile, as in « Réglages ».
+    private func rowLabel(
+        _ title: String,
+        systemImage: String,
+        tone: SoftTone,
+        textColor: Color = Theme.textPrimary
+    ) -> some View {
+        Label {
+            Text(title)
+                .foregroundStyle(textColor)
+        } icon: {
+            IconTile(systemImage: systemImage, tone: tone, size: 30)
         }
     }
 

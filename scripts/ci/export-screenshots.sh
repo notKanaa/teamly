@@ -17,6 +17,8 @@ if [ ! -d "$RESULT" ]; then
   echo "No result bundle at $RESULT — nothing to export."
   exit 0
 fi
+# The v2 groups screens (App/UITests/GroupsScreenshotTests.swift).
+EXPECTED+=(02-groupes-sombre 15-groupe-vitrine 16-groupe-activite 16-groupe-activite-sombre 17-groupe-apparence)
 rm -rf "$RAW"
 mkdir -p "$OUT" "$RAW"
 xcrun xcresulttool export attachments --path "$RESULT" --output-path "$RAW" || { echo "export failed"; exit 0; }
