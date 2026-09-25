@@ -1,6 +1,18 @@
 import SwiftUI
 import TeamTasksCore
 
+/// Row insets of the task screen's cards (its `List` sections): tighter than the system's, as on the mockups.
+enum TaskDetailInsets {
+    /// An info row: 52 pt for one line.
+    static var infoRow: EdgeInsets { EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16) }
+    /// The title of the checklist and its progress.
+    static var checklistHeader: EdgeInsets { EdgeInsets(top: 14, leading: 16, bottom: 6, trailing: 16) }
+    /// A checklist item or « Ajouter un élément »: 44 pt.
+    static var checklistItem: EdgeInsets { EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16) }
+    /// The last row of the checklist.
+    static var checklistLast: EdgeInsets { EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16) }
+}
+
 /// A row of the task screen's info card (docs/DESIGN-V2.md §7.6): an icon tile, the title (« Échéance ») and its value
 /// on the same line when they fit, the value under the title otherwise (long values, large text sizes), then an
 /// optional detail under them (the next dates of a repetition, the turn order). VoiceOver reads the row as one element.
@@ -50,7 +62,6 @@ struct TaskInfoRow<Value: View, Detail: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
     }
 

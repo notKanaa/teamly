@@ -18,6 +18,8 @@ final class TasksFlowTests: XCTestCase {
         ui.openTask(UITestDemo.faireCourses)
         let progress = ui.elements(AccessibilityID.Tasks.checklistProgress)
         ui.waitForText(UITestShowcase.progressBefore, of: progress)
+        // The whole checklist card on screen (a list only builds its rows once they are near).
+        ui.reveal(ui.elements(AccessibilityID.Tasks.checklistAddField), "« Ajouter un élément »")
         let item = ui.elements(AccessibilityID.Tasks.checklistItem(UITestShowcase.uncheckedItem))
         ui.waitForContent(item, "« \(UITestShowcase.uncheckedItem) »")
         ui.capture("19-tache-checklist")

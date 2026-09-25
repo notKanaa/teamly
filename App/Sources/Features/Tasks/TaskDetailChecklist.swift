@@ -22,20 +22,27 @@ struct TaskDetailChecklistRows: View {
     }
 
     var body: some View {
+        let checklist = model.checklist
+        let hasError = model.checklistError != nil
         header
             .listRowSeparator(.hidden)
-        ForEach(model.checklist) { item in
+            .listRowInsets(TaskDetailInsets.checklistHeader)
+        ForEach(checklist) { item in
+            let isLast = item.id == checklist.last?.id && !model.canManageChecklist && !hasError
             itemRow(item)
                 .listRowSeparator(.hidden)
+                .listRowInsets(isLast ? TaskDetailInsets.checklistLast : TaskDetailInsets.checklistItem)
         }
         if model.canManageChecklist {
             addRow
                 .listRowSeparator(.hidden)
+                .listRowInsets(hasError ? TaskDetailInsets.checklistItem : TaskDetailInsets.checklistLast)
         }
         if let message = model.checklistError {
             TaskEditorErrorText(message: message)
                 .font(.footnote)
                 .listRowSeparator(.hidden)
+                .listRowInsets(TaskDetailInsets.checklistLast)
         }
     }
 

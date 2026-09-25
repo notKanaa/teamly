@@ -261,13 +261,9 @@ struct TaskDetailView: View {
                 TaskAssigneesList(people: model.assignees)
             }
             .accessibilityIdentifier(AccessibilityID.Tasks.assigneesInfo)
-        } footer: {
-            if let createdText = model.createdText {
-                Text(createdText)
-                    .foregroundStyle(Theme.textSecondary)
-            }
         }
         .listRowBackground(Theme.card)
+        .listRowInsets(TaskDetailInsets.infoRow)
     }
 
     /// « Prochaines fois », then the next due dates of a recurring task.
@@ -301,6 +297,12 @@ struct TaskDetailView: View {
             }
         } header: {
             Text("Notes")
+        } footer: {
+            // « Créée par Lucas Bernard hier à 10:00 »: the v1 details, after the content.
+            if let createdText = model.createdText {
+                Text(createdText)
+                    .foregroundStyle(Theme.textSecondary)
+            }
         }
         .listRowBackground(Theme.card)
     }

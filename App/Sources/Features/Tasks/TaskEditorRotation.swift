@@ -23,6 +23,7 @@ struct TaskEditorRotationRows: View {
 
         ForEach(included) { entry in
             includedRow(entry, count: included.count)
+                .listRowInsets(Self.rowInsets)
         }
         .onMove { source, destination in
             withAnimation(animation) {
@@ -38,6 +39,7 @@ struct TaskEditorRotationRows: View {
                 .padding(.top, 6)
             ForEach(others) { entry in
                 otherRow(entry)
+                    .listRowInsets(Self.rowInsets)
             }
         }
 
@@ -48,6 +50,9 @@ struct TaskEditorRotationRows: View {
     }
 
     private var animation: Animation? { reduceMotion ? nil : .snappy }
+
+    /// 56 pt rows, as on the mockups; the arrows' 44 pt targets reach closer to the card's edge.
+    private static var rowInsets: EdgeInsets { EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 8) }
 
     // MARK: - Rows
 
@@ -63,13 +68,15 @@ struct TaskEditorRotationRows: View {
                 HStack(alignment: .center, spacing: 12) {
                     RotationPositionBadge(position: position)
                     AvatarView(entry.person.appearance, size: 34)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(Self.shortName(of: entry.person))
-                            .font(Font.body.weight(.semibold))
-                            .foregroundStyle(Theme.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if let badge = entry.badge {
-                            Chip(badge, tone: .accent, weight: .bold)
+                    // The badge next to the name when both fit, under it otherwise.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .center, spacing: 8) {
+                            nameText(entry.person)
+                            badge(entry)
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            nameText(entry.person)
+                            badge(entry)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -97,7 +104,21 @@ struct TaskEditorRotationRows: View {
                 moveButton(entry, by: 1, isEnabled: position < count)
             }
         }
-        .padding(.vertical, 2)
+    }
+
+    private func nameText(_ person: PersonBadge) -> some View {
+        Text(Self.shortName(of: person))
+            .font(Font.body.weight(.semibold))
+            .foregroundStyle(Theme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// « Commence », « C’est ton tour », « C’est son tour ».
+    @ViewBuilder
+    private func badge(_ entry: RotationEditorEntry) -> some View {
+        if let badge = entry.badge {
+            Chip(badge, tone: .accent, weight: .bold)
+        }
     }
 
     private func otherRow(_ entry: RotationEditorEntry) -> some View {

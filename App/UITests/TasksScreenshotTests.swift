@@ -36,18 +36,22 @@ final class TasksScreenshotTests: XCTestCase {
     /// « Mes tâches », two task screens and the editor, each captured at its top then after each of `scrolls` scrolls.
     @MainActor
     private func captureTaskScreens(_ ui: EquipeApp, suffix: String, scrolls: Int) {
+        let daySummary = ui.elements(AccessibilityID.MyTasks.daySummary)
         ui.openMyTasks()
-        ui.waitForContent(ui.elements(AccessibilityID.MyTasks.daySummary), "« Ta journée »")
+        ui.waitForContent(daySummary, "« Ta journée »")
         ui.capture("mes-taches-\(suffix)")
         scrollAndCapture(ui, "mes-taches-\(suffix)", scrolls: scrolls)
-        ui.scrollToTop(until: ui.elements(AccessibilityID.MyTasks.daySummary))
 
+        // Back at the top: the rows are then found below the screen (a card half under the navigation bar would take
+        // the tap there).
+        ui.scrollToTop(until: daySummary, maxScrolls: 4 * scrolls + 4)
         ui.openTask(UITestDemo.sortirPoubelles)
         ui.waitForContent(ui.elements(AccessibilityID.Tasks.statusOption("todo")), "the status")
         ui.capture("tache-rotation-\(suffix)")
         scrollAndCapture(ui, "tache-rotation-\(suffix)", scrolls: scrolls)
         ui.goBack(from: UITestScreen.task)
 
+        ui.scrollToTop(until: daySummary, maxScrolls: 4 * scrolls + 4)
         ui.openTask(UITestDemo.faireCourses)
         ui.waitForContent(ui.elements(AccessibilityID.Tasks.statusOption("todo")), "the status")
         ui.capture("tache-checklist-\(suffix)")

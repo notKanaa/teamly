@@ -88,7 +88,12 @@ struct TaskRowCard: View {
     // MARK: - Parts
 
     private var titleLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        // At accessibility text sizes « Nouveau » goes under the title: beside it, it would leave the title a few
+        // letters per line.
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+        return layout {
             Text(row.title)
                 .font(.headline)
                 .strikethrough(row.isDone)
