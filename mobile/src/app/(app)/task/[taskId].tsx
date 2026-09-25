@@ -1,8 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Alert, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import Animated, {
+  LayoutAnimationConfig,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { AppError, errorMessage } from '@/core/appError';
 import { FrenchCalendar } from '@/core/calendar';
@@ -49,6 +57,7 @@ import {
   tap,
   type IconName,
 } from '@/ui/components';
+import { bounce, fadeIn, fadeOut, listLayout, popIn, PressableScale } from '@/ui/motion';
 import { Screen } from '@/ui/Screen';
 import { colorAccent, prioritySoft, statusSoft, type Soft, type as typo, useTheme } from '@/ui/theme';
 
@@ -366,67 +375,61 @@ function Checklist({
         {progress ? <Text style={[typo.headline, { color: teal }]}>{progressText(progress)}</Text> : null}
       </View>
       {progress ? <ProgressBar fraction={progressFraction(progress)} color={theme.fill.teal} track={theme.soft.teal.bg} /> : null}
-      {items.map((item) => (
-        <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 }}>
-          <Pressable
-            accessibilityRole="checkbox"
-            accessibilityLabel={item.title}
-            accessibilityState={{ checked: item.isDone, disabled: !editable }}
-            disabled={!editable}
-            onPress={() => onToggle(item)}
-            hitSlop={10}
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 7,
-              borderWidth: item.isDone ? 0 : 2,
-              borderColor: theme.trackStrong,
-              backgroundColor: item.isDone ? theme.fill.teal : 'transparent',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+      {/* The items shown with the card do not animate in; added, removed and checked ones do. */}
+      <LayoutAnimationConfig skipEntering>
+        {items.map((item) => (
+          <Animated.View
+            key={item.id}
+            entering={fadeIn}
+            exiting={fadeOut}
+            layout={listLayout}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 }}
           >
-            {item.isDone ? <Ionicons name="checkmark" size={17} color="#FFF" /> : null}
-          </Pressable>
-          {editing?.id === item.id ? (
-            <TextInput
-              value={editing.title}
-              onChangeText={(title) => setEditing({ id: item.id, title })}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={() => commitRename(item)}
-              onBlur={() => commitRename(item)}
-              style={[typo.body, { flex: 1, color: theme.textPrimary, minHeight: 40, borderBottomWidth: 1, borderBottomColor: theme.accent }]}
-            />
-          ) : (
-            <Pressable
-              style={{ flex: 1, minHeight: 40, justifyContent: 'center' }}
-              disabled={!editable}
+            <ChecklistBox
+              label={item.title}
+              done={item.isDone}
+              editable={editable}
               onPress={() => onToggle(item)}
-              onLongPress={() => {
-                tap();
-                setEditing({ id: item.id, title: item.title });
-              }}
-              accessibilityHint={editable ? 'Appui long pour renommer' : undefined}
-            >
-              <Text
-                style={[
-                  typo.body,
-                  { color: item.isDone ? theme.textSecondary : theme.textPrimary },
-                  item.isDone && { textDecorationLine: 'line-through' },
-                ]}
+            />
+            {editing?.id === item.id ? (
+              <TextInput
+                value={editing.title}
+                onChangeText={(title) => setEditing({ id: item.id, title })}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={() => commitRename(item)}
+                onBlur={() => commitRename(item)}
+                style={[typo.body, { flex: 1, color: theme.textPrimary, minHeight: 40, borderBottomWidth: 1, borderBottomColor: theme.accent }]}
+              />
+            ) : (
+              <Pressable
+                style={{ flex: 1, minHeight: 40, justifyContent: 'center' }}
+                disabled={!editable}
+                onPress={() => onToggle(item)}
+                onLongPress={() => {
+                  tap();
+                  setEditing({ id: item.id, title: item.title });
+                }}
+                accessibilityHint={editable ? 'Appui long pour renommer' : undefined}
               >
-                {item.title}
-              </Text>
-            </Pressable>
-          )}
-          {editable ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={`Supprimer «\u{a0}${item.title}\u{a0}»`} hitSlop={10} onPress={() => onDelete(item)}>
-              <Ionicons name="close" size={18} color={theme.textTertiary} />
-            </Pressable>
-          ) : null}
-        </View>
-      ))}
+                <ChecklistTitle title={item.title} done={item.isDone} />
+              </Pressable>
+            )}
+            {editable ? (
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityLabel={`Supprimer «\u{a0}${item.title}\u{a0}»`}
+                hitSlop={10}
+                scaleTo={0.85}
+                pressedOpacity={0.6}
+                onPress={() => onDelete(item)}
+              >
+                <Ionicons name="close" size={18} color={theme.textTertiary} />
+              </PressableScale>
+            ) : null}
+          </Animated.View>
+        ))}
+      </LayoutAnimationConfig>
       {editable ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <Ionicons name="add-circle" size={24} color={theme.accent} />
@@ -452,5 +455,81 @@ function Checklist({
         </View>
       ) : null}
     </Card>
+  );
+}
+
+/** A checklist checkbox: checking fills it in teal and pops the check in; any change bounces it. */
+function ChecklistBox({ label, done, editable, onPress }: { label: string; done: boolean; editable: boolean; onPress: () => void }) {
+  const theme = useTheme();
+  const reduced = useReducedMotion();
+  const scale = useSharedValue(1);
+  const shown = useRef(done);
+  useEffect(() => {
+    if (shown.current !== done) scale.value = bounce(reduced, 0.8, 1.12);
+    shown.current = done;
+  }, [done, reduced, scale]);
+  const bounceStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: done, disabled: !editable }}
+      disabled={!editable}
+      onPress={onPress}
+      hitSlop={10}
+    >
+      <Animated.View
+        style={[
+          { width: 24, height: 24, borderRadius: 7, borderWidth: 2, borderColor: theme.trackStrong, alignItems: 'center', justifyContent: 'center' },
+          bounceStyle,
+        ]}
+      >
+        {done ? (
+          <Animated.View
+            entering={popIn(reduced)}
+            style={{
+              position: 'absolute',
+              top: -2,
+              left: -2,
+              right: -2,
+              bottom: -2,
+              borderRadius: 7,
+              backgroundColor: theme.fill.teal,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Animated.View entering={popIn(reduced, 80)}>
+              <Ionicons name="checkmark" size={17} color="#FFF" />
+            </Animated.View>
+          </Animated.View>
+        ) : null}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+/** A checklist item's title: struck through when done, with a short dip in opacity as it changes. */
+function ChecklistTitle({ title, done }: { title: string; done: boolean }) {
+  const theme = useTheme();
+  const reduced = useReducedMotion();
+  const opacity = useSharedValue(1);
+  const shown = useRef(done);
+  useEffect(() => {
+    if (shown.current !== done && !reduced) opacity.value = withSequence(withTiming(0.35, { duration: 90 }), withTiming(1, { duration: 220 }));
+    shown.current = done;
+  }, [done, reduced, opacity]);
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <Animated.Text
+      style={[
+        typo.body,
+        { color: done ? theme.textSecondary : theme.textPrimary },
+        done && { textDecorationLine: 'line-through' },
+        fadeStyle,
+      ]}
+    >
+      {title}
+    </Animated.Text>
   );
 }

@@ -62,7 +62,8 @@ function Root() {
       }}
     >
       <StatusBar style="auto" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }}>
+      {/* Signing in or out cross-fades between the app and the sign-in screens. */}
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background }, animation: 'fade' }}>
         <Stack.Protected guard={signedIn && !recovering}>
           <Stack.Screen name="(app)" />
         </Stack.Protected>

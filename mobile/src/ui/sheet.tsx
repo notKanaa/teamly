@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 
 import { tap, type IconName } from './components';
+import { PressableScale } from './motion';
 import { fonts, radius, type as typo, useTheme } from './theme';
 
 // Sheet chrome and menus of the groups screens: the capsule buttons of a sheet's top bar (« Annuler » / « Créer »),
@@ -38,14 +39,16 @@ export function CapsuleButton({
 }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: disabled || loading }}
       disabled={disabled || loading}
       onPress={onPress}
       hitSlop={4}
-      style={({ pressed }) => [
+      scaleTo={0.95}
+      pressedOpacity={0.75}
+      style={[
         {
           minHeight: 44,
           minWidth: 44,
@@ -54,7 +57,6 @@ export function CapsuleButton({
           backgroundColor: theme.card,
           alignItems: 'center',
           justifyContent: 'center',
-          opacity: pressed ? 0.7 : 1,
         },
         theme.cardShadow,
       ]}
@@ -72,7 +74,7 @@ export function CapsuleButton({
           {title}
         </Text>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -116,11 +118,13 @@ export function CircleButton({
   const theme = useTheme();
   const translucent = variant === 'translucent';
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [
+      scaleTo={0.92}
+      pressedOpacity={0.75}
+      style={[
         {
           width: size,
           height: size,
@@ -128,13 +132,12 @@ export function CircleButton({
           backgroundColor: translucent ? 'rgba(255,255,255,0.22)' : theme.card,
           alignItems: 'center',
           justifyContent: 'center',
-          opacity: pressed ? 0.7 : 1,
         },
         !translucent && theme.cardShadow,
       ]}
     >
       <Ionicons name={icon} size={size * 0.5} color={translucent ? '#FFF' : (tint ?? theme.textPrimary)} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -329,20 +332,20 @@ export function PromptModal({
 function DialogButton({ title, onPress, bold }: { title: string; onPress: () => void; bold?: boolean }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => ({
+      pressedOpacity={0.85}
+      style={{
         flex: 1,
         minHeight: 46,
         borderRadius: 14,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: bold ? theme.accentFill : theme.track,
-        opacity: pressed ? 0.8 : 1,
-      })}
+      }}
     >
       <Text style={{ fontSize: 16, fontWeight: bold ? '700' : '600', color: bold ? '#FFF' : theme.textPrimary }}>{title}</Text>
-    </Pressable>
+    </PressableScale>
   );
 }

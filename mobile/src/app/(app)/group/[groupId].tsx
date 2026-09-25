@@ -1,9 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedReaction,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useDerivedValue,
+  useReducedMotion,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { scheduleOnRN } from 'react-native-worklets';
 
 import { RECAP_EMPTY_MESSAGE, RECAP_TITLE, recapRange, recapTotalLabel } from '@/core/activityText';
 import { errorMessage } from '@/core/appError';
@@ -70,6 +82,7 @@ import {
   SmallSectionTitle,
   TurnCardView,
 } from '@/ui/groupKit';
+import { CountUpText, fadeIn, fadeOut, FadeSwitch, GENTLE, listLayout, PressableScale, SNAPPY, useListEntering, useSpringValue } from '@/ui/motion';
 import { CircleButton, MenuButton, PromptModal, type MenuSection } from '@/ui/sheet';
 import { fonts, radius, spacing, type as typo, useTheme } from '@/ui/theme';
 
@@ -86,13 +99,59 @@ export default function GroupScreen() {
   const groupTasks = useGroupTasks(groupId);
   const [tab, setTab] = useState<GroupTab>('tasks');
   const [filter, setFilter] = useState<TaskFilter>(ALL_TASKS_FILTER);
-  const [identityHeight, setIdentityHeight] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const statusMutation = useTaskMutation((args: { id: string; status: 'todo' | 'in_progress' | 'done' }) =>
     tasks.setStatus(args.id, args.status),
   );
   const calendar = useMemo(() => FrenchCalendar.device(), []);
+
+  // Motion: `activity` goes 0 → 1 with the tab (the tall hero folds into the one-line bar); the bar's title follows
+  // the scroll on « Tâches »; the « + » shrinks while scrolling down.
+  const reduced = useReducedMotion();
+  const activity = useSpringValue(tab === 'activity' ? 1 : 0, { initial: tab === 'activity' ? 1 : 0, config: GENTLE });
+  const heroHeight = useSharedValue(0);
+  const scrollY = useSharedValue(0);
+  const fabDown = useSharedValue(0);
+  const fabShrink = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      const y = event.contentOffset.y;
+      const dy = y - scrollY.value;
+      scrollY.value = y;
+      const down = y <= 40 || dy < -3 ? 0 : dy > 3 ? 1 : fabDown.value;
+      if (down !== fabDown.value) {
+        fabDown.value = down;
+        fabShrink.value = reduced ? down : withSpring(down, SNAPPY);
+      }
+    },
+  });
+  useAnimatedReaction(
+    () => heroHeight.value > 0 && scrollY.value > heroHeight.value * 0.7,
+    (next, previous) => {
+      if (next !== previous) scheduleOnRN(setCollapsed, next);
+    },
+  );
+  // 0: the hero shows the group; 1: the bar does (on « Activité », or once the hero has scrolled away).
+  const inline = useDerivedValue(() => {
+    const height = heroHeight.value;
+    const scrolled = height > 0 ? interpolate(scrollY.value, [height * 0.45, height * 0.8], [0, 1], Extrapolation.CLAMP) : 0;
+    return Math.min(1, Math.max(activity.value, scrolled));
+  });
+  const barStyle = useAnimatedStyle(() => {
+    const amount = Math.max(0, activity.value);
+    return { paddingBottom: 6 + 12 * amount, borderBottomLeftRadius: 28 * amount, borderBottomRightRadius: 28 * amount };
+  });
+  const inlineTitleStyle = useAnimatedStyle(() => ({ opacity: inline.value, transform: [{ translateY: (1 - inline.value) * 10 }] }));
+  const inlineTileStyle = useAnimatedStyle(() => ({ transform: [{ scale: 0.6 + 0.4 * inline.value }] }));
+  const inviteStyle = useAnimatedStyle(() => ({ opacity: 1 - inline.value, transform: [{ scale: 1 - 0.15 * inline.value }] }));
+  const heroStyle = useAnimatedStyle(() => {
+    const amount = Math.min(1, Math.max(0, activity.value));
+    const opacity = Math.max(0, 1 - amount * 1.6);
+    if (heroHeight.value === 0) return { opacity };
+    return { height: heroHeight.value * (1 - amount), opacity };
+  });
+  const heroTileStyle = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.4 * Math.min(1, Math.max(0, activity.value)) }] }));
 
   if (myGroups.isSuccess && summary === null) {
     return (
@@ -196,25 +255,32 @@ export default function GroupScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
-      {/* The pinned bar: back, « Inviter », « … » (the tile and the name on « Activité » or once scrolled). */}
-      <View
-        style={{
-          zIndex: 2,
-          backgroundColor: fill,
-          paddingTop: insets.top + 6,
-          paddingHorizontal: spacing.page,
-          paddingBottom: isActivity ? 18 : 6,
-          borderBottomLeftRadius: isActivity ? 28 : 0,
-          borderBottomRightRadius: isActivity ? 28 : 0,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 10,
-        }}
+      {/* The pinned bar: back, « Inviter », « … » (the tile and the name fade in on « Activité » or once scrolled). */}
+      <Animated.View
+        style={[
+          {
+            zIndex: 2,
+            backgroundColor: fill,
+            paddingTop: insets.top + 6,
+            paddingHorizontal: spacing.page,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 10,
+          },
+          barStyle,
+        ]}
       >
         <CircleButton icon="chevron-back" label="Retour" variant="translucent" onPress={() => router.back()} />
-        {showsInlineTitle ? (
-          <>
-            <HeroTile appearance={appearance} size={40} />
+        <View style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}>
+          <Animated.View
+            pointerEvents="none"
+            accessibilityElementsHidden={!showsInlineTitle}
+            importantForAccessibility={showsInlineTitle ? 'auto' : 'no-hide-descendants'}
+            style={[{ flexDirection: 'row', alignItems: 'center', gap: 10 }, inlineTitleStyle]}
+          >
+            <Animated.View style={inlineTileStyle}>
+              <HeroTile appearance={appearance} size={40} />
+            </Animated.View>
             <Text
               accessibilityRole="header"
               numberOfLines={isActivity ? 2 : 1}
@@ -222,26 +288,28 @@ export default function GroupScreen() {
             >
               {group.name}
             </Text>
-          </>
-        ) : (
-          <>
-            <View style={{ flex: 1 }} />
-            {isAdmin ? <InviteButton color={fill} onPress={openInvite} /> : null}
-          </>
-        )}
+          </Animated.View>
+          {isAdmin ? (
+            <Animated.View
+              pointerEvents={showsInlineTitle ? 'none' : 'box-none'}
+              accessibilityElementsHidden={showsInlineTitle}
+              importantForAccessibility={showsInlineTitle ? 'no-hide-descendants' : 'auto'}
+              style={[{ position: 'absolute', right: 0 }, inviteStyle]}
+            >
+              <InviteButton color={fill} onPress={openInvite} />
+            </Animated.View>
+          ) : null}
+        </View>
         <MenuButton accessibilityLabel="Options du groupe" sections={menu}>
           <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
             <Ionicons name="ellipsis-horizontal" size={22} color="#FFF" />
           </View>
         </MenuButton>
-      </View>
+      </Animated.View>
 
-      <ScrollView
-        scrollEventThrottle={32}
-        onScroll={(event) => {
-          const next = !isActivity && identityHeight > 0 && event.nativeEvent.contentOffset.y > identityHeight * 0.7;
-          if (next !== collapsed) setCollapsed(next);
-        }}
+      <Animated.ScrollView
+        scrollEventThrottle={16}
+        onScroll={onScroll}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -257,9 +325,19 @@ export default function GroupScreen() {
         }
         contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}
       >
-        {!isActivity ? (
-          <View onLayout={(event) => setIdentityHeight(event.nativeEvent.layout.height)}>
-            <View style={{ position: 'absolute', left: 0, right: 0, top: -800, height: 800, backgroundColor: fill }} />
+        {/* The hero: folds away (height, opacity, the tile shrinking) when « Activité » is chosen. */}
+        {!isActivity ? <View style={{ position: 'absolute', left: 0, right: 0, top: -800, height: 800, backgroundColor: fill }} /> : null}
+        <Animated.View
+          pointerEvents={isActivity ? 'none' : 'auto'}
+          accessibilityElementsHidden={isActivity}
+          importantForAccessibility={isActivity ? 'no-hide-descendants' : 'auto'}
+          style={[{ overflow: 'hidden' }, heroStyle]}
+        >
+          <View
+            onLayout={(event) => {
+              heroHeight.value = event.nativeEvent.layout.height;
+            }}
+          >
             <View
               style={{
                 backgroundColor: fill,
@@ -273,7 +351,9 @@ export default function GroupScreen() {
                 gap: 14,
               }}
             >
-              <HeroTile appearance={appearance} size={64} />
+              <Animated.View style={heroTileStyle}>
+                <HeroTile appearance={appearance} size={64} />
+              </Animated.View>
               <View style={{ flex: 1, gap: 6 }}>
                 <Text accessibilityRole="header" style={{ fontFamily: fonts.heavy, fontSize: 26, lineHeight: 32, color: '#FFF' }}>
                   {group.name}
@@ -287,39 +367,40 @@ export default function GroupScreen() {
               </View>
             </View>
           </View>
-        ) : null}
+        </Animated.View>
 
         <View style={{ paddingHorizontal: spacing.page, paddingTop: 16, gap: 18 }}>
           <SegmentedPill
             options={(['tasks', 'activity'] as const).map((key) => ({ key, label: groupTabLabel(key) }))}
             value={tab}
-            onChange={(next) => {
-              setTab(next);
-              setCollapsed(false);
-            }}
+            onChange={setTab}
           />
-          {tab === 'tasks' ? (
-            <TasksTab
-              groupId={groupId}
-              context={context}
-              error={members.error ?? groupTasks.error}
-              color={appearance.color}
-              filter={filter}
-              setFilter={setFilter}
-              canCreate={canCreateTask(role)}
-              onToggle={(id, status) => statusMutation.mutate({ id, status: nextStatus(status) })}
-              mutationError={statusMutation.error}
-            />
-          ) : (
-            <ActivityTab groupId={groupId} members={members.data ?? null} userId={userId} openable={new Set((groupTasks.data ?? []).map((task) => task.id))} />
-          )}
+          {/* « Activité » comes in from the right, « Tâches » from the left. */}
+          <FadeSwitch id={tab} direction={isActivity ? 1 : -1} style={{ gap: 18 }}>
+            {tab === 'tasks' ? (
+              <TasksTab
+                groupId={groupId}
+                context={context}
+                error={members.error ?? groupTasks.error}
+                color={appearance.color}
+                filter={filter}
+                setFilter={setFilter}
+                canCreate={canCreateTask(role)}
+                onToggle={(id, status) => statusMutation.mutate({ id, status: nextStatus(status) })}
+                mutationError={statusMutation.error}
+              />
+            ) : (
+              <ActivityTab groupId={groupId} members={members.data ?? null} userId={userId} openable={new Set((groupTasks.data ?? []).map((task) => task.id))} />
+            )}
+          </FadeSwitch>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
 
       {tab === 'tasks' && canCreateTask(role) ? (
         <FloatingAddButton
           label="Nouvelle tâche"
           bottom={insets.bottom + 20}
+          shrink={fabShrink}
           onPress={() => router.push({ pathname: '/new-task', params: { groupId } })}
         />
       ) : null}
@@ -342,11 +423,13 @@ export default function GroupScreen() {
 /** « Inviter »: a white capsule, its text in the group's fill. */
 function InviteButton({ color, onPress }: { color: string; onPress: () => void }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel="Inviter avec un code"
       onPress={onPress}
-      style={({ pressed }) => ({
+      scaleTo={0.94}
+      pressedOpacity={0.85}
+      style={{
         minHeight: 44,
         paddingHorizontal: 16,
         borderRadius: 999,
@@ -354,12 +437,11 @@ function InviteButton({ color, onPress }: { color: string; onPress: () => void }
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        opacity: pressed ? 0.8 : 1,
-      })}
+      }}
     >
       <Ionicons name="person-add-outline" size={18} color={color} />
       <Text style={{ fontFamily: fonts.heavy, fontSize: 16, color }}>Inviter</Text>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -422,6 +504,7 @@ function TasksTab({
   onToggle: (id: string, status: 'todo' | 'in_progress' | 'done') => void;
   mutationError: unknown;
 }) {
+  const entering = useListEntering(context !== null);
   if (error) return <ErrorText message={errorMessage(error)} />;
   if (!context) return <Loading />;
   const cards = turnCards(context);
@@ -430,15 +513,26 @@ function TasksTab({
   const openRows = rows.filter((row) => !row.isDone);
   const doneRows = rows.filter((row) => row.isDone);
   const hasNoTask = context.tasks.length === 0;
-  const renderRow = (row: (typeof rows)[number]) => (
-    <TaskRowCard
-      key={row.id}
-      row={row}
-      color={color}
-      onPress={() => router.push(`/task/${row.id}`)}
-      onToggleStatus={() => onToggle(row.id, row.status)}
-    />
+  // One keyed list (open rows, « Terminées », done rows), so that a task marked done slides to its new place.
+  const renderRow = (row: (typeof rows)[number], index: number) => (
+    <Animated.View key={row.id} entering={entering(index)} exiting={fadeOut} layout={listLayout}>
+      <TaskRowCard
+        row={row}
+        color={color}
+        onPress={() => router.push(`/task/${row.id}`)}
+        onToggleStatus={() => onToggle(row.id, row.status)}
+      />
+    </Animated.View>
   );
+  const listItems: ReactNode[] = openRows.map(renderRow);
+  if (openRows.length > 0 && doneRows.length > 0) {
+    listItems.push(
+      <Animated.View key="done-title" entering={fadeIn} exiting={fadeOut} layout={listLayout}>
+        <SmallSectionTitle style={{ marginTop: 10 }}>Terminées</SmallSectionTitle>
+      </Animated.View>,
+    );
+  }
+  doneRows.forEach((row, index) => listItems.push(renderRow(row, openRows.length + index)));
   return (
     <>
       {cards.length > 0 ? (
@@ -492,11 +586,7 @@ function TasksTab({
           ) : null}
         </EmptyState>
       ) : (
-        <View style={{ gap: 10 }}>
-          {openRows.map(renderRow)}
-          {openRows.length > 0 && doneRows.length > 0 ? <SmallSectionTitle style={{ marginTop: 10 }}>Terminées</SmallSectionTitle> : null}
-          {doneRows.map(renderRow)}
-        </View>
+        <View style={{ gap: 10 }}>{listItems}</View>
       )}
       {mutationError ? <ErrorText message={errorMessage(mutationError)} /> : null}
     </>
@@ -518,6 +608,7 @@ function ActivityTab({
   const calendar = useMemo(() => FrenchCalendar.device(), []);
   const activity = useActivity(groupId);
   const completions = useCompletions(groupId);
+  const entering = useListEntering(activity.data !== undefined && completions.data !== undefined && members !== null);
   const error = activity.error ?? completions.error;
   if (error) return <ErrorText message={errorMessage(error)} />;
   if (!activity.data || !completions.data || !members) return <Loading />;
@@ -541,9 +632,10 @@ function ActivityTab({
             </Text>
           </View>
           <View accessible style={{ alignItems: 'flex-end' }}>
-            <Text style={{ fontFamily: fonts.heavy, fontSize: 40, lineHeight: 46, color: theme.accent, fontVariant: ['tabular-nums'] }}>
-              {recap.total}
-            </Text>
+            <CountUpText
+              value={recap.total}
+              style={{ fontFamily: fonts.heavy, fontSize: 40, lineHeight: 46, color: theme.accent, fontVariant: ['tabular-nums'] }}
+            />
             <Text style={[typo.footnote, { fontSize: 15, color: theme.textSecondary }]}>{recapTotalLabel(recap.total)}</Text>
           </View>
         </View>
@@ -582,8 +674,8 @@ function ActivityTab({
           <EmptyState icon="flash-outline" title={ACTIVITY_EMPTY_TITLE} message={ACTIVITY_EMPTY_MESSAGE} />
         </View>
       ) : (
-        sections.map((section) => (
-          <View key={section.title} style={{ gap: 8 }}>
+        sections.map((section, index) => (
+          <Animated.View key={section.title} entering={entering(index)} style={{ gap: 8 }}>
             <SmallSectionTitle style={{ paddingHorizontal: 4 }}>{section.title}</SmallSectionTitle>
             <View style={[{ backgroundColor: theme.card, borderRadius: radius.card, paddingHorizontal: 16, paddingVertical: 4 }, theme.cardShadow]}>
               {section.rows.map((row, index) => {
@@ -598,7 +690,7 @@ function ActivityTab({
                 );
               })}
             </View>
-          </View>
+          </Animated.View>
         ))
       )}
     </>

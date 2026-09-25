@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { errorMessage } from '@/core/appError';
@@ -45,6 +46,7 @@ import {
   tap,
   type IconName,
 } from '@/ui/components';
+import { fadeIn, fadeOut, listLayout, PressableScale, useListEntering } from '@/ui/motion';
 import { Screen } from '@/ui/Screen';
 import { type as typo, useTheme } from '@/ui/theme';
 
@@ -98,15 +100,19 @@ export default function MyTasksScreen() {
   const doneText = doneTodayText(doneRows.length);
   const overdueText = summary ? dayOverdueText(summary) : null;
   const newText = summary ? dayNewText(summary) : null;
+  const entering = useListEntering(context !== null);
 
+  // Rows rise in one after the other on first show; later ones fade in, leave with a fade, and the rest slide.
+  let rowIndex = 0;
   const renderRow = (row: TaskRow) => (
-    <MyTaskRowCard
-      key={row.id}
-      row={row}
-      busy={busyId === row.id}
-      onPress={() => router.push(`/task/${row.id}`)}
-      onToggleStatus={() => statusMutation.mutate({ id: row.id, status: nextStatus(row.status) })}
-    />
+    <Animated.View key={row.id} entering={entering(rowIndex++)} exiting={fadeOut} layout={listLayout}>
+      <MyTaskRowCard
+        row={row}
+        busy={busyId === row.id}
+        onPress={() => router.push(`/task/${row.id}`)}
+        onToggleStatus={() => statusMutation.mutate({ id: row.id, status: nextStatus(row.status) })}
+      />
+    </Animated.View>
   );
 
   return (
@@ -163,7 +169,7 @@ export default function MyTasksScreen() {
         ) : null}
 
         {sections.map((section) => (
-          <View key={section.bucket} style={{ gap: 12 }}>
+          <Animated.View key={section.bucket} entering={fadeIn} exiting={fadeOut} layout={listLayout} style={{ gap: 12 }}>
             <SectionTitle
               size="small"
               icon={SECTION_ICONS[section.bucket]}
@@ -173,14 +179,15 @@ export default function MyTasksScreen() {
               {section.title}
             </SectionTitle>
             {section.rows.map(renderRow)}
-          </View>
+          </Animated.View>
         ))}
 
         {doneText ? (
-          <View style={{ gap: 12 }}>
-            <Pressable
+          <Animated.View entering={fadeIn} layout={listLayout} style={{ gap: 12 }}>
+            <PressableScale
               accessibilityRole="button"
               accessibilityState={{ expanded: showDoneToday }}
+              scaleTo={0.98}
               onPress={() => {
                 tap();
                 setShowDoneToday((value) => !value);
@@ -193,15 +200,16 @@ export default function MyTasksScreen() {
               <Ionicons name="checkmark-circle" size={22} color={theme.fill.green} />
               <Text style={[typo.headline, { color: theme.textPrimary, flex: 1 }]}>{doneText}</Text>
               <Ionicons name={showDoneToday ? 'chevron-up' : 'chevron-down'} size={18} color={theme.textSecondary} />
-            </Pressable>
+            </PressableScale>
             {showDoneToday ? doneRows.map(renderRow) : null}
-          </View>
+          </Animated.View>
         ) : null}
       </Screen>
 
       {menuOpen ? (
         <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setMenuOpen(false)}>
-          <View
+          <Animated.View
+            entering={fadeIn}
             style={[
               {
                 position: 'absolute',
@@ -235,7 +243,7 @@ export default function MyTasksScreen() {
               <Ionicons name={includeDone ? 'checkmark' : 'checkmark-circle-outline'} size={20} color={theme.accent} />
               <Text style={[typo.body, { color: theme.textPrimary, flex: 1 }]}>{SHOW_DONE_LABEL}</Text>
             </Pressable>
-          </View>
+          </Animated.View>
         </Pressable>
       ) : null}
     </View>

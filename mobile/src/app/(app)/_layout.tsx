@@ -1,11 +1,14 @@
 import { Stack } from 'expo-router';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 import { useOnboardingGate } from '@/data/onboarding';
 import { useLiveUpdates, useMyGroups, useProfile } from '@/data/queries';
 import { useUserId } from '@/data/session';
 import { useNotifications } from '@/notifications/useNotifications';
 import { useTheme } from '@/ui/theme';
+
+/** The sheets: iOS page sheets; on Android, a slide up from the bottom. */
+const SHEET = { presentation: 'modal', animation: Platform.OS === 'android' ? 'slide_from_bottom' : 'default' } as const;
 
 /**
  * The signed-in app: the tabs, and the group and task screens pushed over them; before them, the onboarding of a new
@@ -27,17 +30,19 @@ export default function AppLayout() {
   }
   const showOnboarding = onboarding === true;
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }}>
+    // Pushes use the platform's own transition; sheets are iOS page sheets and slide up from the bottom on Android;
+    // the tabs fade in when the onboarding ends.
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background }, animation: 'default' }}>
       <Stack.Protected guard={!showOnboarding}>
-        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
         <Stack.Screen name="group/[groupId]" />
         <Stack.Screen name="task/[taskId]" />
-        <Stack.Screen name="new-group" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="new-task" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="avatar" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="new-group" options={SHEET} />
+        <Stack.Screen name="new-task" options={SHEET} />
+        <Stack.Screen name="avatar" options={SHEET} />
         <Stack.Screen name="group/members" />
-        <Stack.Screen name="group/invite" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="group/appearance" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="group/invite" options={SHEET} />
+        <Stack.Screen name="group/appearance" options={SHEET} />
       </Stack.Protected>
       <Stack.Protected guard={showOnboarding}>
         <Stack.Screen name="onboarding" options={{ gestureEnabled: false, animation: 'fade' }} />

@@ -4,6 +4,7 @@ import { Pressable, Text, View } from 'react-native';
 import { COLOR_KEYS, colorLabel, type ColorKey } from '@/core/colorKey';
 
 import { tap } from './components';
+import { PopIn } from './motion';
 import { useTheme } from './theme';
 
 /** SwatchGrid: the 9 colors, a check on the selected one. */
@@ -32,7 +33,11 @@ export function SwatchGrid({ value, onChange }: { value: ColorKey; onChange: (ke
             borderColor: theme.textPrimary,
           }}
         >
-          {key === value ? <Ionicons name="checkmark" size={24} color="#FFF" /> : null}
+          {key === value ? (
+            <PopIn>
+              <Ionicons name="checkmark" size={24} color="#FFF" />
+            </PopIn>
+          ) : null}
         </Pressable>
       ))}
     </View>

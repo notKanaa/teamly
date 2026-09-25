@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
 import { Pressable, Text, View, useWindowDimensions, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import Animated, { Extrapolation, FadeInUp, interpolate, useAnimatedStyle, useReducedMotion } from 'react-native-reanimated';
 
 import type { EmphasizedText } from '@/core/activityText';
 import { COLOR_KEYS, colorLabel, type ColorKey } from '@/core/colorKey';
@@ -22,7 +23,8 @@ import {
   type GroupOverview,
 } from '@/core/presentation';
 
-import { Avatar, AvatarStack, Chip, GroupTile, tap, type IconName } from './components';
+import { Avatar, AvatarStack, Chip, GroupTile, tap, useChipColors, type IconName } from './components';
+import { AnimatedProgressBar, fadeIn, GENTLE, listLayout, PopIn, PressableScale, useSpringValue } from './motion';
 import { fonts, radius, type Soft, type Theme, type as typo, useTheme } from './theme';
 
 // The pieces of the groups screens (docs/DESIGN-V2.md §5, §7.2, §7.4, §7.5; Swift `GroupCards`, `GroupTurnCard`,
@@ -123,27 +125,23 @@ export function LargeSectionTitle({ title, trailing }: { title: string; trailing
 export function FilterChipButton({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
   const theme = useTheme();
   const extra = extraTokens(theme);
+  // The colors cross-fade with the selection; the chip springs to its place when the counts change its width.
+  const colors = useChipColors(selected, theme.textPrimary, theme.card, theme.background, theme.textPrimary, extra.trackStrong);
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={() => {
         tap();
         onPress();
       }}
-      style={({ pressed }) => ({
-        minHeight: 44,
-        paddingHorizontal: 18,
-        borderRadius: 999,
-        justifyContent: 'center',
-        backgroundColor: selected ? theme.textPrimary : theme.card,
-        borderWidth: 1.5,
-        borderColor: selected ? theme.textPrimary : extra.trackStrong,
-        opacity: pressed ? 0.8 : 1,
-      })}
+      scaleTo={0.95}
+      pressedOpacity={0.85}
+      layout={listLayout}
+      style={[{ minHeight: 44, paddingHorizontal: 18, borderRadius: 999, justifyContent: 'center', borderWidth: 1.5 }, colors.chip]}
     >
-      <Text style={{ fontFamily: fonts.extraBold, fontSize: 16, color: selected ? theme.background : theme.textPrimary }}>{label}</Text>
-    </Pressable>
+      <Animated.Text style={[{ fontFamily: fonts.extraBold, fontSize: 16 }, colors.text]}>{label}</Animated.Text>
+    </PressableScale>
   );
 }
 
@@ -226,7 +224,11 @@ export function SwatchGrid({ isSelected, onSelect }: { isSelected: (key: ColorKe
               <View
                 style={{ height: 44, borderRadius: 14, backgroundColor: theme.fill[key], alignItems: 'center', justifyContent: 'center' }}
               >
-                {selected ? <Ionicons name="checkmark" size={24} color="#FFF" /> : null}
+                {selected ? (
+                  <PopIn>
+                    <Ionicons name="checkmark" size={24} color="#FFF" />
+                  </PopIn>
+                ) : null}
               </View>
             </Pressable>
           </View>
@@ -307,14 +309,13 @@ export function GroupCard({ summary, overview, onPress }: { summary: GroupSummar
   const avatars = overview ? overviewMemberAvatars(overview) : [];
   const subtitle = overview ? overviewSummaryText(overview) : summary.myRole === 'admin' ? 'Tu es admin' : 'Tu es membre';
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={`${summary.group.name}, ${subtitle}${overview ? `, ${OVERVIEW_WEEK_TITLE} ${overviewWeekProgressText(overview)}` : ''}`}
       onPress={onPress}
-      style={({ pressed }) => [
-        { backgroundColor: theme.card, borderRadius: radius.card, padding: 18, gap: 16, transform: [{ scale: pressed ? 0.98 : 1 }] },
-        theme.cardShadow,
-      ]}
+      scaleTo={0.975}
+      pressedOpacity={0.95}
+      style={[{ backgroundColor: theme.card, borderRadius: radius.card, padding: 18, gap: 16 }, theme.cardShadow]}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
         <GroupTile appearance={appearance} size={56} />
@@ -333,19 +334,14 @@ export function GroupCard({ summary, overview, onPress }: { summary: GroupSummar
           <HairlineProgressBar fraction={overviewWeekProgress(overview)} color={theme.fill[appearance.color]} />
         </View>
       ) : null}
-    </Pressable>
+    </PressableScale>
   );
 }
 
 /** A progress bar on the `hairline` track (the group cards). */
 function HairlineProgressBar({ fraction, color }: { fraction: number; color: string }) {
   const theme = useTheme();
-  const clamped = Math.max(0, Math.min(1, fraction));
-  return (
-    <View style={{ height: 8, borderRadius: 4, backgroundColor: theme.dark ? theme.track : theme.hairline, overflow: 'hidden' }}>
-      {clamped > 0 ? <View style={{ width: `${Math.max(clamped * 100, 3)}%`, height: 8, borderRadius: 4, backgroundColor: color }} /> : null}
-    </View>
-  );
+  return <AnimatedProgressBar fraction={fraction} color={color} height={8} track={theme.dark ? theme.track : theme.hairline} delay={120} />;
 }
 
 /** The dashed « Rejoindre un groupe » card: key tile, title, « Avec un code d’invitation », chevron. */
@@ -353,12 +349,13 @@ export function JoinGroupCard({ onPress }: { onPress: () => void }) {
   const theme = useTheme();
   const extra = extraTokens(theme);
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel="Rejoindre un groupe"
       accessibilityHint="Avec un code d’invitation"
       onPress={onPress}
-      style={({ pressed }) => ({
+      scaleTo={0.975}
+      style={{
         flexDirection: 'row',
         alignItems: 'center',
         gap: 14,
@@ -368,8 +365,7 @@ export function JoinGroupCard({ onPress }: { onPress: () => void }) {
         borderWidth: 2,
         borderStyle: 'dashed',
         borderColor: extra.trackStrong,
-        transform: [{ scale: pressed ? 0.98 : 1 }],
-      })}
+      }}
     >
       <IconTile icon="key" soft={theme.accentSoft} size={48} />
       <View style={{ flex: 1, gap: 2 }}>
@@ -377,7 +373,7 @@ export function JoinGroupCard({ onPress }: { onPress: () => void }) {
         <Text style={[typo.subheadline, { color: theme.textSecondary }]}>Avec un code d’invitation</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -391,7 +387,7 @@ export function TurnCardView({ card, groupColor, onPress }: { card: TurnCard; gr
   const width = Math.min(236 * Math.max(fontScale, 1), 320);
   const holder = card.current;
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={[
         card.title,
@@ -402,10 +398,9 @@ export function TurnCardView({ card, groupColor, onPress }: { card: TurnCard; gr
         .filter(Boolean)
         .join(', ')}
       onPress={onPress}
-      style={({ pressed }) => [
-        { width, backgroundColor: theme.card, borderRadius: radius.row, padding: 14, gap: 12, transform: [{ scale: pressed ? 0.98 : 1 }] },
-        theme.cardShadow,
-      ]}
+      scaleTo={0.97}
+      pressedOpacity={0.95}
+      style={[{ width, backgroundColor: theme.card, borderRadius: radius.row, padding: 14, gap: 12 }, theme.cardShadow]}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <IconTile icon="sync" soft={theme.soft[groupColor]} size={36} />
@@ -439,7 +434,7 @@ export function TurnCardView({ card, groupColor, onPress }: { card: TurnCard; gr
         )}
         {card.nextText ? <Text style={[typo.footnote, { color: theme.textSecondary }]}>{card.nextText}</Text> : null}
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -467,46 +462,68 @@ export function Podium({ entries }: { entries: readonly PodiumEntry[] }) {
   const scale = Math.min(Math.max(fontScale, 1), 1.8);
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
-      {entries.map((entry) => {
-        const first = entry.place === 1;
-        const soft = first ? theme.soft.amber : theme.soft[entry.person.appearance.color];
-        return (
-          <View
-            key={entry.person.id}
-            accessible
-            accessibilityLabel={`${entry.person.shortName}, ${entry.placeText}, ${entry.count} ${entry.count <= 1 ? 'tâche' : 'tâches'}`}
-            style={{ flex: 1, alignItems: 'center', gap: 6 }}
-          >
-            {first ? <Ionicons name="trophy" size={24} color={colorAccent(theme, 'amber')} /> : null}
-            <RingedAvatar appearance={entry.person.appearance} size={first ? 48 : 40} highlight={first ? colorAccent(theme, 'amber') : null} />
-            <Text
-              numberOfLines={2}
-              style={[typo.subheadline, { fontFamily: first ? fonts.heavy : fonts.extraBold, fontSize: 16, color: theme.textPrimary, textAlign: 'center' }]}
-            >
-              {entry.person.shortName}
-            </Text>
-            <View
-              style={{
-                alignSelf: 'stretch',
-                minHeight: (PODIUM_HEIGHTS[entry.place - 1] ?? 52) * scale,
-                paddingVertical: 8,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: soft.bg,
-                borderTopLeftRadius: 14,
-                borderTopRightRadius: 14,
-                borderBottomLeftRadius: 6,
-                borderBottomRightRadius: 6,
-              }}
-            >
-              <Text style={{ fontFamily: fonts.heavy, fontSize: first ? 30 : 24, lineHeight: first ? 36 : 30, color: soft.text, fontVariant: ['tabular-nums'] }}>
-                {entry.count}
-              </Text>
-              <Text style={{ fontFamily: fonts.heavy, fontSize: 13, color: soft.text }}>{entry.placeText}</Text>
-            </View>
-          </View>
-        );
-      })}
+      {entries.map((entry, index) => (
+        <PodiumColumn key={entry.person.id} entry={entry} scale={scale} delay={PODIUM_STEP * index} />
+      ))}
+    </View>
+  );
+}
+
+/** Delay between the columns growing, in stage order (2nd, 1st, 3rd). */
+const PODIUM_STEP = 110;
+
+/** A column of the podium: its bar grows from the floor, then the person and the trophy drop in on top. */
+function PodiumColumn({ entry, scale, delay }: { entry: PodiumEntry; scale: number; delay: number }) {
+  const theme = useTheme();
+  const reduced = useReducedMotion();
+  const first = entry.place === 1;
+  const soft = first ? theme.soft.amber : theme.soft[entry.person.appearance.color];
+  const grow = useSpringValue(1, { config: GENTLE, delay: 80 + delay });
+  const barStyle = useAnimatedStyle(() => ({ transform: [{ scaleY: Math.max(grow.value, 0) }] }));
+  // The labels of the bar show once it is nearly grown (so that they are never seen squashed).
+  const labelStyle = useAnimatedStyle(() => ({ opacity: interpolate(grow.value, [0.7, 1], [0, 1], Extrapolation.CLAMP) }));
+  const dropIn = reduced ? fadeIn : FadeInUp.delay(260 + delay).springify().damping(14).stiffness(180);
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${entry.person.shortName}, ${entry.placeText}, ${entry.count} ${entry.count <= 1 ? 'tâche' : 'tâches'}`}
+      style={{ flex: 1, alignItems: 'center', gap: 6 }}
+    >
+      <Animated.View entering={dropIn} style={{ alignItems: 'center', gap: 6 }}>
+        {first ? <Ionicons name="trophy" size={24} color={colorAccent(theme, 'amber')} /> : null}
+        <RingedAvatar appearance={entry.person.appearance} size={first ? 48 : 40} highlight={first ? colorAccent(theme, 'amber') : null} />
+        <Text
+          numberOfLines={2}
+          style={[typo.subheadline, { fontFamily: first ? fonts.heavy : fonts.extraBold, fontSize: 16, color: theme.textPrimary, textAlign: 'center' }]}
+        >
+          {entry.person.shortName}
+        </Text>
+      </Animated.View>
+      <Animated.View
+        style={[
+          {
+            alignSelf: 'stretch',
+            minHeight: (PODIUM_HEIGHTS[entry.place - 1] ?? 52) * scale,
+            paddingVertical: 8,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: soft.bg,
+            borderTopLeftRadius: 14,
+            borderTopRightRadius: 14,
+            borderBottomLeftRadius: 6,
+            borderBottomRightRadius: 6,
+            transformOrigin: 'bottom',
+          },
+          barStyle,
+        ]}
+      >
+        <Animated.View style={[{ alignItems: 'center' }, labelStyle]}>
+          <Text style={{ fontFamily: fonts.heavy, fontSize: first ? 30 : 24, lineHeight: first ? 36 : 30, color: soft.text, fontVariant: ['tabular-nums'] }}>
+            {entry.count}
+          </Text>
+          <Text style={{ fontFamily: fonts.heavy, fontSize: 13, color: soft.text }}>{entry.placeText}</Text>
+        </Animated.View>
+      </Animated.View>
     </View>
   );
 }
@@ -608,15 +625,16 @@ export function InsetRow({
     <View>
       {first ? null : <View style={{ height: 1, marginLeft: inset, backgroundColor: theme.dark ? theme.hairline : '#E6E4EE' }} />}
       {onPress ? (
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityState={{ disabled }}
           disabled={disabled}
           onPress={onPress}
-          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+          scaleTo={0.985}
+          pressedOpacity={0.6}
         >
           {body}
-        </Pressable>
+        </PressableScale>
       ) : (
         body
       )}

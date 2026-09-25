@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useState, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -14,6 +14,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
+import Animated, { LayoutAnimationConfig, useAnimatedStyle, useReducedMotion, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 import type { ColorKey } from '@/core/colorKey';
@@ -33,6 +34,17 @@ import {
   type TaskRow,
 } from '@/core/presentation';
 
+import {
+  AnimatedProgressBar,
+  AnimatedProgressRing,
+  bounce,
+  DURATION,
+  fadeIn,
+  popIn,
+  PressableScale,
+  springTo,
+  useTimingValue,
+} from './motion';
 import { colorAccent, prioritySoft, radius, spacing, statusSoft, type Soft, type Theme, useTheme, type as typo } from './theme';
 
 // The shared components of docs/DESIGN-V2.md §5 (docs/DESIGN-V2-COMPONENTS.md).
@@ -324,29 +336,34 @@ export function NewBadge({ text }: { text?: string }) {
 /** A selectable chip (filters): selected = textPrimary fill with the background color as text; idle = outlined card. */
 export function FilterChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
   const theme = useTheme();
+  const colors = useChipColors(selected, theme.textPrimary, theme.card, theme.background, theme.textPrimary, theme.trackStrong);
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityState={{ selected }}
+      scaleTo={0.95}
       onPress={() => {
         tap();
         onPress();
       }}
-      style={{
-        backgroundColor: selected ? theme.textPrimary : theme.card,
-        borderRadius: 999,
-        paddingHorizontal: 16,
-        minHeight: 44,
-        justifyContent: 'center',
-        borderWidth: selected ? 0 : 1.5,
-        borderColor: theme.trackStrong,
-      }}
+      style={[{ borderRadius: 999, paddingHorizontal: 16, minHeight: 44, justifyContent: 'center', borderWidth: 1.5 }, colors.chip]}
     >
-      <Text style={{ fontSize: 15, fontWeight: selected ? '800' : '700', color: selected ? theme.background : theme.textPrimary }}>
-        {label}
-      </Text>
-    </Pressable>
+      <Animated.Text style={[{ fontSize: 15, fontWeight: selected ? '800' : '700' }, colors.text]}>{label}</Animated.Text>
+    </PressableScale>
   );
+}
+
+/**
+ * The cross-fading colors of a selectable chip: `fill` / `idle` backgrounds, `on` / `off` texts, and the outline
+ * (`fill` when selected, `outline` otherwise). Shared with the group screen's filter chips.
+ */
+export function useChipColors(selected: boolean, fill: string, idle: string, on: string, off: string, outline: string) {
+  const background = useTimingValue(selected ? fill : idle);
+  const border = useTimingValue(selected ? fill : outline);
+  const text = useTimingValue(selected ? on : off);
+  const chip = useAnimatedStyle(() => ({ backgroundColor: background.value, borderColor: border.value }));
+  const label = useAnimatedStyle(() => ({ color: text.value }));
+  return { chip, text: label };
 }
 
 // MARK: - Controls
@@ -372,8 +389,42 @@ export function SegmentedPill<K extends string>({
   style?: StyleProp<ViewStyle>;
 }) {
   const theme = useTheme();
+  const reduced = useReducedMotion();
+  // The selected segment is a card sliding under the labels (measured: the segments share the width equally).
+  const [width, setWidth] = useState(0);
+  const index = Math.max(0, options.findIndex((option) => option.key === value));
+  const segment = width > 0 ? (width - 8) / Math.max(options.length, 1) : 0;
+  const selectedTone = tone?.(value) ?? null;
+  const x = useSharedValue(0);
+  const placed = useRef(false);
+  useEffect(() => {
+    if (segment === 0) return;
+    x.value = placed.current ? springTo(index * segment, reduced) : index * segment;
+    placed.current = true;
+  }, [index, segment, reduced, x]);
+  const indicatorColor = useTimingValue(selectedTone?.bg ?? theme.card);
+  // Clamped to the track, so that the spring's overshoot never pokes out at the ends.
+  const maxX = segment * (options.length - 1);
+  const indicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: Math.min(Math.max(x.value, 0), maxX) }],
+    backgroundColor: indicatorColor.value,
+  }));
+  const measured = segment > 0;
   return (
-    <View style={[{ flexDirection: 'row', backgroundColor: track ?? theme.track, borderRadius: radius.track, padding: 4 }, style]}>
+    <View
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      style={[{ flexDirection: 'row', backgroundColor: track ?? theme.track, borderRadius: radius.track, padding: 4 }, style]}
+    >
+      {measured ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            { position: 'absolute', top: 4, bottom: 4, left: 4, width: segment, borderRadius: radius.segment },
+            selectedTone ? null : [theme.subtleShadow, theme.cardShadow],
+            indicatorStyle,
+          ]}
+        />
+      ) : null}
       {options.map((option) => {
         const selected = option.key === value;
         const colors = selected ? (tone?.(option.key) ?? null) : null;
@@ -396,24 +447,32 @@ export function SegmentedPill<K extends string>({
                 justifyContent: 'center',
                 paddingHorizontal: 6,
               },
-              selected && (colors ? { backgroundColor: colors.bg } : [{ backgroundColor: theme.card }, theme.subtleShadow, theme.cardShadow]),
+              // Until measured, the selected segment draws its own card.
+              selected &&
+                !measured &&
+                (colors ? { backgroundColor: colors.bg } : [{ backgroundColor: theme.card }, theme.subtleShadow, theme.cardShadow]),
             ]}
           >
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              style={{
-                fontSize: 15,
-                fontWeight: selected ? '800' : '600',
-                color: selected ? (colors?.text ?? theme.textPrimary) : theme.textSecondary,
-              }}
-            >
-              {option.label}
-            </Text>
+            <SegmentLabel
+              label={option.label}
+              selected={selected}
+              color={selected ? (colors?.text ?? theme.textPrimary) : theme.textSecondary}
+            />
           </Pressable>
         );
       })}
     </View>
+  );
+}
+
+/** A segment's label, its color cross-fading with the selection. */
+function SegmentLabel({ label, selected, color }: { label: string; selected: boolean; color: string }) {
+  const animated = useTimingValue(color);
+  const colorStyle = useAnimatedStyle(() => ({ color: animated.value }));
+  return (
+    <Animated.Text numberOfLines={1} adjustsFontSizeToFit style={[{ fontSize: 15, fontWeight: selected ? '800' : '600' }, colorStyle]}>
+      {label}
+    </Animated.Text>
   );
 }
 
@@ -435,12 +494,13 @@ export function PrimaryButton({
   const theme = useTheme();
   const off = disabled && !loading;
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityState={{ disabled: disabled || loading, busy: loading }}
       disabled={disabled || loading}
       onPress={onPress}
-      style={({ pressed }) => [
+      pressedOpacity={0.88}
+      style={[
         {
           minHeight: 56,
           borderRadius: radius.button,
@@ -450,7 +510,6 @@ export function PrimaryButton({
           flexDirection: 'row',
           gap: 8,
           paddingHorizontal: 16,
-          opacity: pressed ? 0.85 : 1,
         },
         !off && theme.accentShadow,
         style,
@@ -464,7 +523,7 @@ export function PrimaryButton({
           <Text style={[typo.button, { color: off ? theme.textSecondary : '#FFF' }]}>{title}</Text>
         </>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -485,17 +544,16 @@ export function SecondaryButton({
 }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        { minHeight: 44, alignItems: 'center', justifyContent: 'center', opacity: pressed || disabled ? 0.5 : 1 },
-        style,
-      ]}
+      opacity={disabled ? 0.5 : 1}
+      pressedOpacity={0.5}
+      style={[{ minHeight: 44, alignItems: 'center', justifyContent: 'center' }, style]}
     >
       <Text style={{ fontSize, fontWeight: '700', color: color ?? theme.accent }}>{title}</Text>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -517,12 +575,14 @@ export function CircleIconButton({
 }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
       hitSlop={4}
-      style={({ pressed }) => [
+      scaleTo={0.92}
+      pressedOpacity={0.75}
+      style={[
         {
           width: size,
           height: size,
@@ -530,13 +590,12 @@ export function CircleIconButton({
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: variant === 'card' ? theme.card : 'rgba(255,255,255,0.22)',
-          opacity: pressed ? 0.7 : 1,
         },
         variant === 'card' && theme.cardShadow,
       ]}
     >
       <Ionicons name={icon} size={size * 0.5} color={color ?? (variant === 'card' ? theme.accent : '#FFF')} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -558,12 +617,14 @@ export function CapsuleButton({
 }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={title}
       disabled={disabled || loading}
       onPress={onPress}
-      style={({ pressed }) => [
+      scaleTo={0.95}
+      pressedOpacity={0.75}
+      style={[
         {
           minHeight: 44,
           flexDirection: 'row',
@@ -573,7 +634,6 @@ export function CapsuleButton({
           paddingRight: 18,
           borderRadius: 999,
           backgroundColor: theme.card,
-          opacity: pressed ? 0.7 : 1,
         },
         theme.cardShadow,
       ]}
@@ -586,7 +646,7 @@ export function CapsuleButton({
           <Text style={{ fontSize: 17, fontWeight: bold ? '700' : '500', color: disabled ? theme.textTertiary : theme.accent }}>{title}</Text>
         </>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -682,10 +742,10 @@ export function ErrorText({ message }: { message: string | null | undefined }) {
   const theme = useTheme();
   if (!message) return null;
   return (
-    <View style={{ backgroundColor: theme.danger.bg, borderRadius: 14, padding: 12, flexDirection: 'row', gap: 8 }}>
+    <Animated.View entering={fadeIn} style={{ backgroundColor: theme.danger.bg, borderRadius: 14, padding: 12, flexDirection: 'row', gap: 8 }}>
       <Ionicons name="alert-circle" size={18} color={theme.danger.text} />
       <Text style={[typo.subheadline, { color: theme.danger.text, flex: 1 }]}>{message}</Text>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -703,14 +763,8 @@ export function ProgressBar({
   track?: string;
 }) {
   const theme = useTheme();
-  const clamped = Math.max(0, Math.min(1, fraction));
-  return (
-    <View style={{ height, borderRadius: height / 2, backgroundColor: track ?? theme.track, overflow: 'hidden' }}>
-      {clamped > 0 ? (
-        <View style={{ width: `${Math.max(clamped * 100, 3)}%`, minWidth: height, height, borderRadius: height / 2, backgroundColor: color }} />
-      ) : null}
-    </View>
-  );
+  // Springs from 0 on mount and on each change (motion.tsx).
+  return <AnimatedProgressBar fraction={fraction} color={color} height={height} track={track ?? theme.track} />;
 }
 
 export function ProgressRing({
@@ -729,30 +783,11 @@ export function ProgressRing({
   children?: ReactNode;
 }) {
   const theme = useTheme();
-  const r = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * r;
-  const clamped = Math.max(0, Math.min(1, fraction));
+  // The arc springs from 0 on mount and on each change (motion.tsx).
   return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={track ?? theme.accentSoft.bg} strokeWidth={stroke} fill="none" />
-        {clamped > 0 ? (
-          <Circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            stroke={color}
-            strokeWidth={stroke}
-            fill="none"
-            strokeLinecap="round"
-            strokeDasharray={`${circumference} ${circumference}`}
-            strokeDashoffset={circumference * (1 - clamped)}
-            transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          />
-        ) : null}
-      </Svg>
+    <AnimatedProgressRing fraction={fraction} size={size} stroke={stroke} color={color} track={track ?? theme.accentSoft.bg}>
       {children}
-    </View>
+    </AnimatedProgressRing>
   );
 }
 
@@ -798,7 +833,11 @@ export function StatusControl({
   busy?: boolean;
 }) {
   const theme = useTheme();
+  const reduced = useReducedMotion();
   const enabled = !disabled && onPress !== undefined;
+  // A tap squashes the glyph and springs it back past its size; the new status then pops in.
+  const scale = useSharedValue(1);
+  const bounceStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
     <Pressable
       accessibilityRole="button"
@@ -811,18 +850,45 @@ export function StatusControl({
           if (nextStatus(status) === 'done') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
           else void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
         }
+        scale.value = bounce(reduced);
         onPress?.();
       }}
       style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
     >
-      {busy ? (
-        <ActivityIndicator size="small" color={theme.accent} />
-      ) : (
-        <View style={{ opacity: enabled ? 1 : 0.45 }}>
-          <StatusGlyph status={status} tint={tint ?? colorAccent(theme, color)} />
-        </View>
-      )}
+      {/* The glyph shown with the row does not animate; a later status does. */}
+      <LayoutAnimationConfig skipEntering>
+        {busy ? (
+          <ActivityIndicator size="small" color={theme.accent} />
+        ) : (
+          <Animated.View style={[{ opacity: enabled ? 1 : 0.45 }, bounceStyle]}>
+            <StatusGlyphTransition key={status} status={status} tint={tint ?? colorAccent(theme, color)} />
+          </Animated.View>
+        )}
+      </LayoutAnimationConfig>
     </Pressable>
+  );
+}
+
+/** A status glyph entering: « terminée » fills in green and its check pops in after; the others fade in. */
+function StatusGlyphTransition({ status, tint }: { status: TaskStatus; tint: string }) {
+  const theme = useTheme();
+  const reduced = useReducedMotion();
+  if (status === 'done') {
+    return (
+      <Animated.View
+        entering={popIn(reduced)}
+        style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: theme.fill.green, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Animated.View entering={popIn(reduced, 90)}>
+          <Ionicons name="checkmark" size={24 * 0.62} color="#FFF" />
+        </Animated.View>
+      </Animated.View>
+    );
+  }
+  return (
+    <Animated.View entering={fadeIn}>
+      <StatusGlyph status={status} tint={tint} />
+    </Animated.View>
   );
 }
 
@@ -863,11 +929,13 @@ export function TaskRowCard({
   const theme = useTheme();
   const secondary = { bg: 'transparent', text: theme.textSecondary };
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={rowAccessibilityLabel(row)}
-      style={({ pressed }) => [
+      scaleTo={0.98}
+      pressedOpacity={0.95}
+      style={[
         {
           backgroundColor: theme.card,
           borderRadius: radius.row,
@@ -877,7 +945,6 @@ export function TaskRowCard({
           flexDirection: 'row',
           alignItems: 'center',
           gap: 6,
-          transform: [{ scale: pressed ? 0.985 : 1 }],
         },
         theme.cardShadow,
       ]}
@@ -943,7 +1010,7 @@ export function TaskRowCard({
         </View>
       </View>
       {row.assigneesText !== null ? <AssigneesStack people={row.assignees} /> : null}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -982,11 +1049,13 @@ export function MyTaskRowCard({
   const color = row.groupAppearance?.color ?? 'indigo';
   const secondary = { bg: 'transparent', text: theme.textSecondary };
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={rowAccessibilityLabel(row)}
-      style={({ pressed }) => [
+      scaleTo={0.98}
+      pressedOpacity={0.95}
+      style={[
         {
           backgroundColor: theme.card,
           borderRadius: radius.row + 4,
@@ -996,7 +1065,6 @@ export function MyTaskRowCard({
           flexDirection: 'row',
           alignItems: 'center',
           gap: 8,
-          transform: [{ scale: pressed ? 0.985 : 1 }],
         },
         theme.cardShadow,
       ]}
@@ -1059,49 +1127,63 @@ export function MyTaskRowCard({
         </View>
       </View>
       <Ionicons name="chevron-forward" size={20} color={theme.textTertiary} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
-export function FloatingAddButton({ onPress, label, bottom = 20 }: { onPress: () => void; label: string; bottom?: number }) {
+/**
+ * The floating « + »: it pops in on mount; with `shrink` (0 → 1, e.g. while scrolling down), it shrinks a little and
+ * stays tappable.
+ */
+export function FloatingAddButton({
+  onPress,
+  label,
+  bottom = 20,
+  shrink,
+}: {
+  onPress: () => void;
+  label: string;
+  bottom?: number;
+  shrink?: SharedValue<number>;
+}) {
   const theme = useTheme();
+  const reduced = useReducedMotion();
+  const shrinkStyle = useAnimatedStyle(() => {
+    const amount = shrink ? shrink.value : 0;
+    return { opacity: 1 - 0.12 * amount, transform: [{ scale: 1 - 0.18 * amount }] };
+  });
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [
-        {
-          position: 'absolute',
-          right: 20,
-          bottom,
-          width: 60,
-          height: 60,
-          borderRadius: 20,
-          backgroundColor: theme.accentFill,
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: pressed ? 0.85 : 1,
-        },
-        theme.accentShadow,
-      ]}
-    >
-      <Ionicons name="add" size={34} color="#FFF" />
-    </Pressable>
+    <Animated.View entering={popIn(reduced, 150)} style={{ position: 'absolute', right: 20, bottom }}>
+      <Animated.View style={shrinkStyle}>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          onPress={onPress}
+          scaleTo={0.92}
+          pressedOpacity={0.88}
+          style={[
+            { width: 60, height: 60, borderRadius: 20, backgroundColor: theme.accentFill, alignItems: 'center', justifyContent: 'center' },
+            theme.accentShadow,
+          ]}
+        >
+          <Ionicons name="add" size={34} color="#FFF" />
+        </PressableScale>
+      </Animated.View>
+    </Animated.View>
   );
 }
 
 export function EmptyState({ icon, title, message, children }: { icon: IconName; title: string; message?: string; children?: ReactNode }) {
   const theme = useTheme();
   return (
-    <View style={{ alignItems: 'center', gap: 10, paddingVertical: 40, paddingHorizontal: 24 }}>
+    <Animated.View entering={fadeIn} style={{ alignItems: 'center', gap: 10, paddingVertical: 40, paddingHorizontal: 24 }}>
       <View style={{ width: 72, height: 72, borderRadius: 24, backgroundColor: theme.accentSoft.bg, alignItems: 'center', justifyContent: 'center' }}>
         <Ionicons name={icon} size={34} color={theme.accentSoft.text} />
       </View>
       <Text style={[typo.title3, { color: theme.textPrimary, textAlign: 'center' }]}>{title}</Text>
       {message ? <Text style={[typo.subheadline, { color: theme.textSecondary, textAlign: 'center' }]}>{message}</Text> : null}
       {children}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -1134,10 +1216,12 @@ export function ListRow({
 }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <PressableScale
       disabled={!onPress}
       onPress={onPress}
-      style={({ pressed }) => ({
+      scaleTo={0.985}
+      pressedOpacity={0.6}
+      style={{
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
@@ -1145,8 +1229,7 @@ export function ListRow({
         paddingHorizontal: spacing.inner,
         borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth * 2,
         borderBottomColor: theme.hairline,
-        opacity: pressed ? 0.6 : 1,
-      })}
+      }}
     >
       {icon ? (
         <View
@@ -1169,7 +1252,7 @@ export function ListRow({
         </Text>
       ) : null}
       {onPress && !destructive ? <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} /> : null}
-    </Pressable>
+    </PressableScale>
   );
 }
 

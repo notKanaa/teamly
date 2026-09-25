@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 
 import { COLOR_KEYS, colorLabel, type ColorKey } from '@/core/colorKey';
 import type { AvatarAppearance } from '@/core/presentation';
 
 import { Avatar, tap, type IconName } from './components';
+import { PopIn, PressableScale, useTimingValue } from './motion';
 import { fonts, radius, type Soft, type Theme, type as typo, useTheme } from './theme';
 
 // The pieces of the onboarding and of the avatar editor (Swift `OnboardingView`, `OnboardingSteps`,
@@ -58,10 +60,7 @@ export function StepProgress({ current, total }: { current: number; total: numbe
     >
       <View style={{ flex: 1, flexDirection: 'row', gap: 6, minWidth: 72 }}>
         {Array.from({ length: Math.max(total, 1) }, (_, index) => (
-          <View
-            key={index}
-            style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: index < current ? theme.accentFill : extra.trackStrong }}
-          />
+          <StepCapsule key={index} color={index < current ? theme.accentFill : extra.trackStrong} />
         ))}
       </View>
       <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textSecondary, fontVariant: ['tabular-nums'] }}>
@@ -69,6 +68,13 @@ export function StepProgress({ current, total }: { current: number; total: numbe
       </Text>
     </View>
   );
+}
+
+/** A capsule of `StepProgress`, its color easing as the steps go by. */
+function StepCapsule({ color }: { color: string }) {
+  const animated = useTimingValue(color, 260);
+  const colorStyle = useAnimatedStyle(() => ({ backgroundColor: animated.value }));
+  return <Animated.View style={[{ flex: 1, height: 6, borderRadius: 3 }, colorStyle]} />;
 }
 
 /** A 44 pt round icon button on `card` (the onboarding's back button). */
@@ -85,12 +91,15 @@ export function CircleIconButton({
 }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
+      scaleTo={0.92}
+      pressedOpacity={0.75}
+      opacity={disabled ? 0.5 : 1}
+      style={[
         {
           width: 44,
           height: 44,
@@ -98,7 +107,6 @@ export function CircleIconButton({
           backgroundColor: theme.card,
           alignItems: 'center',
           justifyContent: 'center',
-          opacity: disabled ? 0.5 : pressed ? 0.7 : 1,
         },
         theme.dark
           ? { borderWidth: 1, borderColor: theme.hairline }
@@ -106,7 +114,7 @@ export function CircleIconButton({
       ]}
     >
       <Ionicons name={icon} size={20} color={theme.textPrimary} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -166,12 +174,13 @@ export function BigButton({
   const color = idle ? theme.textSecondary : '#FFF';
   const glyph = icon ? <Ionicons name={icon} size={21} color={color} /> : null;
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityState={{ disabled: disabled || loading, busy: loading }}
       disabled={disabled || loading}
       onPress={onPress}
-      style={({ pressed }) => [
+      pressedOpacity={0.88}
+      style={[
         {
           minHeight: 56,
           borderRadius: radius.button,
@@ -181,7 +190,6 @@ export function BigButton({
           justifyContent: 'center',
           gap: 10,
           paddingHorizontal: 20,
-          opacity: pressed ? 0.85 : 1,
         },
         !theme.dark &&
           !idle &&
@@ -200,7 +208,7 @@ export function BigButton({
           {iconAfter ? glyph : null}
         </>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -277,7 +285,11 @@ export function SwatchGrid({ value, onChange }: { value: ColorKey; onChange: (ke
             })}
           >
             <View style={{ height: 44, borderRadius: 13, backgroundColor: theme.fill[key], alignItems: 'center', justifyContent: 'center' }}>
-              {selected ? <Ionicons name="checkmark-sharp" size={24} color="#FFF" /> : null}
+              {selected ? (
+                <PopIn>
+                  <Ionicons name="checkmark-sharp" size={24} color="#FFF" />
+                </PopIn>
+              ) : null}
             </View>
           </Pressable>
         );

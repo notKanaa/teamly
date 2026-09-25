@@ -30,6 +30,8 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: theme.background },
+        // A short cross-fade between tabs.
+        animation: 'fade',
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Groupes' }} />

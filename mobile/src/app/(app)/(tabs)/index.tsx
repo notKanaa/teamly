@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import { errorMessage } from '@/core/appError';
 import { GROUPS_EMPTY_MESSAGE, GROUPS_EMPTY_TITLE, groupsHeaderText } from '@/core/groups';
 import { useMyGroups, useOverviews } from '@/data/queries';
 import { EmptyState, ErrorText, Loading, PrimaryButton, SecondaryButton } from '@/ui/components';
 import { GroupCard, JoinGroupCard } from '@/ui/groupKit';
+import { fadeOut, listLayout, useListEntering } from '@/ui/motion';
 import { Screen } from '@/ui/Screen';
 import { MenuButton } from '@/ui/sheet';
 import { type as typo, useTheme } from '@/ui/theme';
@@ -21,6 +23,7 @@ export default function GroupsScreen() {
   const overviews = useOverviews(groups.data);
   const list = groups.data ?? [];
   const header = groupsHeaderText(list, overviews.data ?? null);
+  const entering = useListEntering(groups.isSuccess);
 
   return (
     <Screen
@@ -77,16 +80,21 @@ export default function GroupsScreen() {
         </EmptyState>
       ) : null}
 
-      {list.map((summary) => (
-        <GroupCard
-          key={summary.group.id}
-          summary={summary}
-          overview={overviews.data?.get(summary.group.id) ?? null}
-          onPress={() => router.push(`/group/${summary.group.id}`)}
-        />
+      {list.map((summary, index) => (
+        <Animated.View key={summary.group.id} entering={entering(index)} exiting={fadeOut} layout={listLayout}>
+          <GroupCard
+            summary={summary}
+            overview={overviews.data?.get(summary.group.id) ?? null}
+            onPress={() => router.push(`/group/${summary.group.id}`)}
+          />
+        </Animated.View>
       ))}
 
-      {list.length > 0 ? <JoinGroupCard onPress={openJoin} /> : null}
+      {list.length > 0 ? (
+        <Animated.View entering={entering(list.length)} layout={listLayout}>
+          <JoinGroupCard onPress={openJoin} />
+        </Animated.View>
+      ) : null}
     </Screen>
   );
 }

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } from 'react-native';
-import Animated, { FadeInLeft, FadeInRight } from 'react-native-reanimated';
+import Animated, { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppError, errorMessage } from '@/core/appError';
@@ -44,6 +44,7 @@ import {
   TaskCardsIllustration,
   TextButton,
 } from '@/ui/onboardingKit';
+import { FadeSwitch, slideIn } from '@/ui/motion';
 import { fonts, type as typo, useTheme } from '@/ui/theme';
 
 // The onboarding of a new account (docs/DESIGN-V2.md §7.1, docs/CONTRACTS-V2.md §9; Swift `OnboardingView`,
@@ -96,6 +97,7 @@ function OnboardingFlow({ profile, steps }: { profile: UserProfile; steps: Onboa
   const client = useQueryClient();
   const userId = useUserId();
   const avatar = useAvatarEditor(profile);
+  const reduced = useReducedMotion();
 
   const [index, setIndex] = useState(0);
   const [forward, setForward] = useState(true);
@@ -295,77 +297,80 @@ function OnboardingFlow({ profile, steps }: { profile: UserProfile; steps: Onboa
                   if (!busy) setMode(next);
                 }}
               />
-              {mode === 'create' ? (
-                <Card style={{ borderRadius: 24, padding: 18, gap: 16 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-                    <GroupTile appearance={groupPreview(name, color, emoji)} size={60} />
-                    <View style={{ flex: 1, gap: 4 }}>
-                      <Text style={[typo.footnote, { fontWeight: '700', color: theme.textSecondary }]}>{GROUP_NAME_LABEL}</Text>
-                      <TextInput
-                        accessibilityLabel={GROUP_NAME_LABEL}
-                        value={name}
-                        onChangeText={(text) => {
-                          setName(text);
-                          if (nameError) setNameError(null);
-                        }}
-                        placeholder={GROUP_NAME_PLACEHOLDER}
-                        placeholderTextColor={theme.textSecondary}
-                        autoCapitalize="sentences"
-                        autoCorrect={false}
-                        returnKeyType="done"
-                        maxLength={120}
-                        style={{ fontFamily: fonts.bold, fontSize: 22, paddingVertical: 4, color: theme.textPrimary }}
-                      />
-                      <View style={{ height: 2, borderRadius: 1, backgroundColor: nameError ? theme.danger.text : theme.track }} />
+              {/* « Rejoindre » comes in from the right, « Créer » from the left, like the segments. */}
+              <FadeSwitch id={mode} direction={mode === 'join' ? 1 : -1}>
+                {mode === 'create' ? (
+                  <Card style={{ borderRadius: 24, padding: 18, gap: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                      <GroupTile appearance={groupPreview(name, color, emoji)} size={60} />
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <Text style={[typo.footnote, { fontWeight: '700', color: theme.textSecondary }]}>{GROUP_NAME_LABEL}</Text>
+                        <TextInput
+                          accessibilityLabel={GROUP_NAME_LABEL}
+                          value={name}
+                          onChangeText={(text) => {
+                            setName(text);
+                            if (nameError) setNameError(null);
+                          }}
+                          placeholder={GROUP_NAME_PLACEHOLDER}
+                          placeholderTextColor={theme.textSecondary}
+                          autoCapitalize="sentences"
+                          autoCorrect={false}
+                          returnKeyType="done"
+                          maxLength={120}
+                          style={{ fontFamily: fonts.bold, fontSize: 22, paddingVertical: 4, color: theme.textPrimary }}
+                        />
+                        <View style={{ height: 2, borderRadius: 1, backgroundColor: nameError ? theme.danger.text : theme.track }} />
+                      </View>
                     </View>
-                  </View>
-                  {nameError ? <FieldError message={nameError} /> : null}
-                  <PickerSection title="Emoji">
-                    <EmojiGrid
-                      choices={EMOJI_CHOICES.groups}
-                      value={emoji}
-                      onChange={(picked) => setEmoji(picked === emoji ? null : picked)}
+                    {nameError ? <FieldError message={nameError} /> : null}
+                    <PickerSection title="Emoji">
+                      <EmojiGrid
+                        choices={EMOJI_CHOICES.groups}
+                        value={emoji}
+                        onChange={(picked) => setEmoji(picked === emoji ? null : picked)}
+                      />
+                    </PickerSection>
+                    <PickerSection title="Couleur">
+                      <SwatchGrid value={color} onChange={setColor} />
+                    </PickerSection>
+                  </Card>
+                ) : (
+                  <Card style={{ borderRadius: 24, padding: 18, gap: 12 }}>
+                    <Text style={[typo.footnote, { fontWeight: '700', color: theme.textSecondary }]}>{INVITE_CODE_LABEL}</Text>
+                    <TextInput
+                      accessibilityLabel={INVITE_CODE_LABEL}
+                      value={code}
+                      onChangeText={(text) => {
+                        setCode(formatInviteCodeInput(text));
+                        if (codeError) setCodeError(null);
+                      }}
+                      placeholder={JOIN_PLACEHOLDER}
+                      placeholderTextColor={theme.textSecondary}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                      keyboardType={Platform.OS === 'ios' ? 'ascii-capable' : 'visible-password'}
+                      returnKeyType="done"
+                      onSubmitEditing={() => void advance()}
+                      style={{
+                        minHeight: 64,
+                        paddingHorizontal: 12,
+                        borderRadius: 16,
+                        borderWidth: 2,
+                        borderColor: theme.accent,
+                        backgroundColor: theme.background,
+                        textAlign: 'center',
+                        fontSize: 28,
+                        fontWeight: '700',
+                        fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+                        color: theme.textPrimary,
+                      }}
                     />
-                  </PickerSection>
-                  <PickerSection title="Couleur">
-                    <SwatchGrid value={color} onChange={setColor} />
-                  </PickerSection>
-                </Card>
-              ) : (
-                <Card style={{ borderRadius: 24, padding: 18, gap: 12 }}>
-                  <Text style={[typo.footnote, { fontWeight: '700', color: theme.textSecondary }]}>{INVITE_CODE_LABEL}</Text>
-                  <TextInput
-                    accessibilityLabel={INVITE_CODE_LABEL}
-                    value={code}
-                    onChangeText={(text) => {
-                      setCode(formatInviteCodeInput(text));
-                      if (codeError) setCodeError(null);
-                    }}
-                    placeholder={JOIN_PLACEHOLDER}
-                    placeholderTextColor={theme.textSecondary}
-                    autoCapitalize="characters"
-                    autoCorrect={false}
-                    keyboardType={Platform.OS === 'ios' ? 'ascii-capable' : 'visible-password'}
-                    returnKeyType="done"
-                    onSubmitEditing={() => void advance()}
-                    style={{
-                      minHeight: 64,
-                      paddingHorizontal: 12,
-                      borderRadius: 16,
-                      borderWidth: 2,
-                      borderColor: theme.accent,
-                      backgroundColor: theme.background,
-                      textAlign: 'center',
-                      fontSize: 28,
-                      fontWeight: '700',
-                      fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
-                      color: theme.textPrimary,
-                    }}
-                  />
-                  {codeError ? <FieldError message={codeError} /> : null}
-                  <Text style={[typo.subheadline, { color: theme.textSecondary }]}>{JOIN_HINT}</Text>
-                </Card>
-              )}
+                    {codeError ? <FieldError message={codeError} /> : null}
+                    <Text style={[typo.subheadline, { color: theme.textSecondary }]}>{JOIN_HINT}</Text>
+                  </Card>
+                )}
+              </FadeSwitch>
             </>
           )}
         </StepColumn>
@@ -393,11 +398,8 @@ function OnboardingFlow({ profile, steps }: { profile: UserProfile; steps: Onboa
         <StepProgress current={index + 1} total={steps.length} />
         <TextButton title="Passer" onPress={finish} fullWidth={false} disabled={finished} />
       </View>
-      <Animated.View
-        key={index}
-        entering={(forward ? FadeInRight : FadeInLeft).duration(280)}
-        style={{ flex: 1 }}
-      >
+      {/* A step slides in from the right going forward, from the left going back (a fade with Reduce Motion). */}
+      <Animated.View key={index} entering={slideIn(forward ? 1 : -1, reduced)} style={{ flex: 1 }}>
         <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 }}>
           {content}
         </ScrollView>
