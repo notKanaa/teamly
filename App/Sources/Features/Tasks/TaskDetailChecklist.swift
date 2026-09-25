@@ -15,6 +15,7 @@ struct TaskDetailChecklistRows: View {
 
     @FocusState private var isAddFieldFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(model: TaskDetailViewModel, onRename: @escaping (ChecklistItem) -> Void) {
         self.model = model
@@ -31,12 +32,12 @@ struct TaskDetailChecklistRows: View {
             let isLast = item.id == checklist.last?.id && !model.canManageChecklist && !hasError
             itemRow(item)
                 .listRowSeparator(.hidden)
-                .listRowInsets(isLast ? TaskDetailInsets.checklistLast : TaskDetailInsets.checklistItem)
+                .listRowInsets(isLast ? TaskDetailInsets.checklistLast : itemInsets)
         }
         if model.canManageChecklist {
             addRow
                 .listRowSeparator(.hidden)
-                .listRowInsets(hasError ? TaskDetailInsets.checklistItem : TaskDetailInsets.checklistLast)
+                .listRowInsets(hasError ? itemInsets : TaskDetailInsets.checklistLast)
         }
         if let message = model.checklistError {
             TaskEditorErrorText(message: message)
@@ -46,30 +47,54 @@ struct TaskDetailChecklistRows: View {
         }
     }
 
+    /// 44 pt rows; at accessibility text sizes, a little space between the (taller) rows.
+    private var itemInsets: EdgeInsets {
+        dynamicTypeSize.isAccessibilitySize
+            ? EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+            : TaskDetailInsets.checklistItem
+    }
+
     // MARK: - Header
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 10) {
-                IconTile(systemImage: "checklist", tone: ColorKey.teal.tone)
-                Text(TaskDetailViewModel.checklistTitle)
-                    .font(.rounded(.title3, weight: .heavy))
-                    .foregroundStyle(Theme.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 8)
-                if let progress = model.checklistProgress {
-                    Text(progress.text)
-                        .font(Font.headline.weight(.heavy))
-                        .foregroundStyle(ColorKey.teal.accent)
-                        .monospacedDigit()
-                        .accessibilityIdentifier(AccessibilityID.Tasks.checklistProgress)
+            // « 2 sur 5 » beside the title when both fit, under it otherwise (large text sizes).
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    titleLabel
+                    Spacer(minLength: 8)
+                    progressText
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    titleLabel
+                    progressText
                 }
             }
             if let progress = model.checklistProgress {
                 ProgressBar(value: progress.fraction, tint: ColorKey.teal.fill, track: ColorKey.teal.tone.background)
             }
         }
-        .padding(.vertical, 6)
+    }
+
+    private var titleLabel: some View {
+        HStack(alignment: .center, spacing: 10) {
+            IconTile(systemImage: "checklist", tone: ColorKey.teal.tone)
+            Text(TaskDetailViewModel.checklistTitle)
+                .font(.rounded(.title3, weight: .heavy))
+                .foregroundStyle(Theme.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    @ViewBuilder
+    private var progressText: some View {
+        if let progress = model.checklistProgress {
+            Text(progress.text)
+                .font(Font.headline.weight(.heavy))
+                .foregroundStyle(ColorKey.teal.accent)
+                .monospacedDigit()
+                .accessibilityIdentifier(AccessibilityID.Tasks.checklistProgress)
+        }
     }
 
     // MARK: - Items
@@ -156,7 +181,8 @@ struct TaskDetailChecklistRows: View {
                         .foregroundStyle(Theme.accent)
                 }
             }
-            .frame(width: 24, height: 24)
+            // The checkboxes' column (it grows with the text like them).
+            .frame(minWidth: 24, minHeight: 24)
             .accessibilityHidden(true)
 
             TextField(
@@ -206,13 +232,15 @@ struct TaskDetailChecklistRows: View {
 struct ChecklistCheckbox: View {
     let isDone: Bool
 
-    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 24
+    @ScaledMetric(relativeTo: .body) private var scaledSide: CGFloat = 24
 
     init(isDone: Bool) {
         self.isDone = isDone
     }
 
     var body: some View {
+        // Grows with the text, up to 40 pt (the title next to it carries the size).
+        let side = min(scaledSide, 40)
         let shape = RoundedRectangle(cornerRadius: side / 3, style: .continuous)
         ZStack {
             if isDone {

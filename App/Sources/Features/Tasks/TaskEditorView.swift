@@ -22,6 +22,7 @@ struct TaskEditorView: View {
     @State private var model: TaskEditorViewModel
     @State private var isConfirmingDiscard = false
     @FocusState private var focusedField: TaskEditorField?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let onSaved: (TaskItem) -> Void
 
     /// - Parameters:
@@ -284,25 +285,41 @@ struct TaskEditorView: View {
         .listRowBackground(Theme.card)
     }
 
-    /// « Assigner à », the chosen people's avatars and names; opens `TaskEditorAssigneePicker`.
+    /// « Assigner à », the chosen people's avatars and names; opens `TaskEditorAssigneePicker`. At accessibility text
+    /// sizes the names go under the title.
     private var assigneesLink: some View {
         NavigationLink {
             TaskEditorAssigneePicker(model: model)
         } label: {
-            HStack(spacing: 12) {
-                TaskEditorRowLabel("Assigner à", systemImage: "person.fill", tone: ColorKey.blue.tone)
-                    .layoutPriority(1)
-                Spacer(minLength: 8)
-                if !selectedAssignees.isEmpty {
-                    AvatarStack(people: selectedAssignees, limit: 3, size: 26)
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    TaskEditorRowLabel("Assigner à", systemImage: "person.fill", tone: ColorKey.blue.tone)
+                    assigneesSummary
+                        .multilineTextAlignment(.leading)
                 }
-                Text(model.assigneesSummary)
-                    .foregroundStyle(Theme.textSecondary)
-                    .multilineTextAlignment(.trailing)
-                    .lineLimit(2)
+            } else {
+                HStack(spacing: 12) {
+                    TaskEditorRowLabel("Assigner à", systemImage: "person.fill", tone: ColorKey.blue.tone)
+                        .layoutPriority(1)
+                    Spacer(minLength: 8)
+                    assigneesSummary
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(2)
+                }
             }
         }
         .accessibilityIdentifier(AccessibilityID.Tasks.assigneesButton)
+    }
+
+    /// The chosen people's avatars, then « Toi, Lucas Bernard » / « Non assignée ».
+    private var assigneesSummary: some View {
+        HStack(spacing: 8) {
+            if !selectedAssignees.isEmpty {
+                AvatarStack(people: selectedAssignees, limit: 3, size: 26)
+            }
+            Text(model.assigneesSummary)
+                .foregroundStyle(Theme.textSecondary)
+        }
     }
 
     // MARK: - Priorité

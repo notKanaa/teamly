@@ -41,6 +41,15 @@ final class TasksScreenshotTests: XCTestCase {
         ui.waitForContent(daySummary, "« Ta journée »")
         ui.capture("mes-taches-\(suffix)")
         scrollAndCapture(ui, "mes-taches-\(suffix)", scrolls: scrolls)
+        // « 1 tâche terminée aujourd’hui », unfolded (the showcase completes « Nettoyer le frigo » 10 hours before the
+        // launch, bounded by Monday 00:00: there is none on some mornings).
+        let doneToday = ui.elements(AccessibilityID.MyTasks.doneTodayButton)
+        if doneToday.firstMatch.waitForExistence(timeout: UITestTimeout.short) {
+            let doneRow = ui.elements(AccessibilityID.Tasks.row("Nettoyer le frigo"))
+            ui.tap(doneToday, "« terminées aujourd’hui »", until: .shows(doneRow))
+            ui.scroll(.towardsBottom)
+            ui.capture("mes-taches-terminees-\(suffix)")
+        }
 
         // Back at the top: the rows are then found below the screen (a card half under the navigation bar would take
         // the tap there).
@@ -64,11 +73,15 @@ final class TasksScreenshotTests: XCTestCase {
         ui.tap(ui.addTaskButton, "« + »", until: .shows(titleField))
         let weekly = ui.buttons(AccessibilityID.Tasks.repeatOption("weekly"))
         ui.tap(weekly, "« Semaine »", until: .selects(weekly))
-        // Best effort: the rotation's rows (the scrolls also put the keyboard away).
-        ui.scroll(.towardsBottom)
-        ui.scroll(.towardsBottom)
-        ui.switchOn(AccessibilityID.Tasks.rotationToggle)
-        ui.scrollToTop(until: titleField)
+        // Closer to « Qui s’en occupe ? » (far down at large text sizes); the scrolls also put the keyboard away.
+        for _ in 0..<scrolls {
+            ui.scroll(.towardsBottom)
+        }
+        ui.turnOn(
+            AccessibilityID.Tasks.rotationToggle, "« À tour de rôle »",
+            until: ui.elements(AccessibilityID.Tasks.rotationMember(UITestDemo.inesName))
+        )
+        ui.scrollToTop(until: titleField, maxScrolls: 4 * scrolls + 4)
         ui.capture("nouvelle-tache-\(suffix)")
         scrollAndCapture(ui, "nouvelle-tache-\(suffix)", scrolls: scrolls + 1)
     }

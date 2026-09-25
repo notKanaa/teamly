@@ -37,7 +37,7 @@ struct TaskEditorChecklistRows: View {
             Image(systemName: "plus")
                 .font(Font.body.weight(.bold))
                 .foregroundStyle(Theme.accent)
-                .frame(width: 24, height: 24)
+                .frame(minWidth: 24, minHeight: 24)
                 .accessibilityHidden(true)
             TextField(
                 TaskEditorViewModel.addChecklistItemTitle,
