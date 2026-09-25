@@ -159,9 +159,9 @@ final class VMFaults: @unchecked Sendable {
         case setRole, removeMember, leave
         case tasks, myTasks, task, createTask, updateTask, setStatus, deleteTask, assignments
         case currentTopic, enablePush, disablePush
-        // v2 (`createGroup` also counts `createGroup(name:color:emoji:)`).
+        // v2 (`createGroup` also counts `createGroup(name:color:emoji:)`; `myTasks` also counts `myTasks(doneSince:)`).
         case updateAvatar, completeOnboarding
-        case setAppearance, activity
+        case setAppearance, activity, overviews
         case addChecklistItem, renameChecklistItem, setChecklistItemDone, deleteChecklistItem, completions
     }
 
@@ -170,6 +170,7 @@ final class VMFaults: @unchecked Sendable {
     private var callCounts: [Op: Int] = [:]
     private var held: Set<Op> = []
     private var waiters: [Op: [CheckedContinuation<Void, Never>]] = [:]
+    private var dates: [Op: [Date]] = [:]
 
     /// The next `times` calls of `op` throw `error` (after being counted).
     func fail(_ op: Op, with error: any Error, times: Int = 1) {
@@ -178,6 +179,16 @@ final class VMFaults: @unchecked Sendable {
 
     func calls(_ op: Op) -> Int {
         lock.withLock { callCounts[op, default: 0] }
+    }
+
+    /// Records the date argument of a call of `op` (the `doneSince` of `myTasks(doneSince:)` and `overviews`).
+    func record(_ op: Op, date: Date) {
+        lock.withLock { dates[op, default: []].append(date) }
+    }
+
+    /// The date arguments recorded for `op`, in call order.
+    func recordedDates(_ op: Op) -> [Date] {
+        lock.withLock { dates[op, default: []] }
     }
 
     /// Calls of `op` wait until `release(op)`.
@@ -367,6 +378,12 @@ struct VMGroupService: GroupService {
         try await faults.check(.activity)
         return try await base.activity(groupId: groupId)
     }
+
+    func overviews(groupIds: [UUID], doneSince: Date) async throws -> [GroupOverview] {
+        faults.record(.overviews, date: doneSince)
+        try await faults.check(.overviews)
+        return try await base.overviews(groupIds: groupIds, doneSince: doneSince)
+    }
 }
 
 struct VMTaskService: TaskService {
@@ -381,6 +398,12 @@ struct VMTaskService: TaskService {
     func myTasks(includeDone: Bool) async throws -> [TaskItem] {
         try await faults.check(.myTasks)
         return try await base.myTasks(includeDone: includeDone)
+    }
+
+    func myTasks(doneSince: Date) async throws -> [TaskItem] {
+        faults.record(.myTasks, date: doneSince)
+        try await faults.check(.myTasks)
+        return try await base.myTasks(doneSince: doneSince)
     }
 
     func task(id: UUID) async throws -> TaskItem {

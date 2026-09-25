@@ -29,4 +29,8 @@ public enum Limits {
     /// The server deletes a group's events older than this many days when it writes a new one (an event exactly
     /// 90 days old is kept).
     public static let activityRetentionDays = 90
+    /// Rows of one PostgREST answer: the server's `max_rows` (Supabase's default, `supabase/config.toml`), which
+    /// truncates longer results without error (docs/CONTRACTS.md §5 pitfall 6). The reads of the groups overview ask
+    /// for pages of this size (docs/CONTRACTS-V2.md §10).
+    public static let readRowsMax = 1000
 }

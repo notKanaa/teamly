@@ -132,7 +132,7 @@ import Testing
     @Test func v2FrenchMessages() {
         #expect(AppError.invalidAppearance.messageFR == "Couleur ou emoji invalide.")
         #expect(AppError.invalidRecurrence.messageFR == "Répétition invalide.")
-        #expect(AppError.recurrenceNeedsDueDate.messageFR == "Choisissez une échéance pour répéter la tâche.")
+        #expect(AppError.recurrenceNeedsDueDate.messageFR == "Choisis une échéance pour répéter la tâche.")
         #expect(AppError.invalidRotation.messageFR == "Le tour de rôle demande de 2 à 20 membres du groupe.")
         #expect(AppError.invalidChecklistItem.messageFR == "Un élément doit contenir entre 1 et 200 caractères.")
         #expect(AppError.tooManyChecklistItems.messageFR == "30 éléments au maximum.")

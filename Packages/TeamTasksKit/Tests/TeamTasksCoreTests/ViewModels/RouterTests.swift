@@ -234,7 +234,7 @@ import Testing
             currentUserId: me
         )
         #expect(directory.myRole == .admin)
-        #expect(directory.names(of: [lucas, me, ines]) == ["Vous", "Inès Dubois", "Lucas Bernard"])
+        #expect(directory.names(of: [lucas, me, ines]) == ["Toi", "Inès Dubois", "Lucas Bernard"])
         #expect(directory.assigneesText([]) == "Non assignée")
         #expect(directory.assigneesText([lucas]) == "Lucas Bernard")
         #expect(directory.name(of: UUID()) == "Ancien membre")

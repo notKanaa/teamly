@@ -26,22 +26,18 @@ extension InMemoryBackend {
     /// `groupEmoji`. Unless `includeDone`, done tasks are omitted.
     func myTasks(clientId: UUID, includeDone: Bool) throws -> [TaskItem] {
         try read(as: clientId) { data, me in
-            data.tasks.values
-                .filter { task in
-                    data.assignees[task.id]?[me] != nil && (includeDone || task.status != .done)
-                }
-                .sorted(by: InMemoryBackend.creationOrder)
-                .map { task in
-                    var item = data.taskItem(task)
-                    let mine = data.assignees[task.id]?[me]
-                    let group = data.groups[task.groupId]
-                    item.myAssignedAt = mine?.assignedAt
-                    item.myAssignedBy = mine?.assignedBy
-                    item.groupName = group?.name
-                    item.groupColor = group?.color
-                    item.groupEmoji = group?.emoji
-                    return item
-                }
+            data.myTasks(of: me) { task in includeDone || task.status != .done }
+        }
+    }
+
+    /// v2 (docs/CONTRACTS-V2.md §10): the tasks assigned to the caller that are not done, plus the done ones with
+    /// `completed_at >= doneSince` (`or=(status.neq.done,completed_at.gte.<since>)`), with the fields of
+    /// `myTasks(clientId:includeDone:)`.
+    func myTasks(clientId: UUID, doneSince: Date) throws -> [TaskItem] {
+        try read(as: clientId) { data, me in
+            data.myTasks(of: me) { task in
+                task.status != .done || (task.completedAt ?? .distantPast) >= doneSince
+            }
         }
     }
 
@@ -347,6 +343,25 @@ extension InMemoryBackend {
 }
 
 extension BackendData {
+    /// The `myTasks` items of `userId` (tasks assigned to them) that pass `include`, in creation order, with the
+    /// personal fields: `myAssignedAt`, `myAssignedBy`, `groupName`, `groupColor` and `groupEmoji`.
+    func myTasks(of userId: UUID, where include: (TaskRecord) -> Bool) -> [TaskItem] {
+        tasks.values
+            .filter { task in assignees[task.id]?[userId] != nil && include(task) }
+            .sorted(by: InMemoryBackend.creationOrder)
+            .map { task in
+                var item = taskItem(task)
+                let mine = assignees[task.id]?[userId]
+                let group = groups[task.groupId]
+                item.myAssignedAt = mine?.assignedAt
+                item.myAssignedBy = mine?.assignedBy
+                item.groupName = group?.name
+                item.groupColor = group?.color
+                item.groupEmoji = group?.emoji
+                return item
+            }
+    }
+
     /// An item the caller may change: `.notFound` when it does not exist or is not visible (`item_not_found`),
     /// `.forbidden` without the « change status » rights on its task.
     func checklistItemForChange(_ itemId: UUID, by userId: UUID) throws -> ChecklistItemRecord {

@@ -94,7 +94,7 @@ import TeamTasksMocks
         #expect(SettingsViewModel.pushInstructionSteps.count == 3)
         #expect(SettingsViewModel.pushInstructionSteps[0].contains("ntfy"))
         #expect(SettingsViewModel.pushInstructionSteps[2]
-            == "Une notification vous prévient quand une tâche vous est assignée, même quand Équipe est fermée.")
+            == "Une notification te prévient quand une tâche t’est assignée, même quand Équipe est fermée.")
 
         #expect(await model.setPushEnabled(true))
         let topic = try #require(model.pushTopic)
@@ -163,7 +163,7 @@ import TeamTasksMocks
         model.deleteConfirmation = "supprimer"
         #expect(!model.canDeleteAccount)
         #expect(await !model.deleteAccount())
-        #expect(model.errorMessage == "Tapez «\u{00A0}SUPPRIMER\u{00A0}» pour confirmer.")
+        #expect(model.errorMessage == "Tape «\u{00A0}SUPPRIMER\u{00A0}» pour confirmer.")
         model.deleteConfirmation = " SUPPRIMER"
         #expect(!model.canDeleteAccount)
         #expect(harness.faults.calls(.deleteAccount) == 0)
@@ -171,7 +171,7 @@ import TeamTasksMocks
         model.deleteConfirmation = "SUPPRIMER"
         #expect(model.canDeleteAccount)
         #expect(SettingsViewModel.deleteAccountWarning.contains("«\u{00A0}SUPPRIMER\u{00A0}»"))
-        #expect(SettingsViewModel.deleteAccountWarning.contains("deviendra admin si vous étiez le seul admin."))
+        #expect(SettingsViewModel.deleteAccountWarning.contains("deviendra admin si tu étais l’unique admin."))
         #expect(await model.deleteAccount())
         #expect(await harness.services.auth.currentUser() == nil)
         #expect(harness.backend.userId(forEmail: F.camille.email) == nil)

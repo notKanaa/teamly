@@ -115,7 +115,7 @@ import FoundationNetworking
         #expect(map(503, "") == unavailable)
         // A business error keeps its meaning whatever the status.
         #expect(map(500, #"{"code":"P0001","message":"last_admin"}"#) == .lastAdmin)
-        #expect(unavailable.messageFR == "Une erreur est survenue. (le serveur est momentanément indisponible, réessayez dans un instant)")
+        #expect(unavailable.messageFR == "Une erreur est survenue. (le serveur est momentanément indisponible, réessaie dans un instant)")
     }
 
     @Test(arguments: authCases)

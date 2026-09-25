@@ -4,7 +4,7 @@ import Observation
 /// A member offered in the assignee picker.
 public struct AssigneeOption: Sendable, Hashable, Identifiable {
     public var id: UUID
-    /// « Camille Martin (vous) » for the current user.
+    /// « Camille Martin (toi) » for the current user.
     public var name: String
     public var role: MemberRole
     public var isMe: Bool
@@ -139,7 +139,7 @@ public final class TaskEditorViewModel: ErrorPresenting {
     public static let goneMessage = "Cette tâche a été supprimée."
     /// After `assignee_not_member`: the people who left the group were removed from the selection.
     public static let departedAssigneesMessage =
-        "Une personne assignée a quitté le groupe\u{00A0}: elle a été retirée. Enregistrez à nouveau."
+        "Une personne assignée a quitté le groupe\u{00A0}: elle a été retirée. Enregistre à nouveau."
     /// v2: under « Répéter ».
     public static let recurrenceHint = "Dès que la tâche est faite, la suivante est créée."
     /// v2: next to the due date while the task repeats.
@@ -152,7 +152,7 @@ public final class TaskEditorViewModel: ErrorPresenting {
     public static let rotationMyTurnBadge = "C’est ton tour"
     /// v2: after `invalid_rotation`: the people who left the group were removed from the rotation.
     public static let departedRotationMessage =
-        "Une personne du tour de rôle a quitté le groupe\u{00A0}: elle a été retirée. Enregistrez à nouveau."
+        "Une personne du tour de rôle a quitté le groupe\u{00A0}: elle a été retirée. Enregistre à nouveau."
     /// v2: « Checklist ».
     public static let checklistTitle = "Checklist"
     public static let addChecklistItemTitle = "Ajouter un élément"
@@ -376,7 +376,7 @@ public final class TaskEditorViewModel: ErrorPresenting {
             let isMe = member.user.id == session.userId
             return AssigneeOption(
                 id: member.user.id,
-                name: isMe ? "\(member.user.displayName) (vous)" : member.user.displayName,
+                name: isMe ? "\(member.user.displayName) (toi)" : member.user.displayName,
                 role: member.role,
                 isMe: isMe,
                 isSelected: assigneeIds.contains(member.user.id)
@@ -387,7 +387,7 @@ public final class TaskEditorViewModel: ErrorPresenting {
     /// 20 people are already assigned: others cannot be added.
     public var assigneeLimitReached: Bool { assigneeIds.count >= Self.maxAssignees }
 
-    /// « Vous, Lucas Bernard » / « Non assignée ».
+    /// « Toi, Lucas Bernard » / « Non assignée ».
     public var assigneesSummary: String {
         MemberDirectory(members: members, currentUserId: session.userId).assigneesText(Array(assigneeIds))
     }

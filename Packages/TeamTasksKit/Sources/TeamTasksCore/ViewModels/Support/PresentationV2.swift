@@ -1,7 +1,7 @@
 import Foundation
 
 // v2 presentation values shared by the view models (docs/CONTRACTS-V2.md): the colors and emojis of people and
-// groups, people as badges, checklist progress, and the curated emojis of the pickers.
+// groups, people as badges, checklist progress, the figures of the group cards, and the curated emojis of the pickers.
 
 extension ColorKey {
     /// French name of the color, for the accessibility labels of the pickers.
@@ -137,6 +137,54 @@ public struct ChecklistProgress: Sendable, Hashable {
 
     /// « 2 sur 5 », for the task screen.
     public var text: String { "\(done) sur \(total)" }
+}
+
+extension GroupOverview {
+    /// Avatar circles of a group card (the approved mockup): every member when they fit, else the first ones and a
+    /// « +N » circle.
+    public static let avatarSlots = 3
+    /// Title of the card's progress bar.
+    public static let weekTitle = "Cette semaine"
+
+    /// Number of members.
+    public var memberCount: Int { members.count }
+
+    /// The avatars of the card (automatic colors resolved), in the members' order (admins first, then by name): every
+    /// member when they fit in `avatarSlots` circles, else the first `avatarSlots − 1`, the last circle being
+    /// `moreMembersText`.
+    public var memberAvatars: [AvatarAppearance] {
+        let shown = members.count <= Self.avatarSlots ? members.count : Self.avatarSlots - 1
+        return members.prefix(shown).map(\.user.appearance)
+    }
+
+    /// « +2 »: the members without an avatar on the card; nil when every member has one.
+    public var moreMembersText: String? {
+        let hidden = members.count - memberAvatars.count
+        return hidden > 0 ? "+\(hidden)" : nil
+    }
+
+    /// « 3 membres », « 1 membre ».
+    public var membersText: String { FrenchText.count(members.count, "membre", "membres") }
+
+    /// « 4 à faire », « rien à faire ».
+    public var openText: String { openTaskCount == 0 ? "rien à faire" : "\(openTaskCount) à faire" }
+
+    /// The card's subtitle: « 3 membres · 4 à faire ».
+    public var summaryText: String { "\(membersText) · \(openText)" }
+
+    /// The tasks of the week: done this week plus still to do (the 13 of « 9 faites sur 13 »).
+    public var weekTaskCount: Int { doneTaskCount + openTaskCount }
+
+    /// 0…1, for the progress bar (0 without any task).
+    public var weekProgress: Double {
+        weekTaskCount == 0 ? 0 : Double(doneTaskCount) / Double(weekTaskCount)
+    }
+
+    /// « 9 faites sur 13 », « 1 faite sur 6 », « Rien de prévu » without any task.
+    public var weekProgressText: String {
+        guard weekTaskCount > 0 else { return "Rien de prévu" }
+        return "\(FrenchText.count(doneTaskCount, "faite", "faites")) sur \(weekTaskCount)"
+    }
 }
 
 extension ActivityEvent.Kind {

@@ -22,6 +22,174 @@ import TeamTasksMocks
         await model.load()
         await model.load()
         #expect(harness.faults.calls(.myGroups) == 1)
+        #expect(harness.faults.calls(.overviews) == 1)
+    }
+
+    // MARK: - v2 overviews (docs/CONTRACTS-V2.md §10)
+
+    /// One read of every card's figures, from Monday 00:00 of the current week (injected calendar), shown with the
+    /// groups.
+    @Test func overviewsOfTheCards() async throws {
+        let harness = VMHarness()
+        let model = GroupsListViewModel(session: harness.makeSession())
+        #expect(model.headerText == nil)
+        #expect(model.overview(of: F.lilas) == nil)
+        await model.load()
+        #expect(harness.faults.calls(.overviews) == 1)
+        // Thursday 24 September 2026 → Monday 21 September 00:00 in Paris.
+        #expect(harness.faults.recordedDates(.overviews) == [F.date(2026, 9, 21)])
+        #expect(model.overviewsWeekStart == F.date(2026, 9, 21))
+
+        let lilas = try #require(model.overview(of: F.lilas))
+        #expect(lilas.members.map(\.user.id) == [F.camille.id, F.ines.id, F.lucas.id], "admins first, then by name")
+        #expect(lilas.openTaskCount == 4)
+        #expect(lilas.doneTaskCount == 1, "« Nettoyer la cuisine », done yesterday")
+        #expect(lilas.memberCount == 3)
+        #expect(lilas.memberAvatars.map(\.initials) == ["CM", "ID", "LB"])
+        #expect(lilas.memberAvatars.map(\.color) == lilas.members.map(\.user.resolvedColor))
+        #expect(lilas.moreMembersText == nil)
+        #expect(lilas.summaryText == "3 membres · 4 à faire")
+        #expect(lilas.weekTaskCount == 5)
+        #expect(lilas.weekProgressText == "1 faite sur 5")
+        #expect(lilas.weekProgress == 0.2)
+        #expect(GroupOverview.weekTitle == "Cette semaine")
+
+        let sport = try #require(model.overview(of: F.sport))
+        #expect(sport.members.map(\.user.id) == [F.lucas.id, F.camille.id])
+        #expect(sport.summaryText == "2 membres · 2 à faire")
+        #expect(sport.weekProgressText == "0 faite sur 2")
+        #expect(sport.weekProgress == 0)
+        #expect(model.headerText == "2 groupes · 6 tâches à faire")
+    }
+
+    /// The figures reload with the list: a task completed in a group, a new group.
+    @Test func overviewsReloadWithTheList() async throws {
+        let harness = VMHarness()
+        let session = harness.makeSession()
+        let model = GroupsListViewModel(session: session)
+        await model.load()
+
+        _ = try await harness.device(F.lucas).tasks.setStatus(taskId: VMFixtures.Tasks.faireCourses, status: .done)
+        session.feed.bump(groupId: F.lilas)
+        #expect(model.needsRefresh)
+        await model.load()
+        #expect(harness.faults.calls(.overviews) == 2)
+        #expect(model.overview(of: F.lilas)?.weekProgressText == "2 faites sur 5")
+        #expect(model.overview(of: F.lilas)?.summaryText == "3 membres · 3 à faire")
+        #expect(model.headerText == "2 groupes · 5 tâches à faire")
+
+        let created = try await harness.device(F.camille).groups.createGroup(name: "Vacances")
+        session.feed.bumpMemberships()
+        await model.load()
+        #expect(harness.faults.calls(.overviews) == 3)
+        let vacances = try #require(model.overview(of: created.id))
+        #expect(vacances.summaryText == "1 membre · rien à faire")
+        #expect(vacances.weekProgressText == "Rien de prévu")
+        #expect(vacances.memberAvatars.count == 1)
+        #expect(model.headerText == "3 groupes · 5 tâches à faire")
+    }
+
+    /// A failed overview read never fails the list: the groups show without figures, then the next load reads again; a
+    /// later failure keeps the figures of the week.
+    @Test func aFailedOverviewReadKeepsTheList() async throws {
+        let harness = VMHarness()
+        let model = GroupsListViewModel(session: harness.makeSession())
+        harness.faults.fail(.overviews, with: AppError.network)
+        await model.load()
+        #expect(model.loadState == .loaded)
+        #expect(model.groups.count == 2)
+        #expect(model.overviews.isEmpty)
+        #expect(model.overview(of: F.lilas) == nil)
+        #expect(model.headerText == "2 groupes")
+        #expect(model.error == nil)
+        #expect(model.needsRefresh)
+
+        await model.load()
+        #expect(harness.faults.calls(.myGroups) == 2)
+        #expect(harness.faults.calls(.overviews) == 2)
+        #expect(model.headerText == "2 groupes · 6 tâches à faire")
+        #expect(!model.needsRefresh)
+
+        harness.faults.fail(.overviews, with: AppError.network)
+        await model.reload()
+        #expect(model.overview(of: F.lilas)?.openTaskCount == 4)
+        #expect(model.headerText == "2 groupes · 6 tâches à faire")
+        #expect(model.error == nil)
+        #expect(model.needsRefresh)
+    }
+
+    /// A new week reads the figures again, counting the tasks done since the new Monday.
+    @Test func aNewWeekReadsTheFiguresAgain() async throws {
+        let harness = VMHarness()
+        let model = GroupsListViewModel(session: harness.makeSession())
+        await model.load()
+        #expect(model.overview(of: F.lilas)?.doneTaskCount == 1)
+        harness.clock.advance(by: 7 * 86_400)
+        #expect(model.needsRefresh)
+        await model.load()
+        #expect(harness.faults.recordedDates(.overviews) == [F.date(2026, 9, 21), F.date(2026, 9, 28)])
+        #expect(model.overviewsWeekStart == F.date(2026, 9, 28))
+        #expect(model.overview(of: F.lilas)?.doneTaskCount == 0)
+        #expect(model.overview(of: F.lilas)?.openTaskCount == 4)
+    }
+
+    @Test func noGroupNoOverviewRead() async throws {
+        let harness = VMHarness(.emptyGroups)
+        let model = GroupsListViewModel(session: harness.makeSession())
+        await model.load()
+        #expect(model.isEmpty)
+        #expect(model.headerText == nil)
+        #expect(harness.faults.calls(.overviews) == 0)
+
+        _ = try await harness.services.groups.createGroup(name: "Solo")
+        await model.reload()
+        #expect(model.headerText == "1 groupe · aucune tâche à faire")
+        #expect(harness.faults.calls(.overviews) == 1)
+    }
+
+    /// A card shows at most 3 circles: every avatar up to 3 members, else 2 avatars and « +N ».
+    @Test func avatarsOfTheCards() {
+        func overview(members count: Int, open: Int = 0, done: Int = 0) -> GroupOverview {
+            let group = UUID()
+            let members = (0..<count).map { index in
+                Membership(
+                    groupId: group, user: UserProfile(id: UUID(), displayName: "Membre \(index)", avatarEmoji: index == 0 ? "🦊" : nil),
+                    role: index == 0 ? .admin : .member, joinedAt: F.now
+                )
+            }
+            return GroupOverview(groupId: group, members: members, openTaskCount: open, doneTaskCount: done)
+        }
+        #expect(GroupOverview.avatarSlots == 3)
+        #expect(overview(members: 1).memberAvatars.map(\.symbol) == ["🦊"])
+        #expect(overview(members: 3).memberAvatars.map(\.symbol) == ["🦊", "M1", "M2"])
+        #expect(overview(members: 3).moreMembersText == nil)
+        #expect(overview(members: 4).memberAvatars.map(\.symbol) == ["🦊", "M1"])
+        #expect(overview(members: 4).moreMembersText == "+2")
+        #expect(overview(members: 12).moreMembersText == "+10")
+        #expect(overview(members: 1).membersText == "1 membre")
+        #expect(overview(members: 2, open: 1, done: 1).summaryText == "2 membres · 1 à faire")
+        #expect(overview(members: 2, open: 1, done: 1).weekProgressText == "1 faite sur 2")
+        #expect(overview(members: 2, open: 0, done: 3).weekProgressText == "3 faites sur 3")
+        #expect(overview(members: 2, open: 0, done: 3).weekProgress == 1)
+        #expect(overview(members: 2).openText == "rien à faire")
+    }
+
+    /// The counting shared by the backends: open = not done; done = completed at or after `doneSince`.
+    @Test func overviewCounting() {
+        let group = UUID()
+        let since = F.date(2026, 9, 21)
+        let lucas = Membership(groupId: group, user: UserProfile(id: F.lucas.id, displayName: "Lucas Bernard"), role: .member, joinedAt: F.now)
+        let camille = Membership(groupId: group, user: UserProfile(id: F.camille.id, displayName: "Camille Martin"), role: .admin, joinedAt: F.now)
+        let overview = GroupOverview(groupId: group, members: [lucas, camille], tasks: [
+            .init(status: .todo, completedAt: nil),
+            .init(status: .inProgress, completedAt: nil),
+            .init(status: .done, completedAt: since),
+            .init(status: .done, completedAt: since.addingTimeInterval(-1)),
+            .init(status: .done, completedAt: nil),
+        ], doneSince: since)
+        #expect(overview.members == [camille, lucas], "sorted like members(groupId:)")
+        #expect(overview.openTaskCount == 2)
+        #expect(overview.doneTaskCount == 1)
     }
 
     @Test func emptyState() async {
@@ -229,7 +397,7 @@ import TeamTasksMocks
         let result = try #require(await model.join())
         #expect(result.groupId == F.lilas)
         #expect(!result.alreadyMember)
-        #expect(model.resultMessage == "Vous avez rejoint «\u{00A0}Coloc' rue des Lilas\u{00A0}».")
+        #expect(model.resultMessage == "Tu as rejoint «\u{00A0}Coloc' rue des Lilas\u{00A0}».")
         #expect(session.feed.membershipsRevision == revision + 1)
         #expect(try await harness.services.groups.myGroups().map(\.id) == [F.lilas])
     }
@@ -239,7 +407,7 @@ import TeamTasksMocks
         let model = JoinGroupViewModel(session: harness.makeSession(), code: "LYLA-S234")
         let result = try #require(await model.join())
         #expect(result.alreadyMember)
-        #expect(model.resultMessage == "Vous faites déjà partie de «\u{00A0}Coloc' rue des Lilas\u{00A0}».")
+        #expect(model.resultMessage == "Tu fais déjà partie de «\u{00A0}Coloc' rue des Lilas\u{00A0}».")
         #expect(model.error == nil)
     }
 
@@ -273,6 +441,6 @@ import TeamTasksMocks
         }
         model.code = "LYLA-S234"
         #expect(await model.join() == nil)
-        #expect(model.errorMessage == "Trop de tentatives. Réessayez dans une heure.")
+        #expect(model.errorMessage == "Trop de tentatives. Réessaie dans une heure.")
     }
 }

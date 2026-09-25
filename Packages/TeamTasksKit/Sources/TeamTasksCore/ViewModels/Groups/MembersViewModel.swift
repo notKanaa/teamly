@@ -129,9 +129,9 @@ public final class MembersViewModel: ErrorPresenting {
 
     public func isMe(_ member: Membership) -> Bool { member.user.id == session.userId }
 
-    /// Name for the list: « Camille Martin (vous) » for the current user.
+    /// Name for the list: « Camille Martin (toi) » for the current user.
     public func displayName(of member: Membership) -> String {
-        isMe(member) ? "\(member.user.displayName) (vous)" : member.user.displayName
+        isMe(member) ? "\(member.user.displayName) (toi)" : member.user.displayName
     }
 
     /// Admins can change anyone's role; their own only while another admin exists (last-admin rule).
@@ -161,12 +161,12 @@ public final class MembersViewModel: ErrorPresenting {
     /// Text of the « Quitter le groupe » confirmation (or why it is impossible).
     public var leaveConfirmationMessage: String {
         if isLastMember {
-            return "Vous êtes le dernier membre\u{00A0}: le groupe «\u{00A0}\(groupName)\u{00A0}» et toutes ses tâches seront supprimés."
+            return "Il ne reste que toi\u{00A0}: le groupe «\u{00A0}\(groupName)\u{00A0}» et toutes ses tâches seront supprimés."
         }
         if isLastAdmin {
             return AppError.lastAdmin.messageFR
         }
-        return "Vous ne verrez plus «\u{00A0}\(groupName)\u{00A0}» ni ses tâches. Vos assignations dans ce groupe seront retirées."
+        return "Tu ne verras plus «\u{00A0}\(groupName)\u{00A0}» ni ses tâches. Tes assignations dans ce groupe seront retirées."
     }
 
     // MARK: - Actions

@@ -10,7 +10,8 @@ import FoundationNetworking
 ///
 /// `CancellationError` is passed through unchanged: view models ignore it (a cancelled SwiftUI `.task` must not
 /// surface « annulé »). Nothing the server says in English reaches the user: the conditions without an `AppError`
-/// case of their own become `.unknown` with one of the French details below.
+/// case of their own become `.unknown` with one of the French details below, which address the user with « tu »
+/// (docs/CONTRACTS-V2.md §13).
 enum SupabaseErrorMapping {
     // MARK: - French details of `.unknown`
 
@@ -18,16 +19,16 @@ enum SupabaseErrorMapping {
     static let unexpectedAnswer = "réponse inattendue du serveur"
     /// Temporary server-side failure: 5xx, PostgREST `PGRST000`–`PGRST003` (database unreachable, e.g. while a free
     /// project resumes from pause), statement timeout, gateway rate limit, Auth `unexpected_failure`/`request_timeout`.
-    static let serverUnavailable = "le serveur est momentanément indisponible, réessayez dans un instant"
+    static let serverUnavailable = "le serveur est momentanément indisponible, réessaie dans un instant"
     /// Supabase Auth request rate limit (a window of minutes, unlike the one-hour limit of `join_group_by_code`).
-    static let authRateLimited = "trop de tentatives, réessayez dans quelques minutes"
+    static let authRateLimited = "trop de tentatives, réessaie dans quelques minutes"
     /// `email_address_not_authorized`: the project's built-in SMTP only delivers to its team members until a custom
     /// SMTP server is configured.
     static let emailDeliveryUnavailable = "l’envoi d’e-mails vers cette adresse n’est pas encore possible"
     static let signupDisabled = "les inscriptions sont fermées pour le moment"
     static let emailProviderDisabled = "la connexion par e-mail est désactivée pour le moment"
     static let userBanned = "ce compte est suspendu"
-    static let reauthenticationNeeded = "reconnectez-vous, puis réessayez"
+    static let reauthenticationNeeded = "reconnecte-toi, puis réessaie"
     static let captchaFailed = "la vérification de sécurité a échoué"
 
     // MARK: - PostgREST

@@ -22,12 +22,12 @@ public final class PasswordResetViewModel: ErrorPresenting, Identifiable {
 
     public static let codeLength = 6
     public static let mismatchMessage = "Les mots de passe ne correspondent pas."
-    public static let incompleteCodeMessage = "Saisissez les 6 chiffres du code reçu par e-mail."
+    public static let incompleteCodeMessage = "Saisis les 6 chiffres du code reçu par e-mail."
     public static let resentMessage = "Un nouveau code vient d’être envoyé."
-    public static let doneMessage = "Votre mot de passe a été modifié."
+    public static let doneMessage = "Ton mot de passe a été modifié."
     /// The recovery session ended before the new password was set.
     public static let recoveryEndedMessage =
-        "La session de réinitialisation a expiré avant l’enregistrement du nouveau mot de passe. Demandez un nouveau code."
+        "La session de réinitialisation a expiré avant l’enregistrement du nouveau mot de passe. Demande un nouveau code."
 
     public nonisolated let id = UUID()
     public private(set) var step: Step = .email

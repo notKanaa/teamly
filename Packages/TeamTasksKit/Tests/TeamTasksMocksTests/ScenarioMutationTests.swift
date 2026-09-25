@@ -51,6 +51,15 @@ enum ScenarioMutation: String, CaseIterable, Sendable, CustomTestStringConvertib
     /// server, so that a refused permission is reported as invalid input (contract, spec §3: `group_not_found` /
     /// `item_not_found` → `forbidden` → the value).
     case clientChecksBeforePermission
+    /// `myTasks(doneSince:)` leaves out a task done exactly at `doneSince` (contract: `completed_at.gte`).
+    case myTasksDoneSinceExclusive
+    /// `myTasks(doneSince:)` ignores its bound and returns every done task (the v1 `includeDone` read).
+    case myTasksDoneSinceUnbounded
+    /// The groups overview counts every done task, whenever it was completed (contract: since `doneSince`).
+    case overviewsCountEveryDoneTask
+    /// The groups overview returns an overview for every id asked, groups of other users and unknown ids included
+    /// (contract: RLS, non-members read nothing).
+    case overviewsOfEveryAskedGroup
 
     var testDescription: String { rawValue }
 }
@@ -382,6 +391,22 @@ struct MutatedGroupService: GroupService {
         let feed = try await base.activity(groupId: groupId)
         return mutation == .activityOldestFirst ? feed.reversed() : feed
     }
+
+    func overviews(groupIds: [UUID], doneSince: Date) async throws -> [GroupOverview] {
+        switch mutation {
+        case .overviewsCountEveryDoneTask:
+            return try await base.overviews(groupIds: groupIds, doneSince: .distantPast)
+        case .overviewsOfEveryAskedGroup:
+            let read = try await base.overviews(groupIds: groupIds, doneSince: doneSince)
+            var seen = Set<UUID>()
+            return groupIds.filter { seen.insert($0).inserted }.map { groupId in
+                read.first { $0.groupId == groupId }
+                    ?? GroupOverview(groupId: groupId, members: [], openTaskCount: 0, doneTaskCount: 0)
+            }
+        default:
+            return try await base.overviews(groupIds: groupIds, doneSince: doneSince)
+        }
+    }
 }
 
 struct MutatedTaskService: TaskService {
@@ -402,14 +427,30 @@ struct MutatedTaskService: TaskService {
     }
 
     func myTasks(includeDone: Bool) async throws -> [TaskItem] {
-        try await base.myTasks(includeDone: includeDone).map { task in
-            var copy = mutated(task)
-            if mutation == .myTasksWithoutGroupAppearance {
-                copy.groupColor = nil
-                copy.groupEmoji = nil
-            }
-            return copy
+        try await base.myTasks(includeDone: includeDone).map(mutatedMine)
+    }
+
+    func myTasks(doneSince: Date) async throws -> [TaskItem] {
+        switch mutation {
+        case .myTasksDoneSinceExclusive:
+            return try await base.myTasks(doneSince: doneSince)
+                .filter { $0.status != .done || ($0.completedAt ?? .distantPast) > doneSince }
+                .map(mutatedMine)
+        case .myTasksDoneSinceUnbounded:
+            return try await base.myTasks(includeDone: true).map(mutatedMine)
+        default:
+            return try await base.myTasks(doneSince: doneSince).map(mutatedMine)
         }
+    }
+
+    /// The read mutations of a `myTasks` item.
+    private func mutatedMine(_ task: TaskItem) -> TaskItem {
+        var copy = mutated(task)
+        if mutation == .myTasksWithoutGroupAppearance {
+            copy.groupColor = nil
+            copy.groupEmoji = nil
+        }
+        return copy
     }
 
     func task(id: UUID) async throws -> TaskItem {
@@ -544,6 +585,10 @@ struct MutatedTaskService: TaskService {
         .myTasksWithoutGroupAppearance: ["compat.readsAndRowsCarryV2Columns"],
         .checklistUnsorted: ["checklist.createWithTask", "checklist.operations"],
         .clientChecksBeforePermission: ["appearance.setGroupAppearance", "checklist.rights"],
+        .myTasksDoneSinceExclusive: ["reads.myTasksDoneSince"],
+        .myTasksDoneSinceUnbounded: ["reads.myTasksDoneSince"],
+        .overviewsCountEveryDoneTask: ["reads.groupOverviews"],
+        .overviewsOfEveryAskedGroup: ["reads.groupOverviews"],
     ]
 
     @Test func decoratorsAloneBreakNothing() async {

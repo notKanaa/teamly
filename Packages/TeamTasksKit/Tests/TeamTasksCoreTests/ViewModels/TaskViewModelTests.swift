@@ -23,7 +23,7 @@ import TeamTasksMocks
 
         await model.load()
         #expect(model.loadState == .loaded)
-        #expect(model.assigneeOptions.map(\.name) == ["Camille Martin (vous)", "Inès Dubois", "Lucas Bernard"])
+        #expect(model.assigneeOptions.map(\.name) == ["Camille Martin (toi)", "Inès Dubois", "Lucas Bernard"])
         #expect(model.assigneeOptions.map(\.isMe) == [true, false, false])
         #expect(model.assigneesSummary == "Non assignée")
         await model.load()
@@ -62,7 +62,7 @@ import TeamTasksMocks
         model.hasDueDate = true
         model.toggleAssignee(F.lucas.id)
         model.toggleAssignee(F.camille.id)
-        #expect(model.assigneesSummary == "Vous, Lucas Bernard")
+        #expect(model.assigneesSummary == "Toi, Lucas Bernard")
         #expect(model.hasChanges)
         #expect(model.canSave)
         let groupRevision = session.feed.groupRevision(F.lilas)
@@ -238,8 +238,8 @@ import TeamTasksMocks
         #expect(model.priority == .medium)
         #expect(model.dueText == "Demain à 18:00")
         #expect(!model.isOverdue)
-        #expect(model.assigneeNames == ["Vous", "Lucas Bernard"])
-        #expect(model.assigneesText == "Vous, Lucas Bernard")
+        #expect(model.assigneeNames == ["Toi", "Lucas Bernard"])
+        #expect(model.assigneesText == "Toi, Lucas Bernard")
         #expect(model.creatorName == "Lucas Bernard")
         #expect(model.createdText == "Créée par Lucas Bernard le mardi 22 septembre à 10:00")
         #expect(model.completedText == nil)
@@ -255,8 +255,8 @@ import TeamTasksMocks
         await model.load()
         #expect(model.isOverdue)
         #expect(model.dueText == "Hier à 18:00")
-        #expect(model.creatorName == "Vous")
-        #expect(model.createdText == "Créée par vous le vendredi 18 septembre à 10:00")
+        #expect(model.creatorName == "Toi")
+        #expect(model.createdText == "Créée par toi le vendredi 18 septembre à 10:00")
         #expect(model.assigneeNames == ["Inès Dubois"])
     }
 

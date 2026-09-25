@@ -73,6 +73,24 @@ extension InMemoryBackend {
         }
     }
 
+    /// v2 groups overview (docs/CONTRACTS-V2.md §10), the two reads in one snapshot: the members of `groupIds` and the
+    /// tasks not done or done since `doneSince`, aggregated like the adapter (`GroupOverview.init(groupId:members:tasks:
+    /// doneSince:)`). One overview per distinct group, in the order of `groupIds`; groups the caller does not belong
+    /// to (RLS) are left out. The server's row limit is not mirrored: the mocks never leave out a readable group.
+    func overviews(clientId: UUID, groupIds: [UUID], doneSince: Date) throws -> [GroupOverview] {
+        try read(as: clientId) { data, me in
+            var seen = Set<UUID>()
+            return groupIds.compactMap { groupId -> GroupOverview? in
+                guard seen.insert(groupId).inserted, data.isMember(me, of: groupId) else { return nil }
+                let members = (data.members[groupId] ?? [:]).values.compactMap(data.membership)
+                let tasks = data.tasks.values
+                    .filter { $0.groupId == groupId }
+                    .map { GroupOverview.TaskState(status: $0.status, completedAt: $0.completedAt) }
+                return GroupOverview(groupId: groupId, members: members, tasks: tasks, doneSince: doneSince)
+            }
+        }
+    }
+
     /// `group_invites` is readable by admins only: 0 rows → `.forbidden`.
     func inviteCode(clientId: UUID, groupId: UUID) throws -> InviteCode {
         try read(as: clientId) { data, me in

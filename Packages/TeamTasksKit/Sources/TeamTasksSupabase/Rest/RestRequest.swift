@@ -140,17 +140,57 @@ enum RestQuery {
 
     /// v2: the embedded group also gives its color and emoji.
     static func myTasks(me: UUID, includeDone: Bool) -> RestRequest {
-        var query = [
+        var query = myTasksQuery(me: me)
+        if !includeDone {
+            query.append(item("status", "neq.done"))
+        }
+        return RestRequest(path: "tasks", query: query)
+    }
+
+    /// v2 (docs/CONTRACTS-V2.md §10): `myTasks` with the tasks not done and the done ones completed at or after
+    /// `doneSince` (inclusive, microseconds).
+    static func myTasks(me: UUID, doneSince: Date) -> RestRequest {
+        RestRequest(path: "tasks", query: myTasksQuery(me: me) + [
+            item("or", "(status.neq.done,completed_at.gte.\(PostgresTimestamp.format(doneSince)))"),
+        ])
+    }
+
+    private static func myTasksQuery(me: UUID) -> [RestRequest.QueryItem] {
+        [
             item(
                 "select",
                 "\(taskSelect),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name,color,emoji)"
             ),
             item("mine.user_id", "eq.\(uuid(me))"),
         ]
-        if !includeDone {
-            query.append(item("status", "neq.done"))
-        }
-        return RestRequest(path: "tasks", query: query)
+    }
+
+    /// `in.(<id>,<id>…)`, the ids in the order given.
+    static func inList(_ ids: [UUID]) -> String {
+        "in.(\(ids.map(uuid).joined(separator: ",")))"
+    }
+
+    /// v2 groups overview, the members (docs/CONTRACTS-V2.md §10): the members of `groupIds` with their avatar, in pages
+    /// of `limit` rows (`Limits.readRowsMax`) ordered by group.
+    static func overviewMembers(groupIds: [UUID], limit: Int = Limits.readRowsMax) -> RestRequest {
+        RestRequest(path: "group_members", query: [
+            item("select", "group_id,user_id,role,joined_at,profile:profiles(\(profileSelect))"),
+            item("group_id", inList(groupIds)),
+            item("order", "group_id.asc"),
+            item("limit", String(limit)),
+        ])
+    }
+
+    /// v2 groups overview, the tasks (docs/CONTRACTS-V2.md §10): the tasks of `groupIds` not done or done at or after
+    /// `doneSince` (inclusive, microseconds), in pages of `limit` rows (`Limits.readRowsMax`) ordered by group.
+    static func overviewTasks(groupIds: [UUID], doneSince: Date, limit: Int = Limits.readRowsMax) -> RestRequest {
+        RestRequest(path: "tasks", query: [
+            item("select", "group_id,status,completed_at"),
+            item("group_id", inList(groupIds)),
+            item("or", "(status.neq.done,completed_at.gte.\(PostgresTimestamp.format(doneSince)))"),
+            item("order", "group_id.asc"),
+            item("limit", String(limit)),
+        ])
     }
 
     /// Assignments to `me` made by someone else (or by a deleted account) strictly after `since`, oldest first.

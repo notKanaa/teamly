@@ -25,6 +25,13 @@ struct SupabaseTaskService: TaskService {
         return rows.map(\.myTaskItem).sorted(by: TaskDTO.creationOrder)
     }
 
+    /// v2 (docs/CONTRACTS-V2.md §10): `or=(status.neq.done,completed_at.gte.<doneSince>)`, `doneSince` inclusive and sent
+    /// with microseconds. Same items and the same tolerance as `myTasks(includeDone:)`.
+    func myTasks(doneSince: Date) async throws -> [TaskItem] {
+        let rows = try await rest.fetchRows(TaskDTO.self) { RestQuery.myTasks(me: $0.userId, doneSince: doneSince) }
+        return rows.map(\.myTaskItem).sorted(by: TaskDTO.creationOrder)
+    }
+
     /// 0 rows (unknown or not visible) → `.notFound`; a value unknown to this client → `.unknown`.
     func task(id: UUID) async throws -> TaskItem {
         let rows = try await rest.fetch([TaskDTO].self) { _ in RestQuery.task(id: id) }

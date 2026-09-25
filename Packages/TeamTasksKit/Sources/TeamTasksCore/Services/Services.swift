@@ -55,6 +55,16 @@ public protocol GroupService: Sendable {
     func deleteGroup(groupId: UUID) async throws
     /// Members sorted by role (admins first) then display name.
     func members(groupId: UUID) async throws -> [Membership]
+    /// v2: the figures of the groups list for all of `groupIds` at once (docs/CONTRACTS-V2.md §10 « Groups overview »):
+    /// each group's members (with their avatar, in the order of `members(groupId:)`), its tasks not done, and its tasks
+    /// done at or after `doneSince` (inclusive; the groups list passes the start of the week,
+    /// `WeeklyRecap.weekStart(of:calendar:)`). Tasks with a status unknown to this client are not counted.
+    ///
+    /// One overview per distinct group of `groupIds`, in that order. A group is left out when the caller is not a
+    /// member of it (or it does not exist), and when its rows exceed what the server returns in one page (the
+    /// Supabase adapter reads at most `Limits.readRowsMax` rows per request, §10): the caller then shows that group
+    /// without figures. An empty `groupIds` reads nothing.
+    func overviews(groupIds: [UUID], doneSince: Date) async throws -> [GroupOverview]
     /// v2: the group's activity feed, newest first, at most `Limits.activityFeedMax` events (older events are not
     /// read); events of an unknown kind are left out. Non-members read an empty list.
     func activity(groupId: UUID) async throws -> [ActivityEvent]
@@ -74,6 +84,11 @@ public protocol TaskService: Sendable {
     /// Tasks assigned to the current user across all groups (with `myAssignedAt` and `groupName` filled; v2: also
     /// `groupColor` and `groupEmoji`).
     func myTasks(includeDone: Bool) async throws -> [TaskItem]
+    /// v2: the same tasks without the pile of old done ones (docs/CONTRACTS-V2.md §10 « My tasks, bounded »): every task
+    /// assigned to the current user that is not done, plus the done ones completed at or after `doneSince`
+    /// (inclusive), with the fields of `myTasks(includeDone:)`. « Mes tâches » passes the start of today, so the read
+    /// no longer grows with the done occurrences of recurring tasks.
+    func myTasks(doneSince: Date) async throws -> [TaskItem]
     func task(id: UUID) async throws -> TaskItem
     /// Creates a task. v2: with the draft's recurrence, rotation and initial checklist. Checks, in this order:
     /// membership (`.forbidden`), title, details, due date, recurrence (`InputValidation.recurrence(_:dueAt:)`),

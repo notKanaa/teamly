@@ -32,16 +32,16 @@ public final class JoinGroupViewModel: ErrorPresenting {
     public var isCodeComplete: Bool { InviteCode.normalize(codeValue).count == InviteCode.length }
     public var canSubmit: Bool { isCodeComplete && !isSubmitting }
 
-    /// « Vous avez rejoint « X ». » / « Vous faites déjà partie de « X ». »
+    /// « Tu as rejoint « X ». » / « Tu fais déjà partie de « X ». »
     public var resultMessage: String? {
         guard let result else { return nil }
         return result.alreadyMember
-            ? "Vous faites déjà partie de «\u{00A0}\(result.groupName)\u{00A0}»."
-            : "Vous avez rejoint «\u{00A0}\(result.groupName)\u{00A0}»."
+            ? "Tu fais déjà partie de «\u{00A0}\(result.groupName)\u{00A0}»."
+            : "Tu as rejoint «\u{00A0}\(result.groupName)\u{00A0}»."
     }
 
     /// Joins with the code. Invalid codes (checked locally, then by the server), too many attempts
-    /// (« Réessayez dans une heure ») and network errors are shown in `error`.
+    /// (« Réessaie dans une heure ») and network errors are shown in `error`.
     @discardableResult
     public func join() async -> JoinResult? {
         guard !isSubmitting else { return nil }

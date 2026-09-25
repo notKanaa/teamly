@@ -178,26 +178,26 @@ public final class TaskDetailViewModel: ErrorPresenting {
 
     public var isOverdue: Bool { task?.isOverdue(at: referenceDate) ?? false }
 
-    /// « Vous » first, then the other assignees by name; empty when unassigned.
+    /// « Toi » first, then the other assignees by name; empty when unassigned.
     public var assigneeNames: [String] { directory.names(of: task?.assigneeIds ?? []) }
 
-    /// « Vous, Lucas Bernard » / « Non assignée ».
+    /// « Toi, Lucas Bernard » / « Non assignée ».
     public var assigneesText: String { directory.assigneesText(task?.assigneeIds ?? []) }
 
     /// v2: the assignees as badges, the current user first, then by name.
     public var assignees: [PersonBadge] { directory.badges(of: task?.assigneeIds ?? []) }
 
-    /// « Vous », the creator's name, or « Ancien membre » (left the group or deleted account).
+    /// « Toi », the creator's name, or « Ancien membre » (left the group or deleted account).
     public var creatorName: String? {
         guard let task else { return nil }
         if task.createdBy == session.userId { return MemberDirectory.meName }
         return directory.name(of: task.createdBy)
     }
 
-    /// « Créée par Lucas Bernard hier à 10:00 » / « Créée par vous le lundi 14 septembre à 09:00 ».
+    /// « Créée par Lucas Bernard hier à 10:00 » / « Créée par toi le lundi 14 septembre à 09:00 ».
     public var createdText: String? {
         guard let task, let creatorName else { return nil }
-        let who = task.createdBy == session.userId ? "vous" : creatorName
+        let who = task.createdBy == session.userId ? "toi" : creatorName
         let when = DateText.relativeInSentence(task.createdAt, now: referenceDate, calendar: session.platform.calendar)
         return "Créée par \(who) \(when)"
     }

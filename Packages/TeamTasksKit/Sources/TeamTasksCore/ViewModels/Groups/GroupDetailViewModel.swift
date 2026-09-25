@@ -58,7 +58,7 @@ public final class GroupDetailViewModel: ErrorPresenting {
         }
     }
 
-    public static let goneMessage = "Ce groupe n’existe plus ou vous n’en faites plus partie."
+    public static let goneMessage = "Ce groupe n’existe plus ou tu n’en fais plus partie."
     public static let emptyMessage = "Aucune tâche pour l’instant."
     public static let noMatchMessage = "Aucune tâche ne correspond aux filtres."
     /// Title of the rotation cards.
@@ -320,7 +320,7 @@ public final class GroupDetailViewModel: ErrorPresenting {
         directory.name(of: userId)
     }
 
-    /// « Vous » first, then the other assignees in name order.
+    /// « Toi » first, then the other assignees in name order.
     public func assigneeNames(for task: TaskItem) -> [String] {
         directory.names(of: task.assigneeIds)
     }

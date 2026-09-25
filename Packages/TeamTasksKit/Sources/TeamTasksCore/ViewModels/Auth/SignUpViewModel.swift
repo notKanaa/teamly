@@ -9,7 +9,7 @@ import Observation
 public final class SignUpViewModel: ErrorPresenting {
     public static let passwordTooLongMessage = "Mot de passe trop long (72 caractères maximum)."
     public static let confirmationRequiredMessage =
-        "Compte créé. Confirmez votre adresse e-mail grâce au lien reçu, puis connectez-vous."
+        "Compte créé. Confirme ton adresse e-mail grâce au lien reçu, puis connecte-toi."
 
     public var displayName: String {
         get { displayNameValue }

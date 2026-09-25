@@ -5,7 +5,9 @@ Extends [CONTRACTS.md](CONTRACTS.md) for the « Équipe » v2 features:
 - onboarding for new accounts;
 - recurring tasks, with an optional rotation (« à tour de rôle »);
 - checklists;
-- a group activity feed and a weekly recap.
+- a group activity feed and a weekly recap;
+- the figures of the groups list, and « Mes tâches » without the pile of old done tasks (§10);
+- « tu » everywhere (§13).
 
 Everything in CONTRACTS.md stays valid unless a section below says otherwise. When v2 ships everywhere, this file is
 merged into CONTRACTS.md.
@@ -101,7 +103,7 @@ Indexes on `turn_user_id` and `completed_by` serve the `on delete set null` of t
 | `invalid_color` | color not a ColorKey | **`.invalidAppearance`** | « Couleur ou emoji invalide. » |
 | `invalid_emoji` | §1 | **`.invalidAppearance`** | idem |
 | `invalid_recurrence` | bad JSON shape, unknown key, unknown `freq`, `interval` ∉ 1–52, `weekdays` invalid or given for a non-weekly rule, `tz` missing or unknown (exact rules in §5) | **`.invalidRecurrence`** | « Répétition invalide. » |
-| `recurrence_requires_due_date` | a recurrence on a task without due date: `create_task`, `update_task` with an explicit rule and a NULL due date, or a direct `PATCH` that clears the due date of a recurring task (`update_task` with `p_recurrence` NULL clears the rule instead, §5) | **`.recurrenceNeedsDueDate`** | « Choisissez une échéance pour répéter la tâche. » |
+| `recurrence_requires_due_date` | a recurrence on a task without due date: `create_task`, `update_task` with an explicit rule and a NULL due date, or a direct `PATCH` that clears the due date of a recurring task (`update_task` with `p_recurrence` NULL clears the rule instead, §5) | **`.recurrenceNeedsDueDate`** | « Choisis une échéance pour répéter la tâche. » |
 | `invalid_rotation` | rotation without recurrence, < 2 or > 20 ids, a NULL id, duplicates, a non-member, or `set_task_assignees` on a rotating task | **`.invalidRotation`** | « Le tour de rôle demande de 2 à 20 membres du groupe. » |
 | `invalid_item_title` | checklist item title not 1–200 chars after trim | **`.invalidChecklistItem`** | « Un élément doit contenir entre 1 et 200 caractères. » |
 | `too_many_items` | more than 30 items on a task | **`.tooManyChecklistItems`** | « 30 éléments au maximum. » |
@@ -336,6 +338,64 @@ every row). The Swift and Kotlin ports test against this table.
 - **Groups:** `groups(*)` already returns `color` and `emoji`.
 - **Activity:** §7. **Recap:** §8.
 
+**My tasks, bounded (new).** `TaskService.myTasks(doneSince:)` returns the tasks assigned to me that are not done, plus
+the done ones completed at or after `<since>` (inclusive).
+- **Read:** `GET tasks?select=<the my tasks select>&mine.user_id=eq.<me>&or=(status.neq.done,completed_at.gte.<since>)`.
+  - The select is the one of `myTasks`: `*,assignees:task_assignees(user_id),checklist:task_checklist_items(id,title,position,done,done_at,done_by),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name,color,emoji)`.
+  - `<since>` is a timestamp filter value: UTC, 6 fractional digits, percent-encoded (CONTRACTS.md §4.3).
+- **Items:** the same as those of `myTasks(includeDone:)`: `myAssignedAt`, `myAssignedBy`, and the group's name, color and
+  emoji.
+- **Use:** « Mes tâches » passes the start of today in the injected calendar.
+  - « Ta journée » and the tasks done today need no older done task, so the read no longer grows with the done
+    occurrences of recurring tasks.
+  - While « Terminées » is shown, the screen reads every done task with `myTasks(includeDone: true)`, as in v1.
+  - A new day bumps every revision (`handleSignificantTimeChange`), so the bound moves with the next load.
+
+**Groups overview (new).** `GroupService.overviews(groupIds:doneSince:)` returns the figures of the cards of the groups
+list, for all the listed groups at once. For each group: its members with their avatar, its tasks not done (N, « N à
+faire »), and its tasks done at or after `doneSince` (X). Two requests, sent together:
+1. `GET group_members?select=group_id,user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji)&group_id=in.(<ids>)&order=group_id.asc&limit=1000`
+2. `GET tasks?select=group_id,status,completed_at&group_id=in.(<ids>)&or=(status.neq.done,completed_at.gte.<since>)&order=group_id.asc&limit=1000`
+
+- **Parameters:** `<ids>` are the distinct ids asked, lowercase, in Postgres `uuid` order (the byte order, which is the
+  order of the uppercase `uuidString`). `<since>` is formatted like in the bounded my-tasks read. An empty list reads
+  nothing.
+- **RLS (checked in `20260923000500_rls_grants.sql`):**
+  - The `group_members` and `tasks` policies only return the rows of the caller's groups
+    (`group_id in private.my_group_ids()`).
+  - The embedded profiles are those of co-members (`private.co_member_ids()`). The SELECT grant covers the whole table,
+    so the avatar columns are readable.
+  - A group of another user, or an unknown id, reads nothing.
+- **Aggregation, on the client:** `GroupOverview.init(groupId:members:tasks:doneSince:)`, shared by the mocks and the
+  adapters.
+  - Members are sorted like the members read: admins first, then `NameOrder`, then id.
+  - A task counts as open when `status ≠ done`, and as done when it is done with `completed_at >= doneSince`.
+  - Rows with a role or a status unknown to the client are left out, like in every list read: such a task is not
+    counted.
+- **Result:** one overview per distinct id asked, in the order asked. A group without any visible member is left out.
+- **Row limit:** PostgREST silently returns at most `max_rows` rows: 1000, Supabase's default (`supabase/config.toml`,
+  `Limits.readRowsMax`). Keep `max_rows` at 1000 or more, since a smaller value would truncate pages silently.
+  - Each request asks for `limit=1000`, ordered by group. A page with fewer rows is complete.
+  - A full page may only miss rows of its last group. The groups before that group are complete, and the next page asks
+    again for that group and the ones after it (a narrowed `group_id=in.(…)`).
+  - The size of a page counts every row, including the rows left out for an unknown value.
+  - A group whose rows fill a page on their own is left out: 1000 members or more, or 1000 tasks or more to do or done
+    since `doneSince`.
+  - At most 5 pages per request (`SupabaseGroupService.overviewMaxPages`). The groups not read after them are left out.
+  - The list shows a group that was left out without figures.
+  - Usual case: 2 requests, 3 with the `myGroups` read before them.
+- **URL size:** the ids travel in the URL, about 37 characters per group (about 3.7 KB for 100 groups). A request refused
+  for its size fails the read, and the list then shows no figures.
+- **Groups list:** `GroupsListViewModel` reads the overviews after `myGroups`, with the same triggers.
+  - `doneSince` is Monday 00:00 of the current week in the injected calendar (`WeeklyRecap.weekStart`).
+  - Each card reads « 3 membres · 4 à faire » and « X faites sur Y », with Y = X + N. The header reads « 3 groupes ·
+    11 tâches à faire ».
+  - Each card shows at most 3 avatar circles, in the members' order: every member up to 3 members, else the first 2
+    and « +N » (`GroupOverview.memberAvatars`, `moreMembersText`).
+  - A failed overview read keeps the list: the groups show without figures, or with the figures already read this
+    week. The next load reads again, as it does once the week is over.
+- **Mocks:** the same result. The row limit is not mirrored: the mocks never leave out a readable group.
+
 ## 11. Notifications
 
 **Local assignment notification:**
@@ -363,3 +423,30 @@ every row). The Swift and Kotlin ports test against this table.
   - No v2 task, rotation, checklist item or activity row is seeded. « Nettoyer la cuisine » keeps `completed_by` NULL: the recap counts it in the total only.
   - The fixture membership inserts write `member_joined` events, which the seed deletes: the demo feed starts empty.
   - `DemoData` mirrors this: colors and emojis, `onboardedAt = createdAt`, an empty feed.
+
+## 13. Wording: « tu » everywhere
+
+**Decision.** The app addresses the user with « tu », in a friendly and natural voice, everywhere; v1 said « vous ».
+- **Scope:** every user-facing string of the clients: error messages (`AppError.messageFR`), view-model texts, labels,
+  notifications and settings.
+- **Typography:** unchanged: the apostrophe ’ (U+2019), and a no-break space (U+00A0) before « ? ! : ; » and inside « ».
+- **Server:** its messages never reach users, so the SQL is unchanged. The ntfy push (§11, CONTRACTS.md §7) has no
+  « vous ».
+- **Guard:** a unit test (`WordingTests.sourceStringLiteralsSayTu`) refuses « vous », « votre », « vos », « êtes »,
+  « avez » and verbs in « -ez » in the string literals of TeamTasksCore, TeamTasksSupabase and TeamTasksMocks.
+
+**Changes to CONTRACTS.md §4.2.** These French details of `.unknown` now read:
+- temporary failures: « le serveur est momentanément indisponible, réessaie dans un instant »;
+- `reauthentication_needed`: « reconnecte-toi, puis réessaie »;
+- `over_request_rate_limit`: « trop de tentatives, réessaie dans quelques minutes ».
+
+The other details of §4.2 do not address the user and are unchanged.
+
+**Examples (Swift).**
+- `.notAuthenticated`: « Ta session a expiré. Reconnecte-toi. »
+- `.network`: « Connexion impossible. Vérifie ton réseau. »
+- `.lastAdmin`: « Tu es l’unique admin : nomme d’abord un autre admin. »
+- The current user is « Toi » in lists of people (« Toi, Lucas Bernard »), and « Camille Martin (toi) » in the
+  members list and in the assignee picker.
+
+**Android.** The v1 APK keeps its « vous » strings until the Android v2 port adopts this section.

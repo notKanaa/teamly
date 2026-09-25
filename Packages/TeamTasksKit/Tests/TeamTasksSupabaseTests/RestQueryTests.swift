@@ -69,6 +69,44 @@ import Testing
         #expect(all.readableQuery == select)
     }
 
+    /// v2 (docs/CONTRACTS-V2.md §10): the tasks not done, and the done ones completed at or after the bound (inclusive,
+    /// microseconds, percent-encoded like every value).
+    @Test func myTasksDoneSinceIsInclusiveWithMicroseconds() throws {
+        let request = RestQuery.myTasks(me: me, doneSince: now)
+        #expect(request.path == "tasks")
+        #expect(request.readableQuery
+            == "select=\(Self.taskSelect),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name,color,emoji)"
+            + "&mine.user_id=eq.11111111-1111-4111-8111-111111111111"
+            + "&or=(status.neq.done,completed_at.gte.2026-09-24T10:00:00.123456Z)")
+        let restURL = try #require(URL(string: "http://127.0.0.1:54321/rest/v1"))
+        let url = try #require(request.url(restURL: restURL))
+        #expect(url.absoluteString.hasSuffix("&or=(status.neq.done,completed_at.gte.2026-09-24T10:00:00.123456Z)"))
+        #expect(url.absoluteString.contains("task_assignees!inner(assigned_at,assigned_by,user_id)"))
+    }
+
+    /// v2 groups overview (docs/CONTRACTS-V2.md §10): two reads for every group at once, in pages of 1000 rows ordered by
+    /// group.
+    @Test func groupsOverviewReads() throws {
+        let groups = [Seed.lilas, Seed.sport]
+        let members = RestQuery.overviewMembers(groupIds: groups)
+        #expect(members.method == .get)
+        #expect(members.path == "group_members")
+        #expect(members.readableQuery
+            == "select=group_id,user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji)"
+            + "&group_id=in.(a0000000-0000-4000-8000-000000000001,a0000000-0000-4000-8000-000000000002)"
+            + "&order=group_id.asc&limit=1000")
+        let tasks = RestQuery.overviewTasks(groupIds: groups, doneSince: now)
+        #expect(tasks.method == .get)
+        #expect(tasks.path == "tasks")
+        #expect(tasks.readableQuery
+            == "select=group_id,status,completed_at"
+            + "&group_id=in.(a0000000-0000-4000-8000-000000000001,a0000000-0000-4000-8000-000000000002)"
+            + "&or=(status.neq.done,completed_at.gte.2026-09-24T10:00:00.123456Z)&order=group_id.asc&limit=1000")
+        let restURL = try #require(URL(string: "http://127.0.0.1:54321/rest/v1"))
+        let url = try #require(tasks.url(restURL: restURL))
+        #expect(url.absoluteString.contains("&group_id=in.(a0000000-0000-4000-8000-000000000001,a0000000-0000-4000-8000-000000000002)&"))
+    }
+
     @Test func assignmentsSinceIsExclusiveWithMicroseconds() {
         let request = RestQuery.assignments(me: me, since: now)
         #expect(request.path == "task_assignees")

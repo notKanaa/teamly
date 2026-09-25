@@ -120,6 +120,60 @@ import Testing
         #expect(Self.stringLiterals(in: "/// « Aujourd'hui »").isEmpty)
     }
 
+    // MARK: - « tu » (docs/CONTRACTS-V2.md §13)
+
+    /// Product decision: the app addresses the user with « tu », friendly and natural. Guard: no string literal of
+    /// TeamTasksCore, TeamTasksSupabase or TeamTasksMocks says « vous »: « vous » (« Reconnectez-vous » too),
+    /// « votre », « vos », « êtes », « avez », or a verb ending in « -ez » (« Réessayez », « Vérifiez »). The bare
+    /// articles « votre » and « vos » of `GroupShortName.leadingArticles` (words skipped in group names) are allowed.
+    @Test func sourceStringLiteralsSayTu() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // Logic
+            .deletingLastPathComponent() // TeamTasksCoreTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        var offenders: [String] = []
+        var scanned = 0
+        for target in ["TeamTasksCore", "TeamTasksSupabase", "TeamTasksMocks"] {
+            let directory = sources.appendingPathComponent(target)
+            let files = try #require(FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil))
+            for case let file as URL in files where file.pathExtension == "swift" {
+                scanned += 1
+                let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
+                for (index, line) in lines.enumerated() {
+                    for text in Self.literalTexts(in: line) where !["votre", "vos"].contains(text) {
+                        let words = Self.formalAddress(in: text)
+                        if !words.isEmpty {
+                            offenders.append("\(file.lastPathComponent):\(index + 1): \(words) in « \(text) »")
+                        }
+                    }
+                }
+            }
+        }
+        #expect(scanned > 30, "sources not found under \(sources.path)")
+        #expect(offenders.isEmpty, "say « tu »: \(offenders)")
+        // Samples of the user-facing strings.
+        #expect(AppError.network.messageFR == "Connexion impossible. Vérifie ton réseau.")
+        #expect(AppError.notAuthenticated.messageFR == "Ta session a expiré. Reconnecte-toi.")
+        #expect(MemberDirectory.meName == "Toi")
+    }
+
+    /// The words of `text`, lowercased, that address someone with « vous ».
+    static func formalAddress(in text: String) -> [String] {
+        let words = text.lowercased().split { !$0.isLetter }.map(String.init)
+        return words.filter { word in
+            ["vous", "votre", "vos", "êtes", "avez"].contains(word)
+                || (word.hasSuffix("ez") && !["chez", "assez", "nez"].contains(word))
+        }
+    }
+
+    @Test func formalAddressScanner() {
+        #expect(Self.formalAddress(in: "Vérifiez votre réseau. Reconnectez-vous.") == ["vérifiez", "votre", "reconnectez", "vous"])
+        #expect(Self.formalAddress(in: "Vous êtes admin, vous avez vos tâches") == ["vous", "êtes", "vous", "avez", "vos"])
+        #expect(Self.formalAddress(in: "Vérifie ton réseau, chez toi, assez vite. Reconnecte-toi.").isEmpty)
+    }
+
     // MARK: - No-break spaces (review UX-14)
 
     /// French typography: a no-break space (U+00A0, or the narrow U+202F) before « ? ! : ; » and inside « », so that
@@ -143,8 +197,8 @@ import Testing
         ] + SettingsViewModel.pushInstructionSteps
         let problems = shown.flatMap { text in Self.typographyProblems(in: text).map { "\($0) in « \(text) »" } }
         #expect(problems.isEmpty, "\(problems)")
-        #expect(AppError.lastAdmin.messageFR == "Vous êtes le seul admin\u{00A0}: nommez d’abord un autre admin.")
-        #expect(AppError.cannotRemoveSelf.messageFR == "Utilisez «\u{00A0}Quitter le groupe\u{00A0}» pour vous retirer vous-même.")
+        #expect(AppError.lastAdmin.messageFR == "Tu es l’unique admin\u{00A0}: nomme d’abord un autre admin.")
+        #expect(AppError.cannotRemoveSelf.messageFR == "Pour te retirer du groupe, utilise «\u{00A0}Quitter le groupe\u{00A0}».")
     }
 
     /// Guard: no string literal of TeamTasksCore has a plain space (or no space) before « ? ! : ; » or inside « ».
@@ -279,9 +333,9 @@ import Testing
     }
 
     @Test func noBreakSpaceScanner() {
-        #expect(Self.literalTexts(in: #"let a = "Vous\u{00A0}: \(x ? "a" : "b") !" // "c ?""#) == ["Vous\u{00A0}: _ !"])
+        #expect(Self.literalTexts(in: #"let a = "Toi\u{00A0}: \(x ? "a" : "b") !" // "c ?""#) == ["Toi\u{00A0}: _ !"])
         #expect(Self.literalTexts(in: #"f("«\u{00A0}\(name)\u{00A0}»", "a \"b\"")"#) == ["«\u{00A0}_\u{00A0}»", #"a "b""#])
-        #expect(Self.typographyProblems(in: "Vous\u{00A0}: _ !") == ["plain space before « ! »"])
+        #expect(Self.typographyProblems(in: "Toi\u{00A0}: _ !") == ["plain space before « ! »"])
         #expect(Self.typographyProblems(in: "« x»").count == 2)
         #expect(Self.typographyProblems(in: "«\u{00A0}x\u{202F}»\u{00A0}?").isEmpty)
         #expect(Self.typographyProblems(in: "https://ntfy.sh 20:00").isEmpty)

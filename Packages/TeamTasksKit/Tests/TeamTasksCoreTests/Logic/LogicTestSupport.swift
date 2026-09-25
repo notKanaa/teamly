@@ -373,6 +373,7 @@ final class LogicFakeTaskService: TaskService, @unchecked Sendable {
 
     func tasks(groupId: UUID, includeOldDone: Bool) async throws -> [TaskItem] { throw AppError.unknown("non utilisé") }
     func myTasks(includeDone: Bool) async throws -> [TaskItem] { throw AppError.unknown("non utilisé") }
+    func myTasks(doneSince: Date) async throws -> [TaskItem] { throw AppError.unknown("non utilisé") }
     func create(groupId: UUID, draft: TaskDraft) async throws -> TaskItem { throw AppError.unknown("non utilisé") }
     func update(taskId: UUID, draft: TaskDraft) async throws -> TaskItem { throw AppError.unknown("non utilisé") }
     func setStatus(taskId: UUID, status: TaskStatus) async throws -> TaskItem { throw AppError.unknown("non utilisé") }

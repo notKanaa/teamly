@@ -310,7 +310,7 @@ import TeamTasksMocks
         editor.title = "Arroser"
         editor.repeatFrequency = .daily
         editor.hasDueDate = false
-        #expect(editor.recurrenceError == "Choisissez une échéance pour répéter la tâche.")
+        #expect(editor.recurrenceError == "Choisis une échéance pour répéter la tâche.")
         #expect(await editor.save() == nil)
         #expect(editor.recurrenceError == AppError.recurrenceNeedsDueDate.messageFR)
         #expect(harness.faults.calls(.createTask) == 0)
@@ -462,8 +462,10 @@ import TeamTasksMocks
         #expect(day.newText == "2 nouvelles")
         #expect(model.doneTodayText == "1 tâche terminée aujourd’hui")
         #expect(model.doneTodayRows.map(\.title) == ["Nettoyer le frigo"])
-        // One read gives the done tasks too; the sections do not show them.
-        #expect(Set(model.doneTasks.map(\.title)) == ["Nettoyer la cuisine", "Nettoyer le frigo"])
+        // One read gives the tasks done since the start of today too (« Nettoyer le frigo », done at 00:00, included;
+        // « Nettoyer la cuisine », done yesterday, not read); the sections do not show them.
+        #expect(harness.faults.recordedDates(.myTasks) == [F.date(2026, 9, 24)])
+        #expect(model.doneTasks.map(\.title) == ["Nettoyer le frigo"])
         #expect(!model.tasks.contains { $0.status == .done })
     }
 
@@ -488,6 +490,43 @@ import TeamTasksMocks
         #expect(model.daySummary.doneCount == 1)
         #expect(model.daySummary.plannedCount == 2)
         #expect(model.doneTodayText == "1 tâche terminée aujourd’hui")
+    }
+
+    /// The read is bounded by the start of today (injected calendar): the done tasks of earlier days are not read,
+    /// except while « Terminées » is shown (every done task, as in v1); a new day moves the bound.
+    @Test func theDoneTasksReadAreBoundedByToday() async throws {
+        let harness = VMHarness()
+        let session = harness.makeSession()
+        let model = MyTasksViewModel(session: session)
+        await model.load()
+        #expect(harness.faults.recordedDates(.myTasks) == [F.date(2026, 9, 24)])
+        #expect(model.doneTasks.isEmpty, "« Nettoyer la cuisine » was done yesterday")
+        #expect(model.daySummary.doneCount == 0)
+
+        // Done today on another device: read by the next load.
+        _ = try await harness.device(F.lucas).tasks.setStatus(taskId: T.faireCourses, status: .done)
+        session.feed.bumpMyTasks()
+        await model.load()
+        #expect(model.doneTasks.map(\.id) == [T.faireCourses])
+        #expect(model.daySummary.doneCount == 1)
+        #expect(model.doneTodayText == "1 tâche terminée aujourd’hui")
+
+        // « Terminées »: every done task, with the v1 read (no bound recorded).
+        model.includeDone = true
+        await model.load()
+        #expect(harness.faults.calls(.myTasks) == 3)
+        #expect(harness.faults.recordedDates(.myTasks).count == 2)
+        #expect(Set(model.doneTasks.map(\.id)) == [T.faireCourses, T.nettoyerCuisine])
+        #expect(model.sections.last?.rows.map(\.id) == [T.faireCourses, T.nettoyerCuisine])
+
+        // The next day: the bound moves, yesterday's completions are no longer read.
+        model.includeDone = false
+        harness.clock.advance(by: 86_400)
+        await session.handleSignificantTimeChange()
+        await model.load()
+        #expect(harness.faults.recordedDates(.myTasks).last == F.date(2026, 9, 25))
+        #expect(model.doneTasks.isEmpty)
+        #expect(model.daySummary.doneCount == 0)
     }
 
     @Test func overdueAndNothingPlanned() async throws {

@@ -38,7 +38,7 @@ import TeamTasksMocks
         model.email = VMFixtures.camille.email
         model.password = ""
         #expect(await !model.signIn())
-        #expect(model.errorMessage == "Saisissez votre mot de passe.")
+        #expect(model.errorMessage == "Saisis ton mot de passe.")
         #expect(harness.faults.calls(.signIn) == 0)
     }
 
@@ -133,7 +133,7 @@ import TeamTasksMocks
         model.displayName = "Nina"
         #expect(await model.signUp())
         #expect(model.needsEmailConfirmation)
-        #expect(SignUpViewModel.confirmationRequiredMessage.contains("Confirmez"))
+        #expect(SignUpViewModel.confirmationRequiredMessage.contains("Confirme ton adresse e-mail"))
     }
 }
 

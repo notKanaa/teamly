@@ -67,24 +67,27 @@ public struct DaySummary: Sendable, Hashable {
 /// v2: the rows carry the group's badge and short name, « Ton tour », the checklist progress; « Ta journée »
 /// (`daySummary`, `todayText`) and « n tâches terminées aujourd’hui » (`doneTodayText`, `doneTodayRows`).
 ///
-/// Reads: one `TaskService.myTasks(includeDone: true)` per load (v1 read the done tasks only with `includeDone`):
-/// the done tasks give « Ta journée » and the tasks done today; `tasks` keeps the v1 content (without the done tasks
-/// unless `includeDone`), and `doneTasks` holds them. Every successful load also synchronizes the due-date reminders
-/// with the loaded list (never after a failed load). Reloads when the « Mes tâches » revision changes and when
-/// `includeDone` flips.
+/// Reads, one per load: `TaskService.myTasks(doneSince:)` from the start of today in the injected calendar, i.e. the
+/// tasks not done and those done today (« Ta journée » and the tasks done today need no more), so that the read does
+/// not grow with the done occurrences of recurring tasks; while « Terminées » is shown (`includeDone`), every done task
+/// with `myTasks(includeDone: true)`, as in v1. `tasks` keeps the v1 content (without the done tasks unless
+/// `includeDone`), and `doneTasks` holds the done ones. Every successful load also synchronizes the due-date reminders
+/// with the loaded list (never after a failed load). Reloads when the « Mes tâches » revision changes (a new day bumps
+/// every revision: `SessionModel.handleSignificantTimeChange()`) and when `includeDone` flips.
 /// View: `.task(id: model.refreshKey) { await model.load() }`, `.refreshable { await model.reload() }`,
 /// `.onDisappear { model.markAllSeen() }`, tab badge `model.newCount`.
 @MainActor
 @Observable
 public final class MyTasksViewModel: ErrorPresenting {
     public static let emptyTitle = "Aucune tâche"
-    public static let emptyMessage = "Les tâches qui vous sont assignées apparaîtront ici."
+    public static let emptyMessage = "Les tâches qui te sont assignées apparaîtront ici."
     public static let newBadgeText = "Nouveau"
 
     /// The tasks shown in the sections: without the done ones unless `includeDone` (a task completed here stays until
     /// the next load).
     public private(set) var tasks: [TaskItem] = []
-    /// v2: every done task of the last load, whatever `includeDone`.
+    /// v2: the done tasks of the last load: those done since the start of that day, or every done task while
+    /// `includeDone`.
     public private(set) var doneTasks: [TaskItem] = []
     public private(set) var loadState: LoadState = .idle
     /// Also show done tasks (« Terminées » section).
@@ -140,8 +143,13 @@ public final class MyTasksViewModel: ErrorPresenting {
         if loadState != .loaded { loadState = .loading }
         let loaded: [TaskItem]
         do {
-            // v2: with the done tasks, for « Ta journée ».
-            loaded = try await session.services.tasks.myTasks(includeDone: true)
+            if key.includeDone {
+                loaded = try await session.services.tasks.myTasks(includeDone: true)
+            } else {
+                // v2: the done tasks of today only, for « Ta journée ».
+                let startOfToday = session.platform.calendar.startOfDay(for: session.platform.now())
+                loaded = try await session.services.tasks.myTasks(doneSince: startOfToday)
+            }
         } catch {
             guard let state = ErrorState(from: error) else {
                 if loadState == .loading { loadState = .idle }

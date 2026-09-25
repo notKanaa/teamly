@@ -91,6 +91,7 @@ public enum ContractScenarios {
         + checklistScenarios
         + activityScenarios
         + recapScenarios
+        + readV2Scenarios
         + compatScenarios
         + realtimeV2Scenarios
 

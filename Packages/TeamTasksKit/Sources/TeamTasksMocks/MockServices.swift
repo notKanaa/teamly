@@ -109,6 +109,11 @@ struct MockGroupService: GroupService {
         return try session.backend.members(clientId: session.clientId, groupId: groupId)
     }
 
+    func overviews(groupIds: [UUID], doneSince: Date) async throws -> [GroupOverview] {
+        try await session.backend.simulateLatency()
+        return try session.backend.overviews(clientId: session.clientId, groupIds: groupIds, doneSince: doneSince)
+    }
+
     func inviteCode(groupId: UUID) async throws -> InviteCode {
         try await session.backend.simulateLatency()
         return try session.backend.inviteCode(clientId: session.clientId, groupId: groupId)
@@ -161,6 +166,11 @@ struct MockTaskService: TaskService {
     func myTasks(includeDone: Bool) async throws -> [TaskItem] {
         try await session.backend.simulateLatency()
         return try session.backend.myTasks(clientId: session.clientId, includeDone: includeDone)
+    }
+
+    func myTasks(doneSince: Date) async throws -> [TaskItem] {
+        try await session.backend.simulateLatency()
+        return try session.backend.myTasks(clientId: session.clientId, doneSince: doneSince)
     }
 
     func task(id: UUID) async throws -> TaskItem {

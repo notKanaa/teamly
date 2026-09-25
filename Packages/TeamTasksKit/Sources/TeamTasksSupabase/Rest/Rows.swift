@@ -1,7 +1,7 @@
 import Foundation
 import TeamTasksCore
 
-// JSON rows returned by PostgREST for the reads and RPCs of docs/CONTRACTS.md §4 and docs/CONTRACTS-V2.md §5, §10.
+// JSON rows returned by PostgREST for the reads and RPCs of docs/CONTRACTS.md §4 and docs/CONTRACTS-V2.md §5, §8, §10.
 // Column names are the SQL ones; embedded resources use the aliases of the `select` parameters (`group`, `profile`,
 // `assignees`, `checklist`, `mine`, `task`). Dates are decoded by `RestDecoding` (0 to 6 fractional digits).
 //
@@ -98,14 +98,18 @@ struct ProfileRow: Decodable, Sendable, Hashable {
     }
 }
 
-/// `group_members?select=user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji)`.
+/// `group_members?select=user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji)`; v2, the
+/// groups overview also selects `group_id` (docs/CONTRACTS-V2.md §10).
 struct MemberRow: Decodable, Sendable, Hashable {
+    /// Only read by the groups overview (nil in the members read).
+    let groupId: UUID?
     let userId: UUID
     private let knownRole: Known<MemberRole>
     let joinedAt: Date
     let profile: ProfileRow?
 
     enum CodingKeys: String, CodingKey {
+        case groupId = "group_id"
         case userId = "user_id"
         case knownRole = "role"
         case joinedAt = "joined_at"
@@ -457,6 +461,34 @@ struct ActivityRow: Decodable, Sendable, Hashable {
             id: id, kind: knownKind.value, actorId: actorId, subjectId: subjectId, taskId: taskId,
             taskTitle: taskTitle, itemTitle: itemTitle, createdAt: createdAt
         )
+    }
+}
+
+/// `tasks?select=group_id,status,completed_at` (the groups overview, docs/CONTRACTS-V2.md §10). A status unknown to
+/// this client leaves the row out of the list (`Known`): such a task is not counted.
+struct OverviewTaskRow: Decodable, Sendable, Hashable {
+    let groupId: UUID
+    private let knownStatus: Known<TaskStatus>
+    let completedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case groupId = "group_id"
+        case knownStatus = "status"
+        case completedAt = "completed_at"
+    }
+
+    var state: GroupOverview.TaskState {
+        GroupOverview.TaskState(status: knownStatus.value, completedAt: completedAt)
+    }
+}
+
+/// The `group_id` of any row of a read over several groups: the groups overview pages on it, whatever the row holds
+/// (rows with an unknown enum value included).
+struct GroupKeyRow: Decodable, Sendable, Hashable {
+    let groupId: UUID
+
+    enum CodingKeys: String, CodingKey {
+        case groupId = "group_id"
     }
 }
 

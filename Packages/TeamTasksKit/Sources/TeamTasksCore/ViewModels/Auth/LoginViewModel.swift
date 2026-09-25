@@ -29,7 +29,7 @@ public final class LoginViewModel: ErrorPresenting {
         guard !isSubmitting else { return false }
         error = nil
         guard !password.isEmpty else {
-            present(message: "Saisissez votre mot de passe.")
+            present(message: "Saisis ton mot de passe.")
             return false
         }
         let normalizedEmail: String

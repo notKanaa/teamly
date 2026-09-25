@@ -89,7 +89,7 @@ public struct MemberDirectory: Sendable, Hashable {
     /// Shown for a user who is no longer a member (or a deleted account).
     public static let formerMemberName = "Ancien membre"
     /// Shown instead of the current user's own name in lists of people.
-    public static let meName = "Vous"
+    public static let meName = "Toi"
     /// Assignee text of a task without assignees.
     public static let unassignedText = "Non assignée"
 
@@ -116,7 +116,7 @@ public struct MemberDirectory: Sendable, Hashable {
         return member.user.displayName
     }
 
-    /// Names of `userIds` for a list: « Vous » first, then the others in name order (`NameOrder`).
+    /// Names of `userIds` for a list: « Toi » first, then the others in name order (`NameOrder`).
     public func names(of userIds: [UUID]) -> [String] {
         var includesMe = false
         var others: [String] = []
@@ -131,7 +131,7 @@ public struct MemberDirectory: Sendable, Hashable {
         return (includesMe ? [Self.meName] : []) + others
     }
 
-    /// « Vous, Lucas Bernard », or « Non assignée ».
+    /// « Toi, Lucas Bernard », or « Non assignée ».
     public func assigneesText(_ userIds: [UUID]) -> String {
         let names = names(of: userIds)
         return names.isEmpty ? Self.unassignedText : names.joined(separator: ", ")
@@ -145,7 +145,7 @@ public struct TaskRow: Sendable, Hashable, Identifiable {
     public var dueText: String?
     /// Not done and due in the past (show the due text in red).
     public var isOverdue: Bool
-    /// « Vous, Lucas Bernard » / « Non assignée »; nil on screens that do not show assignees (« Mes tâches »).
+    /// « Toi, Lucas Bernard » / « Non assignée »; nil on screens that do not show assignees (« Mes tâches »).
     public var assigneesText: String?
     /// Group name, filled on « Mes tâches » only.
     public var groupName: String?

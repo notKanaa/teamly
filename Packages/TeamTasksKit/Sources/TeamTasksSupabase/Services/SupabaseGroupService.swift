@@ -1,7 +1,7 @@
 import Foundation
 import TeamTasksCore
 
-/// `GroupService` on the group RPCs and PostgREST reads (docs/CONTRACTS.md §2, §4; docs/CONTRACTS-V2.md §5, §7).
+/// `GroupService` on the group RPCs and PostgREST reads (docs/CONTRACTS.md §2, §4; docs/CONTRACTS-V2.md §5, §7, §10).
 struct SupabaseGroupService: GroupService {
     let context: SupabaseContext
 
@@ -125,5 +125,91 @@ struct SupabaseGroupService: GroupService {
     func activity(groupId: UUID) async throws -> [ActivityEvent] {
         let rows = try await rest.fetchRows(ActivityRow.self) { _ in RestQuery.activity(groupId: groupId) }
         return rows.map(\.event).sorted { $0.id > $1.id }
+    }
+
+    // MARK: - Groups overview (docs/CONTRACTS-V2.md §10)
+
+    /// Pages read at most per overview read (each page holds `Limits.readRowsMax` rows): the groups left after them
+    /// have no overview.
+    static let overviewMaxPages = 5
+
+    /// Two reads for all the groups at once, sent together and aggregated here (`GroupOverview.init(groupId:members:
+    /// tasks:doneSince:)`): the members (`RestQuery.overviewMembers`) and the tasks not done or done since `doneSince`
+    /// (`RestQuery.overviewTasks`). RLS keeps the rows of the caller's groups: a group of another user, or an unknown
+    /// one, reads no member and is left out. Members with a role, and tasks with a status, unknown to this client are
+    /// left out. A group whose rows could not all be read (`pagedByGroup`) is left out.
+    func overviews(groupIds: [UUID], doneSince: Date) async throws -> [GroupOverview] {
+        try await overviews(groupIds: groupIds, doneSince: doneSince, pageSize: Limits.readRowsMax)
+    }
+
+    /// `overviews(groupIds:doneSince:)` in pages of `pageSize` rows: `Limits.readRowsMax`, the server's `max_rows`;
+    /// smaller in the integration tests, which read the real server in several pages.
+    func overviews(groupIds: [UUID], doneSince: Date, pageSize: Int) async throws -> [GroupOverview] {
+        var seen = Set<UUID>()
+        let requested = groupIds.filter { seen.insert($0).inserted }
+        guard !requested.isEmpty else { return [] }
+        let sorted = requested.sorted(by: Self.postgresOrder)
+        async let memberPages = pagedByGroup(sorted, MemberRow.self, pageSize: pageSize, groupId: { $0.groupId }) { ids in
+            RestQuery.overviewMembers(groupIds: ids, limit: pageSize)
+        }
+        async let taskPages = pagedByGroup(sorted, OverviewTaskRow.self, pageSize: pageSize, groupId: { $0.groupId }) { ids in
+            RestQuery.overviewTasks(groupIds: ids, doneSince: doneSince, limit: pageSize)
+        }
+        let (members, tasks) = try await (memberPages, taskPages)
+        return requested.compactMap { groupId in
+            guard let memberRows = members[groupId], !memberRows.isEmpty, let taskRows = tasks[groupId] else { return nil }
+            return GroupOverview(
+                groupId: groupId,
+                members: memberRows.map { $0.membership(groupId: groupId) },
+                tasks: taskRows.map(\.state),
+                doneSince: doneSince
+            )
+        }
+    }
+
+    /// The rows of a read over `groupIds` (sorted with `postgresOrder`), by group, for the groups read completely.
+    ///
+    /// PostgREST returns at most `max_rows` rows without any error (docs/CONTRACTS.md §5 pitfall 6), so each request
+    /// asks for a page of `pageSize` rows ordered by `group_id`. A page with fewer rows holds every row of the groups
+    /// asked. A full page may miss rows of its last group only: the groups before it are complete, and the next page
+    /// asks for that group and the ones after it. A group filling a page on its own is left out (it has more rows than
+    /// one page), and so are the groups not read after `overviewMaxPages` pages. The page size is counted on the raw
+    /// rows (`GroupKeyRow`): rows left out for an unknown enum value still count.
+    private func pagedByGroup<Row: Decodable & Sendable>(
+        _ groupIds: [UUID],
+        _ type: Row.Type,
+        pageSize: Int,
+        groupId: @escaping @Sendable (Row) -> UUID?,
+        request: @escaping @Sendable ([UUID]) -> RestRequest
+    ) async throws -> [UUID: [Row]] {
+        var remaining = groupIds
+        var complete: [UUID: [Row]] = [:]
+        var pages = 0
+        while !remaining.isEmpty, pages < Self.overviewMaxPages {
+            pages += 1
+            let asked = remaining
+            let data = try await rest.send { _ in request(asked) }
+            let keys = try RestDecoding.decode([GroupKeyRow].self, from: data).map(\.groupId)
+            var byGroup: [UUID: [Row]] = [:]
+            for row in try RestDecoding.decode(LossyRows<Row>.self, from: data).rows {
+                if let id = groupId(row) { byGroup[id, default: []].append(row) }
+            }
+            guard keys.count >= pageSize, let last = keys.last else {
+                for id in asked { complete[id] = byGroup[id] ?? [] }
+                return complete
+            }
+            let before = asked.filter { Self.postgresOrder($0, last) }
+            for id in before { complete[id] = byGroup[id] ?? [] }
+            // The last group again, unless it filled the page on its own: then it is left out.
+            remaining = before.isEmpty
+                ? asked.filter { Self.postgresOrder(last, $0) }
+                : asked.filter { !Self.postgresOrder($0, last) }
+        }
+        return complete
+    }
+
+    /// The order of Postgres on `uuid` values (their bytes), which the uppercase `uuidString` order follows.
+    static func postgresOrder(_ lhs: UUID, _ rhs: UUID) -> Bool {
+        lhs.uuidString < rhs.uuidString
     }
 }
