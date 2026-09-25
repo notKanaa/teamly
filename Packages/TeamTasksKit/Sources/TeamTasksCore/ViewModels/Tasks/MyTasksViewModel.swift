@@ -16,11 +16,62 @@ public struct MyTasksSection: Sendable, Hashable, Identifiable {
     }
 }
 
+/// v2: « Ta journée » on « Mes tâches »: what the user did today out of what they planned.
+public struct DaySummary: Sendable, Hashable {
+    public static let title = "Ta journée"
+
+    /// My tasks done today (completed today, whatever their due date).
+    public var doneCount: Int
+    /// My tasks still to do that are due today (earlier today included), plus those done today.
+    public var plannedCount: Int
+    /// My overdue tasks (not done, due before now).
+    public var overdueCount: Int
+    /// My « Nouveau » tasks.
+    public var newCount: Int
+
+    public init(doneCount: Int, plannedCount: Int, overdueCount: Int, newCount: Int) {
+        self.doneCount = doneCount
+        self.plannedCount = plannedCount
+        self.overdueCount = overdueCount
+        self.newCount = newCount
+    }
+
+    /// 0…1, for the ring.
+    public var fraction: Double { plannedCount == 0 ? 0 : Double(doneCount) / Double(plannedCount) }
+
+    /// « 2/4 », inside the ring.
+    public var ringText: String { "\(doneCount)/\(plannedCount)" }
+
+    /// « 2 tâches faites sur 4 prévues », « Tout est fait pour aujourd’hui ! », « Rien de prévu aujourd’hui ».
+    public var subtitle: String {
+        if plannedCount == 0 { return "Rien de prévu aujourd’hui" }
+        if doneCount >= plannedCount { return "Tout est fait pour aujourd’hui\u{00A0}!" }
+        let done = FrenchText.count(doneCount, "tâche faite", "tâches faites")
+        return "\(done) sur \(plannedCount) \(FrenchText.isSingular(plannedCount) ? "prévue" : "prévues")"
+    }
+
+    /// « 1 en retard », nil when none.
+    public var overdueText: String? {
+        overdueCount == 0 ? nil : "\(overdueCount) en retard"
+    }
+
+    /// « 1 nouvelle », « 2 nouvelles », nil when none.
+    public var newText: String? {
+        newCount == 0 ? nil : FrenchText.count(newCount, "nouvelle", "nouvelles")
+    }
+}
+
 /// « Mes tâches » tab: tasks assigned to the current user in every group, in due-date sections, with a
 /// « Nouveau » badge on tasks assigned by someone else since the user last looked (`markAllSeen()`).
 ///
-/// Every successful load also synchronizes the due-date reminders with the loaded list (never after a failed
-/// load). Reloads when the « Mes tâches » revision changes and when `includeDone` flips.
+/// v2: the rows carry the group's badge and short name, « Ton tour », the checklist progress; « Ta journée »
+/// (`daySummary`, `todayText`) and « n tâches terminées aujourd’hui » (`doneTodayText`, `doneTodayRows`).
+///
+/// Reads: one `TaskService.myTasks(includeDone: true)` per load (v1 read the done tasks only with `includeDone`):
+/// the done tasks give « Ta journée » and the tasks done today; `tasks` keeps the v1 content (without the done tasks
+/// unless `includeDone`), and `doneTasks` holds them. Every successful load also synchronizes the due-date reminders
+/// with the loaded list (never after a failed load). Reloads when the « Mes tâches » revision changes and when
+/// `includeDone` flips.
 /// View: `.task(id: model.refreshKey) { await model.load() }`, `.refreshable { await model.reload() }`,
 /// `.onDisappear { model.markAllSeen() }`, tab badge `model.newCount`.
 @MainActor
@@ -30,7 +81,11 @@ public final class MyTasksViewModel: ErrorPresenting {
     public static let emptyMessage = "Les tâches qui vous sont assignées apparaîtront ici."
     public static let newBadgeText = "Nouveau"
 
+    /// The tasks shown in the sections: without the done ones unless `includeDone` (a task completed here stays until
+    /// the next load).
     public private(set) var tasks: [TaskItem] = []
+    /// v2: every done task of the last load, whatever `includeDone`.
+    public private(set) var doneTasks: [TaskItem] = []
     public private(set) var loadState: LoadState = .idle
     /// Also show done tasks (« Terminées » section).
     public var includeDone = false
@@ -85,7 +140,8 @@ public final class MyTasksViewModel: ErrorPresenting {
         if loadState != .loaded { loadState = .loading }
         let loaded: [TaskItem]
         do {
-            loaded = try await session.services.tasks.myTasks(includeDone: key.includeDone)
+            // v2: with the done tasks, for « Ta journée ».
+            loaded = try await session.services.tasks.myTasks(includeDone: true)
         } catch {
             guard let state = ErrorState(from: error) else {
                 if loadState == .loading { loadState = .idle }
@@ -98,11 +154,12 @@ public final class MyTasksViewModel: ErrorPresenting {
             }
             return
         }
-        tasks = loaded
+        tasks = key.includeDone ? loaded : loaded.filter { $0.status != .done }
+        doneTasks = loaded.filter { $0.status == .done }
         referenceDate = session.platform.now()
         loadedKey = key
         loadState = .loaded
-        // Only a successfully loaded list may drive the reminders (docs/CONTRACTS.md §7).
+        // Only a successfully loaded list may drive the reminders (docs/CONTRACTS.md §7); done tasks are ignored.
         await session.synchronizeReminders(with: loaded)
     }
 
@@ -144,8 +201,62 @@ public final class MyTasksViewModel: ErrorPresenting {
             // An assignee may always change the status; editing needs the role, known on the group screens.
             canChangeStatus: task.isAssigned(to: session.userId),
             canEdit: false,
-            canDelete: false
+            canDelete: false,
+            isMyTurn: GroupDetailViewModel.isTurn(of: session.userId, in: task)
         )
+    }
+
+    // MARK: - Today (v2)
+
+    /// « Vendredi 25 septembre », above the title.
+    public var todayText: String {
+        let formatter = FrenchDateFormatter(timeZone: session.platform.calendar.timeZone)
+        return FrenchDateFormatter.capitalizingFirstLetter(formatter.day(referenceDate, includeYear: false))
+    }
+
+    /// « Ta journée »: done today, planned today, overdue and new.
+    public var daySummary: DaySummary {
+        let bounds = DueBucketBoundaries(now: referenceDate, calendar: session.platform.calendar)
+        let isToday = { (date: Date?) -> Bool in
+            guard let date else { return false }
+            return date >= bounds.startOfToday && date < bounds.startOfTomorrow
+        }
+        let all = allTasks
+        let doneToday = all.filter { $0.status == .done && isToday($0.completedAt) }.count
+        let toDoToday = all.filter { $0.status != .done && isToday($0.dueAt) }.count
+        return DaySummary(
+            doneCount: doneToday,
+            plannedCount: doneToday + toDoToday,
+            overdueCount: all.filter { $0.isOverdue(at: referenceDate) }.count,
+            newCount: newCount
+        )
+    }
+
+    /// My tasks done today, most recently completed first (the « terminées aujourd’hui » entry).
+    public var doneTodayRows: [TaskRow] {
+        let now = referenceDate
+        let calendar = session.platform.calendar
+        let bounds = DueBucketBoundaries(now: now, calendar: calendar)
+        return allTasks
+            .filter { task in
+                guard task.status == .done, let completedAt = task.completedAt else { return false }
+                return completedAt >= bounds.startOfToday && completedAt < bounds.startOfTomorrow
+            }
+            .sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+            .map { row(for: $0, now: now, calendar: calendar) }
+    }
+
+    /// « 2 tâches terminées aujourd’hui », « 1 tâche terminée aujourd’hui »; nil when none.
+    public var doneTodayText: String? {
+        let count = doneTodayRows.count
+        guard count > 0 else { return nil }
+        return "\(FrenchText.count(count, "tâche terminée", "tâches terminées")) aujourd’hui"
+    }
+
+    /// `tasks` then the done tasks not in it (a local status change wins).
+    private var allTasks: [TaskItem] {
+        var seen = Set<UUID>()
+        return (tasks + doneTasks).filter { seen.insert($0.id).inserted }
     }
 
     // MARK: - Actions
@@ -160,7 +271,8 @@ public final class MyTasksViewModel: ErrorPresenting {
         session.platform.store.setValue(mark, forKey: Self.lastSeenKey(userId: session.userId))
     }
 
-    /// Changes the status of one of my tasks (assignees may always do it).
+    /// Changes the status of one of my tasks (assignees may always do it), also from the « terminées aujourd’hui »
+    /// list.
     @discardableResult
     public func setStatus(_ status: TaskStatus, for task: TaskItem) async -> Bool {
         guard !busyTaskIds.contains(task.id) else { return false }
@@ -170,11 +282,10 @@ public final class MyTasksViewModel: ErrorPresenting {
         do {
             let updated = try await session.services.tasks.setStatus(taskId: task.id, status: status)
             if let index = tasks.firstIndex(where: { $0.id == task.id }) {
-                var merged = updated
-                merged.myAssignedAt = tasks[index].myAssignedAt
-                merged.myAssignedBy = tasks[index].myAssignedBy
-                merged.groupName = tasks[index].groupName
-                tasks[index] = merged
+                tasks[index] = Self.merge(updated, into: tasks[index])
+            }
+            if let index = doneTasks.firstIndex(where: { $0.id == task.id }) {
+                doneTasks[index] = Self.merge(updated, into: doneTasks[index])
             }
             session.feed.bump(groupId: task.groupId)
             session.feed.bumpMyTasks()
@@ -182,9 +293,21 @@ public final class MyTasksViewModel: ErrorPresenting {
         } catch {
             if present(error) == .notFound {
                 tasks.removeAll { $0.id == task.id }
+                doneTasks.removeAll { $0.id == task.id }
                 session.feed.bumpMyTasks()
             }
             return false
         }
+    }
+
+    /// `updated` with the fields only `myTasks` fills, taken from `current`.
+    private static func merge(_ updated: TaskItem, into current: TaskItem) -> TaskItem {
+        var merged = updated
+        merged.myAssignedAt = current.myAssignedAt
+        merged.myAssignedBy = current.myAssignedBy
+        merged.groupName = current.groupName
+        merged.groupColor = current.groupColor
+        merged.groupEmoji = current.groupEmoji
+        return merged
     }
 }

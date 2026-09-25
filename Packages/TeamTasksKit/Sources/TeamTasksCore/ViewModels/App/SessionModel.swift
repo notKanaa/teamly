@@ -14,14 +14,19 @@ public final class SessionModel: Identifiable {
     public struct Configuration: Sendable {
         public var realtimeDebounce: Duration
         public var realtimeRetryDelay: Duration
+        /// v2: how long `AppModel` waits for the reads that decide the onboarding before it opens the tabs.
+        public var onboardingCheckTimeout: Duration
 
-        /// Defaults: `RealtimeCoordinator.defaultDebounce` (300 ms) and `defaultRetryDelay` (5 s).
+        /// Defaults: `RealtimeCoordinator.defaultDebounce` (300 ms), `defaultRetryDelay` (5 s), and 5 s for the
+        /// onboarding check.
         public init(
             realtimeDebounce: Duration = .milliseconds(300),
-            realtimeRetryDelay: Duration = .seconds(5)
+            realtimeRetryDelay: Duration = .seconds(5),
+            onboardingCheckTimeout: Duration = .seconds(5)
         ) {
             self.realtimeDebounce = realtimeDebounce
             self.realtimeRetryDelay = realtimeRetryDelay
+            self.onboardingCheckTimeout = onboardingCheckTimeout
         }
     }
 
@@ -35,10 +40,15 @@ public final class SessionModel: Identifiable {
     public let realtime: RealtimeCoordinator
     public let notifier: AssignmentNotifier
     public let reminders: ReminderSynchronizer
+    /// v2: the weekly recap notification (docs/CONTRACTS-V2.md §8), synchronized with the other notifications.
+    public let weeklyRecap: WeeklyRecapNotifier
     /// True between `start()` and `stop()`.
     public private(set) var isRunning = false
     /// True once `stop()` was called: the session no longer schedules anything.
     public private(set) var isStopped = false
+    /// v2: the user chose « Plus tard » on the onboarding's notifications step: the app should not ask for the
+    /// permission by itself during this session (Réglages still can).
+    public private(set) var isNotificationPromptDeferred = false
 
     /// Initial catch-up and reminder synchronization started by `start()` (tests wait for it).
     @ObservationIgnored private(set) var startupTask: Task<Void, Never>?
@@ -65,6 +75,7 @@ public final class SessionModel: Identifiable {
         )
         self.notifier = notifier
         reminders = ReminderSynchronizer(platform: platform)
+        weeklyRecap = WeeklyRecapNotifier(platform: platform)
         realtime = RealtimeCoordinator(
             realtime: services.realtime,
             userId: user.id,
@@ -81,7 +92,8 @@ public final class SessionModel: Identifiable {
     // MARK: - Lifecycle
 
     /// Starts listening to realtime change signals and, in the background, catches up on assignments made while
-    /// the app was not running and synchronizes the due-date reminders. No-op when running or stopped.
+    /// the app was not running, synchronizes the due-date reminders and (v2) the weekly recap notification. No-op
+    /// when running or stopped.
     public func start() {
         guard !isRunning, !isStopped else { return }
         isRunning = true
@@ -92,7 +104,8 @@ public final class SessionModel: Identifiable {
     }
 
     /// Sign-out / account deletion (docs/CONTRACTS.md §7): stops the realtime coordinator, removes every pending
-    /// reminder and resets the assignment notifier. Idempotent; the session cannot be restarted.
+    /// reminder and (v2) the weekly recap notification, and resets the assignment notifier. Idempotent; the session
+    /// cannot be restarted.
     public func stop() async {
         guard !isStopped else { return }
         isStopped = true
@@ -100,6 +113,7 @@ public final class SessionModel: Identifiable {
         startupTask?.cancel()
         realtime.stop()
         await reminders.removeAll()
+        await weeklyRecap.removeAll()
         await notifier.reset()
     }
 
@@ -164,7 +178,7 @@ public final class SessionModel: Identifiable {
     }
 
     /// Asks for the notification permission when it was never asked. Returns the resulting status; when newly
-    /// granted, catches up and schedules the reminders right away.
+    /// granted, catches up and schedules the reminders (and the weekly recap) right away.
     @discardableResult
     public func requestNotificationAuthorizationIfNeeded() async -> NotificationAuthorization {
         let status = await platform.notifications.authorizationStatus()
@@ -176,8 +190,22 @@ public final class SessionModel: Identifiable {
         return await platform.notifications.authorizationStatus()
     }
 
+    /// v2: the onboarding's « Plus tard » on the notifications step (`isNotificationPromptDeferred`).
+    public func deferNotificationPrompt() {
+        isNotificationPromptDeferred = true
+    }
+
+    /// v2: schedules or removes the weekly recap notification (Réglages switch, permission). Returns whether it is
+    /// scheduled afterwards; false once stopped.
+    @discardableResult
+    public func synchronizeWeeklyRecap() async -> Bool {
+        guard !isStopped else { return false }
+        return await weeklyRecap.synchronize()
+    }
+
     func refreshNotifications() async {
         await catchUpAssignments()
         await synchronizeReminders()
+        await synchronizeWeeklyRecap()
     }
 }

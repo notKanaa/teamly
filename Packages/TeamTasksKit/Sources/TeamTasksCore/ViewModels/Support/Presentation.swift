@@ -154,12 +154,32 @@ public struct TaskRow: Sendable, Hashable, Identifiable {
     public var canChangeStatus: Bool
     public var canEdit: Bool
     public var canDelete: Bool
+    /// v2, group screen: the assignees as badges, the current user first, then by name; empty elsewhere.
+    public var assignees: [PersonBadge]
+    /// v2: a pending occurrence of a rotating task whose turn is the current user's (`myTurnLabel`).
+    public var isMyTurn: Bool
+
+    /// « À tour de rôle », shown on rotating tasks (`hasRotation`).
+    public static let rotationLabel = "À tour de rôle"
+    /// « Ton tour », shown when `isMyTurn`.
+    public static let myTurnLabel = "Ton tour"
 
     public var id: UUID { task.id }
     public var title: String { task.title }
     public var status: TaskStatus { task.status }
     public var priority: TaskPriority { task.priority }
     public var isDone: Bool { task.status == .done }
+
+    /// v2: « Chaque semaine », « Tous les 2 jours » (`RecurrenceText.summary`), nil for a plain task.
+    public var recurrenceText: String? { task.recurrence.map(RecurrenceText.summary) }
+    /// v2: the task is done « à tour de rôle » (`rotationLabel`).
+    public var hasRotation: Bool { task.hasRotation }
+    /// v2: the checklist's progress (« 2/5 »), nil without checklist.
+    public var checklistProgress: ChecklistProgress? { ChecklistProgress(task.checklist) }
+    /// v2, « Mes tâches »: the group's badge (resolved color, emoji or initials).
+    public var groupAppearance: AvatarAppearance? { groupName == nil ? nil : task.groupAppearance }
+    /// v2, « Mes tâches »: the group's short name for its chip (« Coloc’ », `GroupShortName`).
+    public var groupShortName: String? { groupName.map(GroupShortName.of) }
 
     public init(
         task: TaskItem,
@@ -170,7 +190,9 @@ public struct TaskRow: Sendable, Hashable, Identifiable {
         isNew: Bool,
         canChangeStatus: Bool,
         canEdit: Bool,
-        canDelete: Bool
+        canDelete: Bool,
+        assignees: [PersonBadge] = [],
+        isMyTurn: Bool = false
     ) {
         self.task = task
         self.dueText = dueText
@@ -181,6 +203,8 @@ public struct TaskRow: Sendable, Hashable, Identifiable {
         self.canChangeStatus = canChangeStatus
         self.canEdit = canEdit
         self.canDelete = canDelete
+        self.assignees = assignees
+        self.isMyTurn = isMyTurn
     }
 }
 
@@ -197,13 +221,21 @@ public struct TaskFilterChip: Sendable, Hashable, Identifiable {
     public var kind: Kind
     public var label: String
     public var isSelected: Bool
+    /// v2, status chips of the group screen: the number of tasks this chip shows (the other criteria applied).
+    public var count: Int?
 
     public var id: Kind { kind }
 
-    public init(kind: Kind, label: String, isSelected: Bool) {
+    /// « À faire · 4 » with a count, the label otherwise.
+    public var countedLabel: String {
+        count.map { "\(label) · \($0)" } ?? label
+    }
+
+    public init(kind: Kind, label: String, isSelected: Bool, count: Int? = nil) {
         self.kind = kind
         self.label = label
         self.isSelected = isSelected
+        self.count = count
     }
 
     /// Status choices offered as chips, in display order.
@@ -211,7 +243,14 @@ public struct TaskFilterChip: Sendable, Hashable, Identifiable {
 
     /// The chips describing `filter`.
     public static func chips(for filter: TaskFilter) -> [TaskFilterChip] {
-        statusChoices.map { TaskFilterChip(kind: .status($0), label: $0.label, isSelected: filter.status == $0) } + [
+        chips(for: filter, counts: [:])
+    }
+
+    /// v2: the chips describing `filter`, each status chip with its count from `counts` when present.
+    public static func chips(for filter: TaskFilter, counts: [TaskStatusFilter: Int]) -> [TaskFilterChip] {
+        statusChoices.map { status in
+            TaskFilterChip(kind: .status(status), label: status.label, isSelected: filter.status == status, count: counts[status])
+        } + [
             TaskFilterChip(kind: .assignedToMe, label: "Assignées à moi", isSelected: filter.onlyAssignedToMe),
             TaskFilterChip(kind: .overdue, label: "En retard", isSelected: filter.onlyOverdue),
         ]

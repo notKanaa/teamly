@@ -4,11 +4,18 @@ import Observation
 /// « Réglages » tab: display name, reminder lead time, optional ntfy push, notification permission, sign-out and
 /// account deletion (only after typing « SUPPRIMER »).
 ///
+/// v2: the avatar (`avatarAppearance`, the « Avatar » sheet from `makeAvatarEditor()`) and the weekly recap
+/// notification switch (`isWeeklyRecapEnabled`, on by default).
+///
 /// View: `.task(id: model.refreshKey) { await model.load() }`. Sign-out and deletion end the session through
 /// `AuthService.authStates()`: `AppModel` then shows the login screen.
 @MainActor
 @Observable
 public final class SettingsViewModel: ErrorPresenting {
+    /// v2: the weekly recap switch.
+    public static let weeklyRecapTitle = "Récap de la semaine"
+    public static let weeklyRecapFooter =
+        "Une notification chaque lundi à 09:00 pour découvrir le podium de la semaine de chaque groupe."
     public static let deleteConfirmationWord = "SUPPRIMER"
     public static let deleteAccountWarning =
         "Votre compte, votre profil et vos assignations seront supprimés définitivement. Les groupes dont vous êtes le seul membre seront supprimés avec leurs tâches\u{00A0}; dans les autres, le membre le plus ancien deviendra admin si vous étiez le seul admin. Tapez «\u{00A0}SUPPRIMER\u{00A0}» pour confirmer."
@@ -61,6 +68,7 @@ public final class SettingsViewModel: ErrorPresenting {
     public let session: SessionModel
     private var displayNameValue = ""
     private var leadTimeValue: ReminderLeadTime?
+    private var weeklyRecapValue: Bool?
     private let runner = LoadRunner()
     private let background = BackgroundWork()
     private var loadedRevision: Int?
@@ -157,6 +165,51 @@ public final class SettingsViewModel: ErrorPresenting {
             }
             return false
         }
+    }
+
+    // MARK: - Avatar (v2)
+
+    /// The user's avatar (resolved color, emoji or initials), nil until the profile is loaded.
+    public var avatarAppearance: AvatarAppearance? { profile?.appearance }
+
+    /// The « Avatar » sheet (nil until the profile is loaded). On save call `apply(_:)` with its `profile`.
+    public func makeAvatarEditor() -> AvatarEditorViewModel? {
+        guard let profile else { return nil }
+        return AvatarEditorViewModel(session: session, profile: profile)
+    }
+
+    /// Shows a profile saved by another screen (the « Avatar » sheet).
+    public func apply(_ updated: UserProfile) {
+        guard updated.id == session.userId else { return }
+        profile = updated
+    }
+
+    // MARK: - Weekly recap notification (v2)
+
+    /// Switch binding: persists the choice and schedules or removes the notification in the background. On by
+    /// default.
+    public var isWeeklyRecapEnabled: Bool {
+        get { weeklyRecapValue ?? WeeklyRecapNotifier.isEnabled(in: session.platform.store) }
+        set {
+            guard newValue != isWeeklyRecapEnabled else { return }
+            storeWeeklyRecap(newValue)
+            background.start { [weak self] in
+                _ = await self?.session.synchronizeWeeklyRecap()
+            }
+        }
+    }
+
+    /// Persists the choice and schedules or removes the notification (awaited). Returns whether the notification is
+    /// scheduled afterwards (false when switched off, or when the notifications are not authorized).
+    @discardableResult
+    public func setWeeklyRecapEnabled(_ enabled: Bool) async -> Bool {
+        storeWeeklyRecap(enabled)
+        return await session.synchronizeWeeklyRecap()
+    }
+
+    private func storeWeeklyRecap(_ enabled: Bool) {
+        weeklyRecapValue = enabled
+        WeeklyRecapNotifier.setEnabled(enabled, in: session.platform.store)
     }
 
     // MARK: - Reminders
@@ -316,6 +369,7 @@ public final class SettingsViewModel: ErrorPresenting {
         do {
             try await session.services.auth.deleteAccount()
             session.platform.store.set(nil, forKey: MyTasksViewModel.lastSeenKey(userId: session.userId))
+            OnboardingStore.clear(userId: session.userId, in: session.platform.store)
             deleteConfirmation = ""
             return true
         } catch {

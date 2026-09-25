@@ -38,7 +38,10 @@ struct UserNotificationScheduler: NotificationScheduler {
 
     func add(_ notification: LocalNotification) async throws {
         let trigger: UNNotificationTrigger?
-        if let fireDate = notification.fireDate {
+        if let weekly = notification.repeatsWeekly {
+            // v2: every week at this time, in the device's calendar and time zone (the weekly recap).
+            trigger = UNCalendarNotificationTrigger(dateMatching: weekly.dateComponents, repeats: true)
+        } else if let fireDate = notification.fireDate {
             // The fire date may have passed between planning and now: skip it (a time-interval trigger ≤ 0 s
             // throws, and a reminder in the past is useless).
             let interval = fireDate.timeIntervalSinceNow

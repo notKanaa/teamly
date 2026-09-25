@@ -33,6 +33,12 @@ struct RootView: View {
                 MainTabView(session: session)
                     .id(session.id)
                     .transition(.opacity)
+            case let .onboarding(model):
+                // v2 onboarding (docs/CONTRACTS-V2.md §9): its screens draw `model`; until they exist, the tabs of
+                // the same session.
+                MainTabView(session: model.session)
+                    .id(model.session.id)
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: appModel.phase)
