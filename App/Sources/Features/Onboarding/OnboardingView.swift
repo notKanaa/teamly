@@ -69,6 +69,8 @@ struct OnboardingView: View {
         .padding(.horizontal, 24)
         .padding(.top, 12)
         .padding(.bottom, 8)
+        // Large enough at the accessibility sizes, without taking the room of the step.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
     }
 
     @ViewBuilder private var backButton: some View {
@@ -148,7 +150,23 @@ struct OnboardingView: View {
         .padding(.horizontal, 24)
         .padding(.top, 12)
         .padding(.bottom, 8)
-        .background(Theme.background)
+        // Large enough at the accessibility sizes, without taking the room of the step.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .background {
+            // The step scrolls under the buttons: it fades out above them instead of being cut.
+            Theme.background
+                .overlay(alignment: .top) {
+                    LinearGradient(
+                        colors: [Theme.background.opacity(0), Theme.background],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 24)
+                    .offset(y: -24)
+                    .allowsHitTesting(false)
+                }
+                .ignoresSafeArea(edges: .bottom)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityID.Shell.pinnedBottomBar)
     }

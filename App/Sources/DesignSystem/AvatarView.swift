@@ -146,8 +146,9 @@ struct UnassignedAvatar: View {
 }
 
 /// A group's badge (docs/DESIGN-V2.md §5): its emoji centered on its fill, in a rounded square; without an emoji, the
-/// initials of its name in white. Sizes 56 (group cards), 60 (the create preview), 64 (the hero), 40 (small).
-/// `.onColor` draws a white tile (the group hero, on the group's fill). Decorative: hidden from VoiceOver.
+/// initials of its name in white (a group symbol while the name has no letter yet: the create preview). Sizes 56 (group
+/// cards), 60 (the create preview), 64 (the hero), 40 (small). `.onColor` draws a white tile (the group hero, on the
+/// group's fill). Decorative: hidden from VoiceOver.
 struct GroupTile: View {
     enum Style {
         /// The group's fill.
@@ -182,6 +183,10 @@ struct GroupTile: View {
                 .font(.system(size: size * 0.5))
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
+        } else if appearance.initials == Initials.unknown {
+            Image(systemName: "person.2.fill")
+                .font(.system(size: size * 0.34, weight: .semibold))
+                .foregroundStyle(style == .filled ? Theme.onFill : appearance.color.fill)
         } else {
             Text(appearance.initials)
                 .font(.system(size: size * 0.36, weight: .heavy, design: .rounded))

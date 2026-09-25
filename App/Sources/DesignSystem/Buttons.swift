@@ -163,11 +163,14 @@ struct CircleIconButton: View {
     }
 
     var body: some View {
+        // 44 pt, growing with the text up to 60 pt.
+        let diameter = min(max(44, side), 60)
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(Font.body.weight(.bold))
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .foregroundStyle(style == .card ? Theme.textPrimary : Theme.onFill)
-                .frame(width: max(44, side), height: max(44, side))
+                .frame(width: diameter, height: diameter)
                 .background {
                     if style == .card {
                         Circle()
