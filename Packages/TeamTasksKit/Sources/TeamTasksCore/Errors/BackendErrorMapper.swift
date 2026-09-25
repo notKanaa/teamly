@@ -25,6 +25,15 @@ public enum BackendErrorMapper {
         "too_many_assignees": .tooManyAssignees,
         "task_not_found": .notFound,
         "group_not_found": .notFound,
+        // v2 (docs/CONTRACTS-V2.md §3)
+        "invalid_color": .invalidAppearance,
+        "invalid_emoji": .invalidAppearance,
+        "invalid_recurrence": .invalidRecurrence,
+        "recurrence_requires_due_date": .recurrenceNeedsDueDate,
+        "invalid_rotation": .invalidRotation,
+        "invalid_item_title": .invalidChecklistItem,
+        "too_many_items": .tooManyChecklistItems,
+        "item_not_found": .notFound,
     ]
 
     /// - Parameters:

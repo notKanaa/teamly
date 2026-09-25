@@ -88,4 +88,19 @@ struct SupabaseGroupService: GroupService {
         }
         return code
     }
+
+    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §5 create_group with appearance).
+    func createGroup(name: String, color: ColorKey?, emoji: String?) async throws -> GroupSummary {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §5 set_group_appearance).
+    func setAppearance(groupId: UUID, color: ColorKey?, emoji: String?) async throws -> TeamGroup {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §7 activity read).
+    func activity(groupId: UUID) async throws -> [ActivityEvent] {
+        throw AppError.unknown("pas encore disponible")
+    }
 }

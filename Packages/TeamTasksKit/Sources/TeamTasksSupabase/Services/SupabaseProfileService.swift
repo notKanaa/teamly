@@ -21,6 +21,16 @@ struct SupabaseProfileService: ProfileService {
         guard let row = rows.first else { throw AppError.forbidden }
         return row.profile
     }
+
+    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §2 avatar PATCH, §9 profile read).
+    func updateAvatar(color: ColorKey?, emoji: String?) async throws -> UserProfile {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §5 complete_onboarding).
+    func completeOnboarding() async throws {
+        throw AppError.unknown("pas encore disponible")
+    }
 }
 
 /// `PushService` on the `enable_push` / `disable_push` RPCs and `push_subscriptions` (docs/CONTRACTS.md §4, §7).

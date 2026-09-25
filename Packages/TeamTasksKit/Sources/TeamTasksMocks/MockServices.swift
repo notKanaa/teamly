@@ -64,6 +64,16 @@ struct MockProfileService: ProfileService {
         try await session.backend.simulateLatency()
         return try session.backend.updateDisplayName(clientId: session.clientId, name: name)
     }
+
+    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §2, §3; avatar PATCH).
+    func updateAvatar(color: ColorKey?, emoji: String?) async throws -> UserProfile {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 complete_onboarding, §9).
+    func completeOnboarding() async throws {
+        throw AppError.unknown("pas encore disponible")
+    }
 }
 
 struct MockGroupService: GroupService {
@@ -123,6 +133,21 @@ struct MockGroupService: GroupService {
         try await session.backend.simulateLatency()
         try session.backend.leave(clientId: session.clientId, groupId: groupId)
     }
+
+    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 create_group with appearance).
+    func createGroup(name: String, color: ColorKey?, emoji: String?) async throws -> GroupSummary {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 set_group_appearance).
+    func setAppearance(groupId: UUID, color: ColorKey?, emoji: String?) async throws -> TeamGroup {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §7 activity feed).
+    func activity(groupId: UUID) async throws -> [ActivityEvent] {
+        throw AppError.unknown("pas encore disponible")
+    }
 }
 
 struct MockTaskService: TaskService {
@@ -166,6 +191,31 @@ struct MockTaskService: TaskService {
     func assignments(since: Date) async throws -> [AssignmentEvent] {
         try await session.backend.simulateLatency()
         return try session.backend.assignments(clientId: session.clientId, since: since)
+    }
+
+    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 add_checklist_item).
+    func addChecklistItem(taskId: UUID, title: String) async throws -> ChecklistItem {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 rename_checklist_item).
+    func renameChecklistItem(itemId: UUID, title: String) async throws -> ChecklistItem {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 set_checklist_item_done).
+    func setChecklistItemDone(itemId: UUID, done: Bool) async throws -> ChecklistItem {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 delete_checklist_item).
+    func deleteChecklistItem(itemId: UUID) async throws {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §8 weekly recap read).
+    func completions(groupId: UUID, since: Date) async throws -> [TaskCompletion] {
+        throw AppError.unknown("pas encore disponible")
     }
 }
 

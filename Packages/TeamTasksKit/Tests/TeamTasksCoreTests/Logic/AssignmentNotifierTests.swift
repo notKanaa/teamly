@@ -31,7 +31,8 @@ import Testing
         at date: Date,
         by assigner: UUID? = LogicFixtures.other,
         group: UUID = LogicFixtures.groupA,
-        groupName: String = "Coloc' rue des Lilas"
+        groupName: String = "Coloc' rue des Lilas",
+        rotation: Bool = false
     ) -> AssignmentEvent {
         AssignmentEvent(
             taskId: F.uuid(number),
@@ -40,8 +41,18 @@ import Testing
             groupName: groupName,
             assignedBy: assigner,
             assignedAt: date,
-            dueAt: nil
+            dueAt: nil,
+            taskHasRotation: rotation
         )
+    }
+
+    /// A task of a rotation between the current user and another member.
+    private func rotatingTask(_ number: Int, title: String? = nil, groupName: String? = "Coloc' rue des Lilas") -> TaskItem {
+        var task = F.task(number, title: title, groupName: groupName)
+        task.recurrence = RecurrenceRule(frequency: .weekly, timeZoneId: "Europe/Paris")
+        task.rotation = [F.other, F.me]
+        task.turnUserId = F.me
+        return task
     }
 
     private func realtime(_ number: Int, by assigner: UUID? = LogicFixtures.other) -> RealtimeAssignment {
@@ -372,6 +383,61 @@ import Testing
         clock.value = clock.value.addingTimeInterval(AssignmentNotifier.realtimeDedupWindow + 1)
         tasks.put(F.task(1))
         #expect(await notifier.handleRealtime(realtime(1)).count == 1)
+    }
+
+    // MARK: Rotation turns (docs/CONTRACTS-V2.md §11)
+
+    /// A turn handed out by the server (`assigned_by` NULL on a rotating task) is « C’est ton tour ».
+    @Test func catchUpWordsRotationTurns() async throws {
+        let notifier = try await initializedNotifier()
+        let start = clock.value
+        tasks.assignmentEvents = [
+            event(1, at: start.addingTimeInterval(1), by: nil, rotation: true),
+            // The first turn of a new rotation, given by the editor: the v1 wording.
+            event(2, at: start.addingTimeInterval(2), by: F.other, rotation: true),
+            // A continuation of a recurring task (assigned by the assignee): not notified.
+            event(3, at: start.addingTimeInterval(3), by: F.me, rotation: true),
+            // assigned_by NULL without rotation (a deleted assigner): the v1 wording.
+            event(4, at: start.addingTimeInterval(4), by: nil),
+        ]
+        let posted = try await notifier.catchUp()
+        #expect(posted.map(\.id) == [1, 2, 4].map { "assigned-\(F.uuid($0).uuidString)" })
+        #expect(posted.map(\.title) == ["C’est ton tour", "Nouvelle tâche", "Nouvelle tâche"])
+        #expect(posted.first?.body == "«\u{00A0}Tâche 1\u{00A0}» dans «\u{00A0}Coloc' rue des Lilas\u{00A0}»")
+        #expect(posted.first?.userInfo == ["taskId": F.uuid(1).uuidString, "groupId": F.groupA.uuidString])
+        #expect(posted.first?.threadId == F.groupA.uuidString)
+        #expect(posted.dropFirst().map(\.body) == ["Tâche 2 — Coloc' rue des Lilas", "Tâche 4 — Coloc' rue des Lilas"])
+    }
+
+    @Test func realtimeWordsRotationTurns() async throws {
+        let notifier = makeNotifier()
+        tasks.put(rotatingTask(1, title: "Sortir les poubelles"))
+        let turn = await notifier.handleRealtime(realtime(1, by: nil))
+        #expect(turn.map(\.title) == [AssignmentNotifier.rotationTurnTitle])
+        #expect(turn.map(\.body) == ["«\u{00A0}Sortir les poubelles\u{00A0}» dans «\u{00A0}Coloc' rue des Lilas\u{00A0}»"])
+
+        // Assigned by the editor of the rotation: the v1 wording.
+        tasks.put(rotatingTask(2, title: "Arroser les plantes"))
+        let edited = await notifier.handleRealtime(realtime(2, by: F.other))
+        #expect(edited.map(\.title) == [AssignmentNotifier.individualTitle])
+        #expect(edited.map(\.body) == ["Arroser les plantes — Coloc' rue des Lilas"])
+    }
+
+    @Test func rotationTurnWithoutGroupName() async {
+        let notifier = makeNotifier()
+        tasks.put(rotatingTask(1, title: "Vaisselle", groupName: nil))
+        #expect(await notifier.handleRealtime(realtime(1, by: nil)).map(\.body) == ["«\u{00A0}Vaisselle\u{00A0}»"])
+        #expect(AssignmentNotifier.rotationTurnBody(taskTitle: "Vaisselle", groupName: "") == "«\u{00A0}Vaisselle\u{00A0}»")
+    }
+
+    /// More than `maxIndividual` new assignments still give the v1 summary, rotation turns included.
+    @Test func rotationTurnsCountInTheSummary() async throws {
+        let notifier = try await initializedNotifier()
+        let start = clock.value
+        tasks.assignmentEvents = (1...6).map { event($0, at: start.addingTimeInterval(Double($0)), by: nil, rotation: $0.isMultiple(of: 2)) }
+        let posted = try await notifier.catchUp()
+        #expect(posted.map(\.title) == ["Nouvelles tâches"])
+        #expect(posted.map(\.body) == ["6 nouvelles tâches assignées"])
     }
 
     // MARK: Authorization

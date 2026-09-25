@@ -13,6 +13,12 @@ import Testing
         calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))!
     }
 
+    /// The error cases added by docs/CONTRACTS-V2.md §3.
+    static let v2Errors: [AppError] = [
+        .invalidAppearance, .invalidRecurrence, .recurrenceNeedsDueDate, .invalidRotation, .invalidChecklistItem,
+        .tooManyChecklistItems,
+    ]
+
     @Test func userFacingStringsUseTheTypographicApostrophe() {
         let formatter = FrenchDateFormatter(timeZone: Self.paris)
         let now = Self.date(2026, 9, 24, 10)
@@ -21,11 +27,13 @@ import Testing
             .emailRateLimited, .emailNotConfirmed, .invalidDisplayName, .invalidName, .invalidTitle, .invalidDetails,
             .invalidInput, .invalidCode, .rateLimited, .lastAdmin, .notMember, .cannotRemoveSelf, .assigneeNotMember,
             .tooManyAssignees, .forbidden, .forbiddenFields, .notFound, .conflict, .network, .misconfigured,
-        ]
+        ] + Self.v2Errors
         let shown: [String] = errors.map(\.messageFR)
             + DueBucket.allCases.map(\.title)
             + ReminderLeadTime.allCases.map(\.label)
             + [
+                AssignmentNotifier.rotationTurnTitle,
+                AssignmentNotifier.rotationTurnBody(taskTitle: "Sortir les poubelles", groupName: "Coloc’ rue des Lilas"),
                 formatter.relativeDay(now, relativeTo: now),
                 DateText.relative(now, now: now, calendar: Self.calendar),
                 GroupsListViewModel.emptyMessage,
@@ -118,12 +126,15 @@ import Testing
     /// the punctuation never starts a line.
     @Test func userFacingStringsUseNoBreakSpaces() throws {
         let code = try #require(InviteCode("LYLAS234"))
-        let shown: [String] = [
+        let shown: [String] = ([
             AppError.notAuthenticated, .invalidCredentials, .emailAlreadyUsed, .weakPassword, .invalidEmail, .otpInvalid,
             .emailRateLimited, .emailNotConfirmed, .invalidDisplayName, .invalidName, .invalidTitle, .invalidDetails,
             .invalidInput, .invalidCode, .rateLimited, .lastAdmin, .notMember, .cannotRemoveSelf, .assigneeNotMember,
             .tooManyAssignees, .forbidden, .forbiddenFields, .notFound, .conflict, .network, .misconfigured,
-        ].map(\.messageFR) + [
+        ] + Self.v2Errors).map(\.messageFR) + [
+            AssignmentNotifier.rotationTurnTitle,
+            AssignmentNotifier.rotationTurnBody(taskTitle: "Sortir les poubelles", groupName: "Coloc’ rue des Lilas"),
+            AssignmentNotifier.rotationTurnBody(taskTitle: "Vaisselle", groupName: nil),
             SettingsViewModel.deleteAccountWarning,
             SettingsViewModel.pushPrivacyNote,
             SettingsViewModel.pushDisabledExplanation,

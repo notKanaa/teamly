@@ -377,6 +377,11 @@ final class LogicFakeTaskService: TaskService, @unchecked Sendable {
     func update(taskId: UUID, draft: TaskDraft) async throws -> TaskItem { throw AppError.unknown("non utilisé") }
     func setStatus(taskId: UUID, status: TaskStatus) async throws -> TaskItem { throw AppError.unknown("non utilisé") }
     func delete(taskId: UUID) async throws { throw AppError.unknown("non utilisé") }
+    func addChecklistItem(taskId: UUID, title: String) async throws -> ChecklistItem { throw AppError.unknown("non utilisé") }
+    func renameChecklistItem(itemId: UUID, title: String) async throws -> ChecklistItem { throw AppError.unknown("non utilisé") }
+    func setChecklistItemDone(itemId: UUID, done: Bool) async throws -> ChecklistItem { throw AppError.unknown("non utilisé") }
+    func deleteChecklistItem(itemId: UUID) async throws { throw AppError.unknown("non utilisé") }
+    func completions(groupId: UUID, since: Date) async throws -> [TaskCompletion] { throw AppError.unknown("non utilisé") }
 }
 
 // MARK: - Realtime service

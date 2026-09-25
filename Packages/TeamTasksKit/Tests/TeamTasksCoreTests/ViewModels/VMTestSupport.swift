@@ -159,6 +159,10 @@ final class VMFaults: @unchecked Sendable {
         case setRole, removeMember, leave
         case tasks, myTasks, task, createTask, updateTask, setStatus, deleteTask, assignments
         case currentTopic, enablePush, disablePush
+        // v2 (`createGroup` also counts `createGroup(name:color:emoji:)`).
+        case updateAvatar, completeOnboarding
+        case setAppearance, activity
+        case addChecklistItem, renameChecklistItem, setChecklistItemDone, deleteChecklistItem, completions
     }
 
     private let lock = NSLock()
@@ -278,6 +282,16 @@ struct VMProfileService: ProfileService {
         try await faults.check(.updateDisplayName)
         return try await base.updateDisplayName(name)
     }
+
+    func updateAvatar(color: ColorKey?, emoji: String?) async throws -> UserProfile {
+        try await faults.check(.updateAvatar)
+        return try await base.updateAvatar(color: color, emoji: emoji)
+    }
+
+    func completeOnboarding() async throws {
+        try await faults.check(.completeOnboarding)
+        try await base.completeOnboarding()
+    }
 }
 
 struct VMGroupService: GroupService {
@@ -338,6 +352,21 @@ struct VMGroupService: GroupService {
         try await faults.check(.leave)
         try await base.leave(groupId: groupId)
     }
+
+    func createGroup(name: String, color: ColorKey?, emoji: String?) async throws -> GroupSummary {
+        try await faults.check(.createGroup)
+        return try await base.createGroup(name: name, color: color, emoji: emoji)
+    }
+
+    func setAppearance(groupId: UUID, color: ColorKey?, emoji: String?) async throws -> TeamGroup {
+        try await faults.check(.setAppearance)
+        return try await base.setAppearance(groupId: groupId, color: color, emoji: emoji)
+    }
+
+    func activity(groupId: UUID) async throws -> [ActivityEvent] {
+        try await faults.check(.activity)
+        return try await base.activity(groupId: groupId)
+    }
 }
 
 struct VMTaskService: TaskService {
@@ -382,6 +411,31 @@ struct VMTaskService: TaskService {
     func assignments(since: Date) async throws -> [AssignmentEvent] {
         try await faults.check(.assignments)
         return try await base.assignments(since: since)
+    }
+
+    func addChecklistItem(taskId: UUID, title: String) async throws -> ChecklistItem {
+        try await faults.check(.addChecklistItem)
+        return try await base.addChecklistItem(taskId: taskId, title: title)
+    }
+
+    func renameChecklistItem(itemId: UUID, title: String) async throws -> ChecklistItem {
+        try await faults.check(.renameChecklistItem)
+        return try await base.renameChecklistItem(itemId: itemId, title: title)
+    }
+
+    func setChecklistItemDone(itemId: UUID, done: Bool) async throws -> ChecklistItem {
+        try await faults.check(.setChecklistItemDone)
+        return try await base.setChecklistItemDone(itemId: itemId, done: done)
+    }
+
+    func deleteChecklistItem(itemId: UUID) async throws {
+        try await faults.check(.deleteChecklistItem)
+        try await base.deleteChecklistItem(itemId: itemId)
+    }
+
+    func completions(groupId: UUID, since: Date) async throws -> [TaskCompletion] {
+        try await faults.check(.completions)
+        return try await base.completions(groupId: groupId, since: since)
     }
 }
 

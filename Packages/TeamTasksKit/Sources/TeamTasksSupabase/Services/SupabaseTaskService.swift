@@ -76,6 +76,31 @@ struct SupabaseTaskService: TaskService {
             return lhs.taskId.uuidString < rhs.taskId.uuidString
         }
     }
+
+    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §5 add_checklist_item).
+    func addChecklistItem(taskId: UUID, title: String) async throws -> ChecklistItem {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §5 rename_checklist_item).
+    func renameChecklistItem(itemId: UUID, title: String) async throws -> ChecklistItem {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §5 set_checklist_item_done).
+    func setChecklistItemDone(itemId: UUID, done: Bool) async throws -> ChecklistItem {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §5 delete_checklist_item).
+    func deleteChecklistItem(itemId: UUID) async throws {
+        throw AppError.unknown("pas encore disponible")
+    }
+
+    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §8 recap read).
+    func completions(groupId: UUID, since: Date) async throws -> [TaskCompletion] {
+        throw AppError.unknown("pas encore disponible")
+    }
 }
 
 /// The editable fields of a draft, validated with `InputValidation` in the server's order (title, details,

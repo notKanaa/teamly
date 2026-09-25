@@ -197,6 +197,18 @@ struct MutatedProfileService: ProfileService {
         registry.beforeWrite()
         return try await base.updateDisplayName(name)
     }
+
+    // v2: forwarded without mutation.
+
+    func updateAvatar(color: ColorKey?, emoji: String?) async throws -> UserProfile {
+        registry.beforeWrite()
+        return try await base.updateAvatar(color: color, emoji: emoji)
+    }
+
+    func completeOnboarding() async throws {
+        registry.beforeWrite()
+        try await base.completeOnboarding()
+    }
 }
 
 struct MutatedGroupService: GroupService {
@@ -308,6 +320,27 @@ struct MutatedGroupService: GroupService {
         registry.membershipChanged()
         registry.groupChanged(groupId)
     }
+
+    // v2: forwarded without mutation, with the signals of the matching v1 operations.
+
+    func createGroup(name: String, color: ColorKey?, emoji: String?) async throws -> GroupSummary {
+        registry.beforeWrite()
+        let summary = try await base.createGroup(name: name, color: color, emoji: emoji)
+        registry.rememberGroup(summary.id)
+        registry.membershipChanged()
+        return summary
+    }
+
+    func setAppearance(groupId: UUID, color: ColorKey?, emoji: String?) async throws -> TeamGroup {
+        registry.beforeWrite()
+        let group = try await base.setAppearance(groupId: groupId, color: color, emoji: emoji)
+        registry.groupChanged(groupId)
+        return group
+    }
+
+    func activity(groupId: UUID) async throws -> [ActivityEvent] {
+        try await base.activity(groupId: groupId)
+    }
 }
 
 struct MutatedTaskService: TaskService {
@@ -369,6 +402,32 @@ struct MutatedTaskService: TaskService {
 
     func assignments(since: Date) async throws -> [AssignmentEvent] {
         try await base.assignments(since: since)
+    }
+
+    // v2: forwarded without mutation.
+
+    func addChecklistItem(taskId: UUID, title: String) async throws -> ChecklistItem {
+        registry.beforeWrite()
+        return try await base.addChecklistItem(taskId: taskId, title: title)
+    }
+
+    func renameChecklistItem(itemId: UUID, title: String) async throws -> ChecklistItem {
+        registry.beforeWrite()
+        return try await base.renameChecklistItem(itemId: itemId, title: title)
+    }
+
+    func setChecklistItemDone(itemId: UUID, done: Bool) async throws -> ChecklistItem {
+        registry.beforeWrite()
+        return try await base.setChecklistItemDone(itemId: itemId, done: done)
+    }
+
+    func deleteChecklistItem(itemId: UUID) async throws {
+        registry.beforeWrite()
+        try await base.deleteChecklistItem(itemId: itemId)
+    }
+
+    func completions(groupId: UUID, since: Date) async throws -> [TaskCompletion] {
+        try await base.completions(groupId: groupId, since: since)
     }
 }
 

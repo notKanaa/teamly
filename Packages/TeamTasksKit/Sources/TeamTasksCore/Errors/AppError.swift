@@ -30,6 +30,20 @@ public enum AppError: Error, Sendable, Hashable {
     case assigneeNotMember
     case tooManyAssignees
 
+    // v2 (docs/CONTRACTS-V2.md §3)
+    /// `invalid_color`, `invalid_emoji`: a group or avatar color / emoji.
+    case invalidAppearance
+    /// `invalid_recurrence`: the rule's shape (interval, weekdays, time zone).
+    case invalidRecurrence
+    /// `recurrence_requires_due_date`: a recurring task without due date.
+    case recurrenceNeedsDueDate
+    /// `invalid_rotation`: 2–20 distinct members, on a recurring task (also `set_task_assignees` on a rotating task).
+    case invalidRotation
+    /// `invalid_item_title`: a checklist item title.
+    case invalidChecklistItem
+    /// `too_many_items`: more than 30 checklist items.
+    case tooManyChecklistItems
+
     // Generic
     case forbidden
     case forbiddenFields
@@ -62,6 +76,12 @@ public enum AppError: Error, Sendable, Hashable {
         case .cannotRemoveSelf: "Utilisez «\u{00A0}Quitter le groupe\u{00A0}» pour vous retirer vous-même."
         case .assigneeNotMember: "Une personne assignée ne fait pas partie du groupe."
         case .tooManyAssignees: "20 personnes assignées au maximum."
+        case .invalidAppearance: "Couleur ou emoji invalide."
+        case .invalidRecurrence: "Répétition invalide."
+        case .recurrenceNeedsDueDate: "Choisissez une échéance pour répéter la tâche."
+        case .invalidRotation: "Le tour de rôle demande de 2 à 20 membres du groupe."
+        case .invalidChecklistItem: "Un élément doit contenir entre 1 et 200 caractères."
+        case .tooManyChecklistItems: "30 éléments au maximum."
         case .forbidden: "Action non autorisée."
         case .forbiddenFields: "Vous pouvez seulement changer le statut de cette tâche."
         case .notFound: "Élément introuvable. Il a peut-être été supprimé."

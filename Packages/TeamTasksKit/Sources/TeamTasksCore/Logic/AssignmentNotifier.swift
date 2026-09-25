@@ -21,8 +21,11 @@ public struct RealtimeAssignment: Sendable, Hashable {
 ///
 /// The same assignment seen by both sources is notified once: the notifier persists, per user, the cursor
 /// (latest `assignedAt` handled by catch-up) and a bounded list of already-handled tasks.
-/// Assignments made by the current user are ignored. Up to `maxIndividual` new assignments produce one
+/// Assignments made by the current user are ignored (v2: including the continuations of a recurring task, which the
+/// server assigns with `assigned_by` = the assignee). Up to `maxIndividual` new assignments produce one
 /// `assigned-<taskId>` notification each; more produce a single `summary-<epochSeconds>` notification.
+/// v2: a rotation turn handed out by the server (`assigned_by` NULL on a task with a rotation: a spawn, or a handover
+/// when the turn holder left) is worded « C’est ton tour » (docs/CONTRACTS-V2.md §11).
 /// When notifications are not authorized nothing is posted, but the cursor still advances.
 ///
 /// The cursor only ever holds server timestamps (the device clock may be wrong). Every catch-up re-reads
@@ -51,6 +54,16 @@ public actor AssignmentNotifier {
 
     public static let individualTitle = "Nouvelle tâche"
     public static let summaryTitle = "Nouvelles tâches"
+    /// v2: title of a rotation turn (docs/CONTRACTS-V2.md §11).
+    public static let rotationTurnTitle = "C’est ton tour"
+
+    /// v2: body of a rotation turn: `« <task title> » dans « <group name> »`, with a no-break space (U+00A0) inside
+    /// each pair of guillemets; `« <task title> »` alone when the group's name is unknown or empty.
+    public static func rotationTurnBody(taskTitle: String, groupName: String?) -> String {
+        let task = "«\u{00A0}\(taskTitle)\u{00A0}»"
+        guard let groupName, !groupName.isEmpty else { return task }
+        return "\(task) dans «\u{00A0}\(groupName)\u{00A0}»"
+    }
 
     /// Persisted state (one `KeyValueStore` entry per user).
     struct State: Codable, Equatable {
@@ -75,6 +88,8 @@ public actor AssignmentNotifier {
         var title: String
         var groupName: String?
         var assignedAt: Date?
+        /// A rotation turn handed out by the server (worded « C’est ton tour »).
+        var isRotationTurn: Bool
     }
 
     private let userId: UUID
@@ -164,7 +179,14 @@ public actor AssignmentNotifier {
         if name == nil {
             name = await groupName(task.groupId)
         }
-        let item = Item(taskId: task.id, groupId: task.groupId, title: task.title, groupName: name, assignedAt: nil)
+        let item = Item(
+            taskId: task.id,
+            groupId: task.groupId,
+            title: task.title,
+            groupName: name,
+            assignedAt: nil,
+            isRotationTurn: assignment.assignedBy == nil && task.hasRotation
+        )
         let outcome = await post([item], state: &state)
         saveState(state)
         return outcome.posted
@@ -219,7 +241,8 @@ public actor AssignmentNotifier {
                 groupId: event.groupId,
                 title: event.taskTitle,
                 groupName: event.groupName,
-                assignedAt: event.assignedAt
+                assignedAt: event.assignedAt,
+                isRotationTurn: event.isRotationTurn
             ))
         }
 
@@ -273,8 +296,10 @@ public actor AssignmentNotifier {
             notifications = items.map { item in
                 LocalNotification(
                     id: Self.individualIdentifier(taskId: item.taskId),
-                    title: Self.individualTitle,
-                    body: item.groupName.flatMap { $0.isEmpty ? nil : "\(item.title) — \($0)" } ?? item.title,
+                    title: item.isRotationTurn ? Self.rotationTurnTitle : Self.individualTitle,
+                    body: item.isRotationTurn
+                        ? Self.rotationTurnBody(taskTitle: item.title, groupName: item.groupName)
+                        : item.groupName.flatMap { $0.isEmpty ? nil : "\(item.title) — \($0)" } ?? item.title,
                     fireDate: nil,
                     userInfo: ["taskId": item.taskId.uuidString, "groupId": item.groupId.uuidString],
                     threadId: item.groupId.uuidString
