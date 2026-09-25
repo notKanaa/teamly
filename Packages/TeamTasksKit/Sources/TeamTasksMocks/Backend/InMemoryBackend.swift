@@ -1,8 +1,11 @@
 import Foundation
 import TeamTasksCore
 
-/// In-memory backend reproducing the SQL backend of docs/CONTRACTS.md: Auth, PostgREST reads, RPCs, the
-/// permission matrix, the change signals and Realtime. Used by previews, UI tests and unit tests.
+/// In-memory backend reproducing the SQL backend of docs/CONTRACTS.md and docs/CONTRACTS-V2.md: Auth, PostgREST
+/// reads, RPCs, the permission matrix, the change signals and Realtime, and the v2 server rules (appearance,
+/// onboarding, recurrence spawning with `NextDueCalculator` and this backend's clock as `now()`, rotation and the turn
+/// handover, checklists, the activity feed, `completed_by`). Quotas and push are not mirrored, as in v1. Used by
+/// previews, UI tests and unit tests.
 ///
 /// Several "devices" can act on the same backend: `services(for:)` returns an `AppServices` bound to its own
 /// session. Every access goes through one lock; a write runs on a copy of the data and is committed only if it
@@ -159,7 +162,7 @@ public final class InMemoryBackend: @unchecked Sendable {
         try withLock {
             if endStaleSessionLocked(clientId) { throw AppError.notAuthenticated }
             let me = try sessionUserLocked(clientId)
-            var transaction = Transaction(data: data, now: nowProvider())
+            var transaction = Transaction(data: data, now: nowProvider(), actor: me)
             let result = try body(&transaction, me)
             commitLocked(&transaction)
             return result
@@ -174,9 +177,9 @@ public final class InMemoryBackend: @unchecked Sendable {
 
     private func insertAccountLocked(id: UUID, email: String, password: String, displayName: String, now: Date) {
         data.accounts[id] = AccountRecord(id: id, email: email, password: password, createdAt: now)
-        // The `handle_new_user` trigger creates the profile.
+        // The `handle_new_user` trigger creates the profile; a new account is not onboarded yet (v2).
         data.profiles[id] = ProfileRecord(
-            id: id, displayName: displayName, membershipsChangedAt: now, createdAt: now, updatedAt: now
+            id: id, displayName: displayName, membershipsChangedAt: now, createdAt: now, updatedAt: now, onboardedAt: nil
         )
     }
 
@@ -350,7 +353,7 @@ public final class InMemoryBackend: @unchecked Sendable {
             let me = try sessionUserLocked(clientId)
             // Sign out first so that subscribers see `.signedOut` (afterwards the account no longer exists).
             setSessionLocked(clientId, userId: nil)
-            var transaction = Transaction(data: data, now: nowProvider())
+            var transaction = Transaction(data: data, now: nowProvider(), actor: me)
             transaction.deleteAccount(me)
             commitLocked(&transaction)
         }

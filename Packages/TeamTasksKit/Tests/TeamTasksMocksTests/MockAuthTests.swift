@@ -67,14 +67,16 @@ import Testing
     }
 
     @Test func signUpNormalizesAndOpensTheSession() async throws {
-        let services = InMemoryBackend().services(for: nil)
+        let signUpTime = Date(timeIntervalSince1970: 1_790_150_400)
+        let services = InMemoryBackend(now: { signUpTime }).services(for: nil)
         let outcome = try await services.auth.signUp(
             email: "  Zoe.Leroy@Example.COM ", password: "motdepasse123", displayName: "  Zoé Leroy  "
         )
         #expect(outcome == .signedIn)
         let user = try #require(await services.auth.currentUser())
         #expect(user.email == "zoe.leroy@example.com")
-        #expect(try await services.profiles.myProfile() == UserProfile(id: user.id, displayName: "Zoé Leroy"))
+        // v2: a new account is not onboarded yet; its profile is dated by the backend's clock.
+        #expect(try await services.profiles.myProfile() == UserProfile(id: user.id, displayName: "Zoé Leroy", createdAt: signUpTime))
         let fiftyAccents = String(repeating: "é", count: 50)
         #expect(try await services.profiles.updateDisplayName(fiftyAccents).displayName == fiftyAccents)
     }

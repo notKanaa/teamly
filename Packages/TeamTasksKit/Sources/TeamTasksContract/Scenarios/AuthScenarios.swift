@@ -100,7 +100,7 @@ extension ContractScenarios {
             try Verify.that(user.id != alice.id, "sign-up must open a session for the new account")
             try Verify.equal(user.email?.lowercased(), fresh.lowercased(), "e-mail of the new account")
             let profile = try await alice.profiles.myProfile()
-            try Verify.equal(profile, UserProfile(id: user.id, displayName: name), "profile created with the trimmed name")
+            try Verify.newProfile(profile, id: user.id, displayName: name, "profile created with the trimmed name")
             let groups = try await alice.groups.myGroups()
             try Verify.that(groups.isEmpty, "a new account belongs to no group, got \(groups)")
 
@@ -119,13 +119,16 @@ extension ContractScenarios {
         ContractScenario("profile.readAndRename") { harness in
             let alice = try await harness.user("Alice")
             let profile = try await alice.profiles.myProfile()
-            try Verify.equal(profile, UserProfile(id: alice.id, displayName: alice.displayName), "initial profile")
+            try Verify.newProfile(profile, id: alice.id, displayName: alice.displayName, "initial profile")
 
+            // v2: `onboardedAt` and `createdAt` are only read by `myProfile()`.
             let newName = Unique.name("Renommée")
             let updated = try await alice.profiles.updateDisplayName("  \(newName)  ")
             try Verify.equal(updated, UserProfile(id: alice.id, displayName: newName), "updated profile (trimmed)")
             let reread = try await alice.profiles.myProfile()
-            try Verify.equal(reread, updated, "profile after update")
+            try Verify.equal(
+                reread, UserProfile(id: alice.id, displayName: newName, createdAt: profile.createdAt), "profile after update"
+            )
 
             for invalid in ["", "   ", Fixed.text(51), "Ali\u{0}ce"] {
                 try await Verify.fails(with: .invalidDisplayName, "display name \(invalid.debugDescription)") {
@@ -133,7 +136,7 @@ extension ContractScenarios {
                 }
             }
             let unchanged = try await alice.profiles.myProfile()
-            try Verify.equal(unchanged, updated, "profile unchanged after invalid updates")
+            try Verify.equal(unchanged, reread, "profile unchanged after invalid updates")
 
             let longest = Fixed.text(50)
             let accepted = try await alice.profiles.updateDisplayName(longest)

@@ -57,7 +57,7 @@ extension IntegrationTests {
         }
 
         /// The accounts of `supabase/seed.sql` sign in with the demo password (read-only checks: other tests may
-        /// have added data, never removed any).
+        /// have added data, never removed any). v2: the demo groups' appearance.
         @Test(.timeLimit(.minutes(1)))
         func seedUsersCanSignIn() async throws {
             for demo in DemoData.users {
@@ -66,7 +66,11 @@ extension IntegrationTests {
                 let user = await device.auth.currentUser()
                 #expect(user == AuthUser(id: demo.id, email: demo.email))
                 let profile = try await device.profiles.myProfile()
-                #expect(profile == UserProfile(id: demo.id, displayName: demo.displayName))
+                #expect(profile.id == demo.id)
+                #expect(profile.displayName == demo.displayName)
+                // v2 (docs/CONTRACTS-V2.md §12): demo accounts are onboarded, at their creation date.
+                let createdAt = try #require(profile.createdAt)
+                #expect(profile.onboardedAt == createdAt)
                 await #expect(throws: AppError.invalidCredentials) {
                     try await IntegrationEnvironment.makeServices().auth.signIn(email: demo.email, password: "mauvais-mot-de-passe")
                 }
@@ -79,9 +83,13 @@ extension IntegrationTests {
             let lilas = try #require(groups.first { $0.id == DemoData.lilasGroupId })
             #expect(lilas.group.name == DemoData.lilasGroupName)
             #expect(lilas.myRole == .admin)
+            #expect(lilas.group.color == .coral)
+            #expect(lilas.group.emoji == "🏠")
             let sport = try #require(groups.first { $0.id == DemoData.sportGroupId })
             #expect(sport.group.name == DemoData.sportGroupName)
             #expect(sport.myRole == .member)
+            #expect(sport.group.color == .green)
+            #expect(sport.group.emoji == "\u{26BD}", "U+26BD, no variation selector")
 
             let tasks = try await camille.tasks.tasks(groupId: DemoData.lilasGroupId, includeOldDone: true)
             let seeded: Set<UUID> = [

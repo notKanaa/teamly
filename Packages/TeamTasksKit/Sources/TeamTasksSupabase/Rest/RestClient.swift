@@ -173,9 +173,10 @@ struct UnknownEnumValue: Error, Sendable, Hashable {
     let value: String
 }
 
-/// An enum column (`task_status`, `task_priority`, `member_role`): known values decode as usual, an unknown one
-/// throws `UnknownEnumValue` (not a `DecodingError`), so that `LossyRows` leaves only that row out. Anywhere else
-/// (a single row, an RPC result) it fails the decoding like any malformed answer.
+/// An enum column (`task_status`, `task_priority`, `member_role`; v2: `tasks.repeat_freq`, `group_activity.kind`):
+/// known values decode as usual, an unknown one throws `UnknownEnumValue` (not a `DecodingError`), so that
+/// `LossyRows` leaves only that row out. Anywhere else (a single row, an RPC result) it fails the decoding like any
+/// malformed answer. (An unknown color is not an enum value: it reads as nil, the automatic color.)
 struct Known<Value: RawRepresentable & Sendable & Hashable>: Decodable, Sendable, Hashable where Value.RawValue == String {
     let value: Value
 

@@ -33,14 +33,17 @@ import Testing
         ])
         #expect(DemoData.users.map(\.email) == ["camille@example.com", "lucas@example.com", "ines@example.com"])
         #expect(DemoData.users.map(\.displayName) == ["Camille Martin", "Lucas Bernard", "Inès Dubois"])
-        let backend = InMemoryBackend.demo()
+        let now = now
+        let backend = InMemoryBackend.demo(now: { now })
         for user in DemoData.users {
             let services = backend.services(for: nil)
             try await services.auth.signIn(email: user.email, password: DemoData.password)
             let current = await services.auth.currentUser()
             #expect(current == AuthUser(id: user.id, email: user.email))
+            // v2 (seed.sql): the profile is created by the trigger at the seed time and onboarded then; no avatar.
             let profile = try await services.profiles.myProfile()
-            #expect(profile == UserProfile(id: user.id, displayName: user.displayName))
+            #expect(profile == UserProfile(id: user.id, displayName: user.displayName, onboardedAt: now, createdAt: now))
+            #expect(!OnboardingPolicy.shouldShow(profile: profile, now: now))
         }
         #expect(backend.userId(forEmail: DemoData.newcomer.email) == nil)
     }
@@ -269,5 +272,60 @@ import Testing
         let groups = try await services.groups.myGroups()
         #expect(groups.map(\.group.lastActivityAt) == [now, now])
         #expect(groups.map(\.group.name) == [DemoData.lilasGroupName, DemoData.sportGroupName])
+    }
+
+    // MARK: - v2 (docs/CONTRACTS-V2.md §12, seed.sql)
+
+    /// seed.sql decorates the groups with separate updates: « Coloc' rue des Lilas » coral 🏠, « Projet Asso Sport »
+    /// green ⚽ (U+26BD, no variation selector); the v1 columns are unchanged.
+    @Test func groupsHaveTheSeedColorsAndEmojis() async throws {
+        let services = camille()
+        let groups = try await services.groups.myGroups()
+        #expect(groups.map(\.group.color) == [.coral, .green])
+        #expect(groups.map(\.group.emoji) == ["🏠", "⚽"])
+        #expect(DemoData.lilasGroupEmoji.unicodeScalars.map(\.value) == [0x1F3E0])
+        #expect(DemoData.sportGroupEmoji.unicodeScalars.map(\.value) == [0x26BD])
+        #expect(groups.map(\.group.createdAt) == [ago(days: 10), ago(days: 20)])
+        let mine = try await services.tasks.myTasks(includeDone: true)
+        for task in mine {
+            let lilas = task.groupId == DemoData.lilasGroupId
+            #expect(task.groupColor == (lilas ? .coral : .green))
+            #expect(task.groupEmoji == (lilas ? "🏠" : "⚽"))
+        }
+    }
+
+    /// No v2 task data is seeded: no rule, rotation, checklist or completer (« Nettoyer la cuisine » counts in the
+    /// recap total only), and the activity feeds start empty.
+    @Test func v1RowsCarryNoV2Data() async throws {
+        let services = camille()
+        let lilas = try await services.tasks.tasks(groupId: DemoData.lilasGroupId, includeOldDone: true)
+        let sport = try await services.tasks.tasks(groupId: DemoData.sportGroupId, includeOldDone: true)
+        #expect(lilas.count + sport.count == 7)
+        for task in lilas + sport {
+            #expect(task.recurrence == nil)
+            #expect(task.rotation.isEmpty)
+            #expect(task.turnUserId == nil)
+            #expect(task.seriesId == nil)
+            #expect(task.nextOccurrenceId == nil)
+            #expect(task.completedBy == nil)
+            #expect(task.checklist.isEmpty)
+        }
+        #expect(try await services.groups.activity(groupId: DemoData.lilasGroupId).isEmpty)
+        #expect(try await services.groups.activity(groupId: DemoData.sportGroupId).isEmpty)
+        let completions = try await services.tasks.completions(groupId: DemoData.lilasGroupId, since: .distantPast)
+        #expect(completions == [
+            TaskCompletion(taskId: DemoData.TaskIDs.nettoyerCuisine, completedBy: nil, completedAt: Self.parisDate(2026, 9, 22, 19)),
+        ])
+        let members = try await services.groups.members(groupId: DemoData.lilasGroupId)
+        #expect(members.allSatisfy { $0.user.avatarColor == nil && $0.user.avatarEmoji == nil })
+    }
+
+    /// `MockScenario.emptyGroups`: the extra account is onboarded, so the app shows the empty states.
+    @Test func newcomerIsOnboarded() async throws {
+        let now = now
+        let environment = MockEnvironment.make(scenario: .emptyGroups, now: { now })
+        let profile = try await environment.services.profiles.myProfile()
+        #expect(profile == UserProfile(id: DemoData.newcomer.id, displayName: DemoData.newcomer.displayName, onboardedAt: now, createdAt: now))
+        #expect(!OnboardingPolicy.shouldShow(profile: profile, now: now))
     }
 }

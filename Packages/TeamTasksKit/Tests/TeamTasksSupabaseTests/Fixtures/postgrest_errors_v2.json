@@ -1,0 +1,101 @@
+[
+  {
+    "name": "invalid_color",
+    "status": 400,
+    "body": {
+      "code": "P0001",
+      "details": null,
+      "hint": null,
+      "message": "invalid_color"
+    },
+    "expected": "invalidAppearance"
+  },
+  {
+    "name": "invalid_emoji",
+    "status": 400,
+    "body": {
+      "code": "P0001",
+      "details": null,
+      "hint": null,
+      "message": "invalid_emoji"
+    },
+    "expected": "invalidAppearance"
+  },
+  {
+    "name": "invalid_recurrence",
+    "status": 400,
+    "body": {
+      "code": "P0001",
+      "details": null,
+      "hint": null,
+      "message": "invalid_recurrence"
+    },
+    "expected": "invalidRecurrence"
+  },
+  {
+    "name": "recurrence_requires_due_date",
+    "status": 400,
+    "body": {
+      "code": "P0001",
+      "details": null,
+      "hint": null,
+      "message": "recurrence_requires_due_date"
+    },
+    "expected": "recurrenceNeedsDueDate"
+  },
+  {
+    "name": "invalid_rotation",
+    "status": 400,
+    "body": {
+      "code": "P0001",
+      "details": null,
+      "hint": null,
+      "message": "invalid_rotation"
+    },
+    "expected": "invalidRotation"
+  },
+  {
+    "name": "invalid_item_title",
+    "status": 400,
+    "body": {
+      "code": "P0001",
+      "details": null,
+      "hint": null,
+      "message": "invalid_item_title"
+    },
+    "expected": "invalidChecklistItem"
+  },
+  {
+    "name": "too_many_items",
+    "status": 400,
+    "body": {
+      "code": "P0001",
+      "details": null,
+      "hint": null,
+      "message": "too_many_items"
+    },
+    "expected": "tooManyChecklistItems"
+  },
+  {
+    "name": "item_not_found",
+    "status": 400,
+    "body": {
+      "code": "P0001",
+      "details": null,
+      "hint": null,
+      "message": "item_not_found"
+    },
+    "expected": "notFound"
+  },
+  {
+    "name": "checklist_done_null",
+    "status": 400,
+    "body": {
+      "code": "23502",
+      "details": null,
+      "hint": null,
+      "message": "invalid_input"
+    },
+    "expected": "invalidInput"
+  }
+]

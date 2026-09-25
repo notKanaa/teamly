@@ -71,9 +71,28 @@ import Testing
         (["App", "-uiTestMockBackend", "-mockScenario", "populated"], MockScenario.populated),
         (["App", "-mockScenario", "emptyGroups"], .emptyGroups),
         (["App", "-mockScenario", "signedOut"], .signedOut),
+        (["App", "-uiTestMockBackend", "-mockScenario", "showcase"], .showcase),
     ])
     func parsesLaunchArguments(arguments: [String], expected: MockScenario) {
         #expect(MockEnvironment.scenario(fromLaunchArguments: arguments) == expected)
+    }
+
+    @Test func showcaseIsSignedInAsCamilleWithV2Content() async throws {
+        let environment = MockEnvironment.make(scenario: .showcase)
+        #expect(environment.scenario == .showcase)
+        #expect(environment.signedInUser == DemoData.camille)
+        let services = environment.services
+        #expect(await services.auth.currentUser()?.id == DemoData.camille.id)
+        let groups = try await services.groups.myGroups()
+        #expect(groups.map(\.id) == [DemoData.lilasGroupId, DemoData.sportGroupId])
+        let mine = try await services.tasks.myTasks(includeDone: false)
+        let poubelles = try #require(mine.first { $0.id == DemoData.TaskIDs.sortirPoubelles })
+        #expect(poubelles.hasRotation && poubelles.turnUserId == DemoData.camille.id)
+        #expect(try await !services.groups.activity(groupId: DemoData.lilasGroupId).isEmpty)
+        // The other scenarios have no v2 content.
+        let populated = MockEnvironment.make(scenario: .populated).services
+        #expect(try await populated.tasks.task(id: DemoData.TaskIDs.sortirPoubelles).recurrence == nil)
+        #expect(try await populated.groups.activity(groupId: DemoData.lilasGroupId).isEmpty)
     }
 
     @Test func ignoresMissingOrUnknownScenario() {

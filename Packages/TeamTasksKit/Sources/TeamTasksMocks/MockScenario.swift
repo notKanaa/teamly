@@ -8,4 +8,7 @@ public enum MockScenario: String, Sendable, CaseIterable {
     case populated
     /// Signed in, member of no group (empty states).
     case emptyGroups
+    /// `populated` plus v2 content for the v2 screenshots (`DemoData.Showcase`): a weekly rotating task whose turn is
+    /// the demo user's, a half-done checklist, an activity feed and a weekly podium with a streak.
+    case showcase
 }

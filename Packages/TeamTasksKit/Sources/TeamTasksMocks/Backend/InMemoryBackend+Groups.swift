@@ -1,27 +1,55 @@
 import Foundation
 import TeamTasksCore
 
-// Profiles, groups, invites and memberships (docs/CONTRACTS.md §2, §4).
+// Profiles, groups, invites and memberships (docs/CONTRACTS.md §2, §4; docs/CONTRACTS-V2.md §1–§3, §5, §7, §9).
 extension InMemoryBackend {
     // MARK: - Profiles
 
+    /// `GET profiles?select=id,display_name,avatar_color,avatar_emoji,onboarded_at,created_at&id=eq.<me>`.
     func myProfile(clientId: UUID) throws -> UserProfile {
         try read(as: clientId) { data, me in
             guard let profile = data.profiles[me] else { throw AppError.notAuthenticated }
-            return UserProfile(id: profile.id, displayName: profile.displayName)
+            return data.ownProfile(profile)
         }
     }
 
-    /// `PATCH profiles`. The profile UPDATE also matches the Realtime binding on `profiles` (→ `.membershipsChanged`).
+    /// `PATCH profiles?select=id,display_name,avatar_color,avatar_emoji`. The profile UPDATE also matches the Realtime
+    /// binding on `profiles` (→ `.membershipsChanged`); v2: an actual change bumps every group of the user. Returns the
+    /// profile with its avatar; `onboardedAt` and `createdAt` are only read by `myProfile()`.
     func updateDisplayName(clientId: UUID, name: String) throws -> UserProfile {
         try write(as: clientId) { transaction, me in
             let name = try InputRules.displayName(name)
             guard transaction.data.profiles[me] != nil else { throw AppError.forbidden }
+            transaction.updateProfile(me) { $0.displayName = name }
+            guard let profile = transaction.data.profiles[me] else { throw AppError.forbidden }
+            return transaction.data.publicProfile(profile)
+        }
+    }
+
+    /// Avatar `PATCH profiles` (docs/CONTRACTS-V2.md §2): `profiles_before_write` checks the display name (unchanged),
+    /// then the color (a typed `ColorKey` is always valid), then the emoji (`.invalidAppearance`), stored normalized.
+    /// Same signals and same result as a display-name change.
+    func updateAvatar(clientId: UUID, color: ColorKey?, emoji: String?) throws -> UserProfile {
+        try write(as: clientId) { transaction, me in
+            let emoji = try InputRules.emoji(emoji)
+            guard transaction.data.profiles[me] != nil else { throw AppError.forbidden }
+            transaction.updateProfile(me) { profile in
+                profile.avatarColor = color
+                profile.avatarEmoji = emoji
+            }
+            guard let profile = transaction.data.profiles[me] else { throw AppError.forbidden }
+            return transaction.data.publicProfile(profile)
+        }
+    }
+
+    /// `complete_onboarding()`: `onboarded_at = coalesce(onboarded_at, now())`. No write (no Realtime event) when it is
+    /// already set; `updated_at` does not move and no group is bumped.
+    func completeOnboarding(clientId: UUID) throws {
+        try write(as: clientId) { transaction, me in
+            guard let profile = transaction.data.profiles[me], profile.onboardedAt == nil else { return }
             let now = transaction.now // local copy: see Transaction.finish()
-            transaction.data.profiles[me]?.displayName = name
-            transaction.data.profiles[me]?.updatedAt = now
+            transaction.data.profiles[me]?.onboardedAt = now
             transaction.profileUpdated(me)
-            return UserProfile(id: me, displayName: name)
         }
     }
 
@@ -55,14 +83,31 @@ extension InMemoryBackend {
         }
     }
 
+    /// `GET group_activity?…&group_id=eq.<g>&order=id.desc&limit=50`: the newest `Limits.activityFeedMax` events.
+    /// Non-members read nothing (RLS).
+    func activity(clientId: UUID, groupId: UUID) throws -> [ActivityEvent] {
+        try read(as: clientId) { data, me in
+            guard data.isMember(me, of: groupId) else { return [] }
+            return data.activity
+                .filter { $0.groupId == groupId }
+                .sorted { $0.id > $1.id }
+                .prefix(Limits.activityFeedMax)
+                .map(\.event)
+        }
+    }
+
     // MARK: - Group RPCs
 
-    /// `create_group`: group + caller as admin + invite code.
-    func createGroup(clientId: UUID, name: String) throws -> GroupSummary {
+    /// `create_group`: group + caller as admin + invite code. v2: `groups_before_write` checks the name, then the
+    /// color (typed: always valid), then the emoji (`.invalidAppearance`), stored normalized; the creator's own
+    /// membership writes no `member_joined`.
+    func createGroup(clientId: UUID, name: String, color: ColorKey? = nil, emoji: String? = nil) throws -> GroupSummary {
         try write(as: clientId) { transaction, me in
             let name = try InputRules.groupName(name)
+            let emoji = try InputRules.emoji(emoji)
             let group = GroupRecord(
-                id: UUID(), name: name, createdBy: me, createdAt: transaction.now, lastActivityAt: transaction.now
+                id: UUID(), name: name, createdBy: me, createdAt: transaction.now, lastActivityAt: transaction.now,
+                color: color, emoji: emoji
             )
             transaction.data.groups[group.id] = group
             transaction.data.invites[group.id] = InviteRecord(
@@ -70,6 +115,24 @@ extension InMemoryBackend {
             )
             transaction.insertMembership(groupId: group.id, userId: me, role: .admin)
             return GroupSummary(group: transaction.data.teamGroup(group), myRole: .admin)
+        }
+    }
+
+    /// `set_group_appearance`: `group_not_found` (`.notFound`) → admin only (`.forbidden`, non-members included) →
+    /// color → emoji (`.invalidAppearance`). nil = automatic color / no emoji (a blank emoji is stored nil). Sets
+    /// `last_activity_at = now()` (one Realtime UPDATE, like `rename_group`).
+    func setAppearance(clientId: UUID, groupId: UUID, color: ColorKey?, emoji: String?) throws -> TeamGroup {
+        try write(as: clientId) { transaction, me in
+            guard transaction.data.groups[groupId] != nil else { throw AppError.notFound }
+            guard transaction.data.role(of: me, in: groupId) == .admin else { throw AppError.forbidden }
+            let emoji = try InputRules.emoji(emoji)
+            let now = transaction.now // local copy: see Transaction.finish()
+            transaction.data.groups[groupId]?.color = color
+            transaction.data.groups[groupId]?.emoji = emoji
+            transaction.data.groups[groupId]?.lastActivityAt = now
+            transaction.bump(groupId)
+            guard let group = transaction.data.groups[groupId] else { throw AppError.notFound }
+            return transaction.data.teamGroup(group)
         }
     }
 
@@ -159,6 +222,7 @@ extension InMemoryBackend {
     }
 
     /// `remove_member`: admin only, not self, target must be a member. Admins can remove other admins.
+    /// v2: `member_left` (actor = the admin), then the turn handover.
     func removeMember(clientId: UUID, groupId: UUID, userId: UUID) throws {
         try write(as: clientId) { transaction, me in
             guard transaction.data.role(of: me, in: groupId) == .admin else { throw AppError.forbidden }
@@ -169,6 +233,7 @@ extension InMemoryBackend {
     }
 
     /// `leave_group`: the only admin cannot leave while other members remain; the last member deletes the group.
+    /// v2: `member_left` (actor = subject = the leaver), then the turn handover.
     func leave(clientId: UUID, groupId: UUID) throws {
         try write(as: clientId) { transaction, me in
             guard let role = transaction.data.role(of: me, in: groupId) else { throw AppError.notMember }

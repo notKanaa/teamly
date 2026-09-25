@@ -43,19 +43,40 @@ import FoundationNetworking
     }
 
     static let postgrestCases: [PostgrestCase] = (try? Fixture.plain([PostgrestCase].self, "postgrest_errors")) ?? []
+    /// Every v2 error code (docs/CONTRACTS-V2.md §3), captured from the local stack.
+    static let v2PostgrestCases: [PostgrestCase] = (try? Fixture.plain([PostgrestCase].self, "postgrest_errors_v2")) ?? []
     static let authCases: [AuthCase] = (try? Fixture.plain([AuthCase].self, "auth_errors")) ?? []
 
     @Test func fixturesAreLoaded() {
         #expect(Self.postgrestCases.count == 7)
+        #expect(Self.v2PostgrestCases.count == 9)
         #expect(Self.authCases.count == 6)
     }
 
     /// Captured error bodies, mapped with their real HTTP status.
-    @Test(arguments: postgrestCases)
+    @Test(arguments: postgrestCases + v2PostgrestCases)
     func capturedPostgrestErrors(_ example: PostgrestCase) throws {
         let body = try JSONEncoder().encode(example.body)
         let expected = try #require(AppErrorName.all[example.expected])
         #expect(SupabaseErrorMapping.postgrest(status: example.status, body: body) == expected)
+    }
+
+    /// The v2 codes: every one of them has a case of its own (never `.unknown`).
+    @Test func v2CodesAreMappedByMessage() {
+        func map(_ message: String, _ code: String = "P0001", _ status: Int = 400) -> AppError {
+            SupabaseErrorMapping.postgrest(status: status, body: Data(#"{"code":"\#(code)","message":"\#(message)"}"#.utf8))
+        }
+        #expect(map("invalid_color") == .invalidAppearance)
+        #expect(map("invalid_emoji") == .invalidAppearance)
+        #expect(map("invalid_recurrence") == .invalidRecurrence)
+        #expect(map("recurrence_requires_due_date") == .recurrenceNeedsDueDate)
+        #expect(map("invalid_rotation") == .invalidRotation)
+        #expect(map("invalid_item_title") == .invalidChecklistItem)
+        #expect(map("too_many_items") == .tooManyChecklistItems)
+        #expect(map("item_not_found") == .notFound)
+        #expect(map("invalid_input", "23502") == .invalidInput)
+        // Whatever the status: the message decides.
+        #expect(map("invalid_rotation", "P0001", 500) == .invalidRotation)
     }
 
     @Test func messageFirstThenSQLStateThenStatus() {

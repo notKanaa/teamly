@@ -1,7 +1,7 @@
 import Foundation
 import TeamTasksCore
 
-// Rows of the in-memory "database". They mirror the tables of docs/CONTRACTS.md §3.
+// Rows of the in-memory "database". They mirror the tables of docs/CONTRACTS.md §3 and docs/CONTRACTS-V2.md §2.
 
 struct AccountRecord: Sendable {
     var id: UUID
@@ -17,6 +17,12 @@ struct ProfileRecord: Sendable {
     var membershipsChangedAt: Date
     var createdAt: Date
     var updatedAt: Date
+    // v2
+    var avatarColor: ColorKey? = nil
+    /// Normalized (`InputValidation.emoji(_:)`).
+    var avatarEmoji: String? = nil
+    /// NULL for a new sign-up until `complete_onboarding()`.
+    var onboardedAt: Date? = nil
 }
 
 struct GroupRecord: Sendable {
@@ -25,6 +31,10 @@ struct GroupRecord: Sendable {
     var createdBy: UUID?
     var createdAt: Date
     var lastActivityAt: Date
+    // v2
+    var color: ColorKey? = nil
+    /// Normalized (`InputValidation.emoji(_:)`).
+    var emoji: String? = nil
 }
 
 struct InviteRecord: Sendable {
@@ -59,10 +69,21 @@ struct TaskRecord: Sendable {
     var createdAt: Date
     var updatedAt: Date
     var completedAt: Date?
+    // v2
+    /// `repeat_freq`, `repeat_interval`, `repeat_weekdays`, `repeat_tz` and `repeat_month_day` (`monthDay`, set for
+    /// monthly rules only); nil = a plain task.
+    var recurrence: RecurrenceRule? = nil
+    var seriesId: UUID? = nil
+    var nextOccurrenceId: UUID? = nil
+    /// `rotation`; empty = NULL. It may still list people who left the group (the next spawn cleans it).
+    var rotation: [UUID] = []
+    var turnUserId: UUID? = nil
+    var completedBy: UUID? = nil
 }
 
 extension TaskRecord {
-    /// `tasks_before_update`: `updated_at` moves only when title, details, status, priority or due date changed.
+    /// `tasks_before_update`: `updated_at` moves only when title, details, status, priority or due date changed
+    /// (the v2 columns never move it).
     mutating func touch(from stored: TaskRecord, at now: Date) {
         let changed = title != stored.title || details != stored.details || status != stored.status
             || priority != stored.priority || dueAt != stored.dueAt
@@ -76,6 +97,49 @@ struct AssigneeRecord: Sendable {
     var userId: UUID
     var assignedBy: UUID?
     var assignedAt: Date
+}
+
+/// `public.task_checklist_items` (docs/CONTRACTS-V2.md §2).
+struct ChecklistItemRecord: Sendable {
+    var id: UUID
+    var taskId: UUID
+    var groupId: UUID
+    var title: String
+    /// 1-based, unique per task; gaps are allowed.
+    var position: Int
+    var done: Bool = false
+    var doneAt: Date? = nil
+    var doneBy: UUID? = nil
+    var createdAt: Date
+
+    var item: ChecklistItem {
+        ChecklistItem(id: id, title: title, position: position, isDone: done, doneAt: doneAt, doneBy: doneBy)
+    }
+
+    /// Display order: `position`, then `id.uuidString`.
+    static func displayOrder(_ lhs: ChecklistItemRecord, _ rhs: ChecklistItemRecord) -> Bool {
+        (lhs.position, lhs.id.uuidString) < (rhs.position, rhs.id.uuidString)
+    }
+}
+
+/// `public.group_activity` (docs/CONTRACTS-V2.md §7). `id` is an identity: it increases with every event written.
+struct ActivityRecord: Sendable {
+    var id: Int64
+    var groupId: UUID
+    var kind: ActivityEvent.Kind
+    var actorId: UUID?
+    var subjectId: UUID?
+    var taskId: UUID?
+    var taskTitle: String?
+    var itemTitle: String?
+    var createdAt: Date
+
+    var event: ActivityEvent {
+        ActivityEvent(
+            id: id, kind: kind, actorId: actorId, subjectId: subjectId, taskId: taskId,
+            taskTitle: taskTitle, itemTitle: itemTitle, createdAt: createdAt
+        )
+    }
 }
 
 struct PushRecord: Sendable {
@@ -113,6 +177,12 @@ struct BackendData: Sendable {
     var joinAttempts: [JoinAttemptRecord] = []
     /// Pending password-recovery codes, keyed by user id.
     var recoveries: [UUID: RecoveryRecord] = [:]
+    /// v2: checklist items, keyed by item id.
+    var checklistItems: [UUID: ChecklistItemRecord] = [:]
+    /// v2: the activity feed of every group, in id order.
+    var activity: [ActivityRecord] = []
+    /// v2: the last `group_activity.id` handed out (identities never go back, even when rows are deleted).
+    var lastActivityId: Int64 = 0
 }
 
 // MARK: - Queries
@@ -147,6 +217,11 @@ extension BackendData {
         Array((assignees[taskId] ?? [:]).keys).sortedByUUIDString()
     }
 
+    /// The checklist of a task, in display order.
+    func checklist(of taskId: UUID) -> [ChecklistItemRecord] {
+        checklistItems.values.filter { $0.taskId == taskId }.sorted(by: ChecklistItemRecord.displayOrder)
+    }
+
     /// `profiles` SELECT policy: self or co-member.
     func canSeeProfile(of userId: UUID, as viewer: UUID) -> Bool {
         viewer == userId || members.values.contains { $0[viewer] != nil && $0[userId] != nil }
@@ -158,13 +233,19 @@ extension BackendData {
         return task
     }
 
+    /// Visibility rule of the `task_checklist_items` SELECT policy: members of the item's group.
+    func visibleChecklistItem(_ itemId: UUID, to userId: UUID) -> ChecklistItemRecord? {
+        guard let item = checklistItems[itemId], isMember(userId, of: item.groupId) else { return nil }
+        return item
+    }
+
     /// Admin of the task's group, or creator who is still a member (docs/CONTRACTS.md §2).
     func canEdit(_ task: TaskRecord, userId: UUID) -> Bool {
         guard let role = role(of: userId, in: task.groupId) else { return false }
         return role == .admin || task.createdBy == userId
     }
 
-    /// Editors, plus members assigned to the task.
+    /// Editors, plus members assigned to the task. Also the checklist rights (docs/CONTRACTS-V2.md §4).
     func canChangeStatus(_ task: TaskRecord, userId: UUID) -> Bool {
         guard isMember(userId, of: task.groupId) else { return false }
         return canEdit(task, userId: userId) || assignees[task.id]?[userId] != nil
@@ -176,7 +257,9 @@ extension BackendData {
             name: record.name,
             createdBy: record.createdBy,
             createdAt: record.createdAt,
-            lastActivityAt: record.lastActivityAt
+            lastActivityAt: record.lastActivityAt,
+            color: record.color,
+            emoji: record.emoji
         )
     }
 
@@ -193,18 +276,40 @@ extension BackendData {
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
             completedAt: record.completedAt,
-            assigneeIds: assigneeIds(of: record.id)
+            assigneeIds: assigneeIds(of: record.id),
+            recurrence: record.recurrence,
+            rotation: record.rotation,
+            turnUserId: record.turnUserId,
+            seriesId: record.seriesId,
+            nextOccurrenceId: record.nextOccurrenceId,
+            completedBy: record.completedBy,
+            checklist: checklist(of: record.id).map(\.item)
+        )
+    }
+
+    /// The profile as a co-member reads it (`profile:profiles(id,display_name,avatar_color,avatar_emoji)`), and as the
+    /// profile `PATCH`es return it.
+    func publicProfile(_ record: ProfileRecord) -> UserProfile {
+        UserProfile(
+            id: record.id, displayName: record.displayName, avatarColor: record.avatarColor, avatarEmoji: record.avatarEmoji
+        )
+    }
+
+    /// The profile as its owner reads it (docs/CONTRACTS-V2.md §9: with `onboarded_at` and `created_at`).
+    func ownProfile(_ record: ProfileRecord) -> UserProfile {
+        UserProfile(
+            id: record.id,
+            displayName: record.displayName,
+            avatarColor: record.avatarColor,
+            avatarEmoji: record.avatarEmoji,
+            onboardedAt: record.onboardedAt,
+            createdAt: record.createdAt
         )
     }
 
     func membership(_ record: MemberRecord) -> Membership? {
         guard let profile = profiles[record.userId] else { return nil }
-        return Membership(
-            groupId: record.groupId,
-            user: UserProfile(id: profile.id, displayName: profile.displayName),
-            role: record.role,
-            joinedAt: record.joinedAt
-        )
+        return Membership(groupId: record.groupId, user: publicProfile(profile), role: record.role, joinedAt: record.joinedAt)
     }
 
     func authUser(_ userId: UUID) -> AuthUser? {

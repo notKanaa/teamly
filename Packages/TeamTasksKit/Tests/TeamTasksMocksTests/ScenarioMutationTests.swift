@@ -30,6 +30,28 @@ enum ScenarioMutation: String, CaseIterable, Sendable, CustomTestStringConvertib
     /// first write that follows); combined with `create_task` emitting no signal.
     case staleEventsAndSilentTaskCreation
 
+    // v2 (docs/CONTRACTS-V2.md)
+    /// The activity feed is read oldest first (contract: `order=id.desc`).
+    case activityOldestFirst
+    /// `completions(since:)` leaves out a completion exactly at `since` (contract: `gte`).
+    case completionsSinceExclusive
+    /// Assignment events lose `taskHasRotation` (the embedded `rotation` is not read): no « C’est ton tour ».
+    case assignmentsWithoutRotationFlag
+    /// A spawned occurrence reads as created by the reader (contract: the series creator is kept).
+    case spawnCreatorIsTheReader
+    /// The profile `PATCH`es return the profile without its avatar (their `select` forgets the v2 columns).
+    case profilePatchWithoutAvatar
+    /// The members list reads the profiles without their avatar (contract: `profile:profiles(…,avatar_color,avatar_emoji)`).
+    case membersWithoutAvatar
+    /// `myTasks` leaves out the group's color and emoji (contract: `group:groups(name,color,emoji)`).
+    case myTasksWithoutGroupAppearance
+    /// The checklist is read unsorted (contract: by position, then id).
+    case checklistUnsorted
+    /// The client checks the emoji of `set_group_appearance` and the titles of the checklist RPCs before calling the
+    /// server, so that a refused permission is reported as invalid input (contract, spec §3: `group_not_found` /
+    /// `item_not_found` → `forbidden` → the value).
+    case clientChecksBeforePermission
+
     var testDescription: String { rawValue }
 }
 
@@ -195,14 +217,22 @@ struct MutatedProfileService: ProfileService {
 
     func updateDisplayName(_ name: String) async throws -> UserProfile {
         registry.beforeWrite()
-        return try await base.updateDisplayName(name)
+        return withoutAvatarIfMutated(try await base.updateDisplayName(name))
     }
 
-    // v2: forwarded without mutation.
+    // v2.
 
     func updateAvatar(color: ColorKey?, emoji: String?) async throws -> UserProfile {
         registry.beforeWrite()
-        return try await base.updateAvatar(color: color, emoji: emoji)
+        return withoutAvatarIfMutated(try await base.updateAvatar(color: color, emoji: emoji))
+    }
+
+    private func withoutAvatarIfMutated(_ profile: UserProfile) -> UserProfile {
+        guard registry.mutation == .profilePatchWithoutAvatar else { return profile }
+        var copy = profile
+        copy.avatarColor = nil
+        copy.avatarEmoji = nil
+        return copy
     }
 
     func completeOnboarding() async throws {
@@ -276,7 +306,14 @@ struct MutatedGroupService: GroupService {
 
     func members(groupId: UUID) async throws -> [Membership] {
         if mutation == .nonMemberReadsThrow, !(await isMember(groupId)) { throw AppError.forbidden }
-        return try await base.members(groupId: groupId)
+        let members = try await base.members(groupId: groupId)
+        guard mutation == .membersWithoutAvatar else { return members }
+        return members.map { member in
+            var copy = member
+            copy.user.avatarColor = nil
+            copy.user.avatarEmoji = nil
+            return copy
+        }
     }
 
     func inviteCode(groupId: UUID) async throws -> InviteCode {
@@ -333,13 +370,17 @@ struct MutatedGroupService: GroupService {
 
     func setAppearance(groupId: UUID, color: ColorKey?, emoji: String?) async throws -> TeamGroup {
         registry.beforeWrite()
+        if mutation == .clientChecksBeforePermission {
+            _ = try InputValidation.emoji(emoji)
+        }
         let group = try await base.setAppearance(groupId: groupId, color: color, emoji: emoji)
         registry.groupChanged(groupId)
         return group
     }
 
     func activity(groupId: UUID) async throws -> [ActivityEvent] {
-        try await base.activity(groupId: groupId)
+        let feed = try await base.activity(groupId: groupId)
+        return mutation == .activityOldestFirst ? feed.reversed() : feed
     }
 }
 
@@ -357,15 +398,34 @@ struct MutatedTaskService: TaskService {
 
     func tasks(groupId: UUID, includeOldDone: Bool) async throws -> [TaskItem] {
         if mutation == .nonMemberReadsThrow, !(await isMember(groupId)) { throw AppError.notFound }
-        return try await base.tasks(groupId: groupId, includeOldDone: includeOldDone)
+        return try await base.tasks(groupId: groupId, includeOldDone: includeOldDone).map(mutated)
     }
 
     func myTasks(includeDone: Bool) async throws -> [TaskItem] {
-        try await base.myTasks(includeDone: includeDone)
+        try await base.myTasks(includeDone: includeDone).map { task in
+            var copy = mutated(task)
+            if mutation == .myTasksWithoutGroupAppearance {
+                copy.groupColor = nil
+                copy.groupEmoji = nil
+            }
+            return copy
+        }
     }
 
     func task(id: UUID) async throws -> TaskItem {
-        try await base.task(id: id)
+        mutated(try await base.task(id: id))
+    }
+
+    /// The v2 read mutations of a task.
+    private func mutated(_ task: TaskItem) -> TaskItem {
+        var copy = task
+        if mutation == .spawnCreatorIsTheReader, let seriesId = task.seriesId, seriesId != task.id {
+            copy.createdBy = owner
+        }
+        if mutation == .checklistUnsorted {
+            copy.checklist.reverse()
+        }
+        return copy
     }
 
     func create(groupId: UUID, draft: TaskDraft) async throws -> TaskItem {
@@ -401,18 +461,30 @@ struct MutatedTaskService: TaskService {
     }
 
     func assignments(since: Date) async throws -> [AssignmentEvent] {
-        try await base.assignments(since: since)
+        let events = try await base.assignments(since: since)
+        guard mutation == .assignmentsWithoutRotationFlag else { return events }
+        return events.map { event in
+            var copy = event
+            copy.taskHasRotation = false
+            return copy
+        }
     }
 
-    // v2: forwarded without mutation.
+    // v2 writes: forwarded without mutation.
 
     func addChecklistItem(taskId: UUID, title: String) async throws -> ChecklistItem {
         registry.beforeWrite()
+        if mutation == .clientChecksBeforePermission {
+            _ = try InputValidation.checklistItemTitle(title)
+        }
         return try await base.addChecklistItem(taskId: taskId, title: title)
     }
 
     func renameChecklistItem(itemId: UUID, title: String) async throws -> ChecklistItem {
         registry.beforeWrite()
+        if mutation == .clientChecksBeforePermission {
+            _ = try InputValidation.checklistItemTitle(title)
+        }
         return try await base.renameChecklistItem(itemId: itemId, title: title)
     }
 
@@ -427,7 +499,8 @@ struct MutatedTaskService: TaskService {
     }
 
     func completions(groupId: UUID, since: Date) async throws -> [TaskCompletion] {
-        try await base.completions(groupId: groupId, since: since)
+        let completions = try await base.completions(groupId: groupId, since: since)
+        return mutation == .completionsSinceExclusive ? completions.filter { $0.completedAt > since } : completions
     }
 }
 
@@ -459,6 +532,18 @@ struct MutatedTaskService: TaskService {
         .assignedToEveryone: ["realtime.assignedOnlyToMe"],
         .membershipsChangedToEveryone: ["realtime.membershipsChangedOnlyForMe"],
         .activityToNonMembers: ["realtime.groupActivityOnlyForMembers"],
+        // v2 (docs/CONTRACTS-V2.md)
+        .activityOldestFirst: ["activity.everyKind", "activity.readLimit"],
+        .completionsSinceExclusive: ["recap.completions"],
+        .assignmentsWithoutRotationFlag: [
+            "rotation.create", "rotation.turnsOnSpawn", "rotation.handover", "compat.readsAndRowsCarryV2Columns",
+        ],
+        .spawnCreatorIsTheReader: ["recurrence.spawnOnCompletion"],
+        .profilePatchWithoutAvatar: ["appearance.avatar"],
+        .membersWithoutAvatar: ["appearance.avatar"],
+        .myTasksWithoutGroupAppearance: ["compat.readsAndRowsCarryV2Columns"],
+        .checklistUnsorted: ["checklist.createWithTask", "checklist.operations"],
+        .clientChecksBeforePermission: ["appearance.setGroupAppearance", "checklist.rights"],
     ]
 
     @Test func decoratorsAloneBreakNothing() async {

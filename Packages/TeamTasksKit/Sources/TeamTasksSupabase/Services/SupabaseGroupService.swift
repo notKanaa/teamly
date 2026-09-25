@@ -1,7 +1,7 @@
 import Foundation
 import TeamTasksCore
 
-/// `GroupService` on the group RPCs and PostgREST reads (docs/CONTRACTS.md §2, §4).
+/// `GroupService` on the group RPCs and PostgREST reads (docs/CONTRACTS.md §2, §4; docs/CONTRACTS-V2.md §5, §7).
 struct SupabaseGroupService: GroupService {
     let context: SupabaseContext
 
@@ -44,7 +44,7 @@ struct SupabaseGroupService: GroupService {
     }
 
     /// Admins first, then `NameOrder` on the display name, then id (§4.3). Non-members read an empty list (RLS).
-    /// Members with a role unknown to this client are left out.
+    /// Members with a role unknown to this client are left out. v2: with their avatar color and emoji.
     func members(groupId: UUID) async throws -> [Membership] {
         let rows = try await rest.fetchRows(MemberRow.self) { _ in RestQuery.members(groupId: groupId) }
         return NameOrder.sortedMembers(rows.map { $0.membership(groupId: groupId) })
@@ -89,18 +89,41 @@ struct SupabaseGroupService: GroupService {
         return code
     }
 
-    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §5 create_group with appearance).
+    /// v2 `create_group` with the appearance (docs/CONTRACTS-V2.md §5). Checked in the server's order before the call:
+    /// the name, then the emoji (a typed color is always valid), normalized (nil or blank = no emoji); the server then
+    /// applies its write quota.
     func createGroup(name: String, color: ColorKey?, emoji: String?) async throws -> GroupSummary {
-        throw AppError.unknown("pas encore disponible")
+        let name = try InputValidation.groupName(name)
+        let emoji = try InputValidation.emoji(emoji)
+        let row = try await rest.fetch(GroupRow.self) { _ in
+            RestQuery.rpc("create_group", [
+                "p_name": .string(name),
+                "p_color": .optionalString(color?.rawValue),
+                "p_emoji": .optionalString(emoji),
+            ])
+        }
+        return GroupSummary(group: row.teamGroup, myRole: .admin)
     }
 
-    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §5 set_group_appearance).
+    /// v2 `set_group_appearance` (admins only; both values are sent, nil = automatic color / no emoji). The emoji is sent
+    /// as typed (`ServerChecked`): the server checks it after the group and the caller's rights (docs/CONTRACTS-V2.md
+    /// §3: `group_not_found` → `forbidden` → `invalid_emoji`), then stores it normalized (a blank one as no emoji).
     func setAppearance(groupId: UUID, color: ColorKey?, emoji: String?) async throws -> TeamGroup {
-        throw AppError.unknown("pas encore disponible")
+        let emoji = ServerChecked.emoji(emoji)
+        let row = try await rest.fetch(GroupRow.self) { _ in
+            RestQuery.rpc("set_group_appearance", [
+                "p_group_id": .uuid(groupId),
+                "p_color": .optionalString(color?.rawValue),
+                "p_emoji": .optionalString(emoji),
+            ])
+        }
+        return row.teamGroup
     }
 
-    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §7 activity read).
+    /// v2: newest first, at most `Limits.activityFeedMax` events (docs/CONTRACTS-V2.md §7). Events of a kind unknown to
+    /// this client (added by a later version) are left out (`RestClient.fetchRows`); non-members read an empty list.
     func activity(groupId: UUID) async throws -> [ActivityEvent] {
-        throw AppError.unknown("pas encore disponible")
+        let rows = try await rest.fetchRows(ActivityRow.self) { _ in RestQuery.activity(groupId: groupId) }
+        return rows.map(\.event).sorted { $0.id > $1.id }
     }
 }

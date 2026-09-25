@@ -23,6 +23,12 @@ public struct DemoUser: Sendable, Hashable, Identifiable {
 /// show round times whatever the seeding time, and exact multiples of 24 hours for everything else
 /// (`now() - interval 'N days'` in a UTC session). `last_activity_at` and `memberships_changed_at` are the seed
 /// time: the AFTER triggers of the seeded rows bump them to `now()`.
+///
+/// v2 (docs/CONTRACTS-V2.md §12), like the seed: the groups get a color and an emoji; every demo profile is onboarded,
+/// `onboardedAt` being its `createdAt`, the seed time (the `handle_new_user` trigger creates the profile at `now()`,
+/// while the auth account is dated 30 days back); the activity feed starts empty; the v1 rows are unchanged (no
+/// recurrence, rotation, checklist or `completedBy`: « Nettoyer la cuisine » counts in the recap total only). The v2
+/// screenshots use `MockScenario.showcase`, which adds v2 content (`DemoData.Showcase`).
 public enum DemoData {
     public static let password = "motdepasse123"
 
@@ -39,6 +45,7 @@ public enum DemoData {
     public static let users = [camille, lucas, ines]
 
     /// Extra account, member of no group, used only by `MockScenario.emptyGroups` (not part of §8 nor of the seed).
+    /// It is onboarded like the demo users, so that the scenario shows the empty states (a fresh sign-up is not).
     public static let newcomer = DemoUser(
         id: fixedID("c0000000-0000-4000-8000-000000000004"), email: "alex@example.com", displayName: "Alex Moreau"
     )
@@ -46,10 +53,16 @@ public enum DemoData {
     public static let lilasGroupId = fixedID("a0000000-0000-4000-8000-000000000001")
     public static let lilasGroupName = "Coloc' rue des Lilas"
     public static let lilasInviteCode = "LYLAS234"
+    /// v2 decoration of « Coloc' rue des Lilas » (seed.sql).
+    public static let lilasGroupColor = ColorKey.coral
+    public static let lilasGroupEmoji = "🏠"
 
     public static let sportGroupId = fixedID("a0000000-0000-4000-8000-000000000002")
     public static let sportGroupName = "Projet Asso Sport"
     public static let sportInviteCode = "SPRT5678"
+    /// v2 decoration of « Projet Asso Sport » (seed.sql): U+26BD, without a variation selector.
+    public static let sportGroupColor = ColorKey.green
+    public static let sportGroupEmoji = "\u{26BD}"
 
     /// Ids of the demo tasks.
     public enum TaskIDs {
@@ -89,20 +102,22 @@ public enum DemoData {
             now.addingTimeInterval(-TimeInterval(days) * 86_400)
         }
 
-        // Accounts (created 30 days ago) and their profiles.
+        // Accounts (created 30 days ago) and their profiles (created by the trigger at the seed time, and onboarded
+        // then, like the v2 migration backfill).
         for user in users {
-            insert(user, into: &data, createdAt: ago(days: 30))
+            insert(user, into: &data, createdAt: ago(days: 30), profileCreatedAt: now)
         }
 
         // Groups, invites and memberships. The member inserts bump last_activity_at and memberships_changed_at
-        // to the seed time.
-        let groups: [(id: UUID, name: String, creator: DemoUser, code: String, createdAt: Date)] = [
-            (lilasGroupId, lilasGroupName, camille, lilasInviteCode, ago(days: 10)),
-            (sportGroupId, sportGroupName, lucas, sportInviteCode, ago(days: 20)),
+        // to the seed time. The v2 color and emoji are separate updates in seed.sql.
+        let groups: [(id: UUID, name: String, creator: DemoUser, code: String, createdAt: Date, color: ColorKey, emoji: String)] = [
+            (lilasGroupId, lilasGroupName, camille, lilasInviteCode, ago(days: 10), lilasGroupColor, lilasGroupEmoji),
+            (sportGroupId, sportGroupName, lucas, sportInviteCode, ago(days: 20), sportGroupColor, sportGroupEmoji),
         ]
         for group in groups {
             data.groups[group.id] = GroupRecord(
-                id: group.id, name: group.name, createdBy: group.creator.id, createdAt: group.createdAt, lastActivityAt: now
+                id: group.id, name: group.name, createdBy: group.creator.id, createdAt: group.createdAt, lastActivityAt: now,
+                color: group.color, emoji: group.emoji
             )
             data.invites[group.id] = InviteRecord(
                 groupId: group.id, code: group.code, createdBy: group.creator.id, createdAt: group.createdAt
@@ -198,10 +213,14 @@ public enum DemoData {
         }
     }
 
-    static func insert(_ user: DemoUser, into data: inout BackendData, createdAt: Date) {
+    /// An account created at `createdAt` and its profile, created at `profileCreatedAt` (default: with the account)
+    /// and onboarded at that time.
+    static func insert(_ user: DemoUser, into data: inout BackendData, createdAt: Date, profileCreatedAt: Date? = nil) {
+        let profileCreatedAt = profileCreatedAt ?? createdAt
         data.accounts[user.id] = AccountRecord(id: user.id, email: user.email, password: password, createdAt: createdAt)
         data.profiles[user.id] = ProfileRecord(
-            id: user.id, displayName: user.displayName, membershipsChangedAt: createdAt, createdAt: createdAt, updatedAt: createdAt
+            id: user.id, displayName: user.displayName, membershipsChangedAt: profileCreatedAt,
+            createdAt: profileCreatedAt, updatedAt: profileCreatedAt, onboardedAt: profileCreatedAt
         )
     }
 }
@@ -224,7 +243,7 @@ extension InMemoryBackend {
         seed { data in DemoData.seed(&data, now: reference, calendar: calendar) }
     }
 
-    /// Adds `DemoData.newcomer` (an account with no group).
+    /// Adds `DemoData.newcomer` (an account with no group, onboarded at its creation).
     public func addNewcomerAccount() {
         let reference = now()
         seed { data in DemoData.insert(DemoData.newcomer, into: &data, createdAt: reference) }

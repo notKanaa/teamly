@@ -38,7 +38,20 @@ struct MockHarness: ContractHarness {
         let names = ContractScenarios.all.map(\.name)
         #expect(Set(names).count == names.count)
         let areas = Set(names.compactMap { $0.split(separator: ".").first.map(String.init) })
-        #expect(areas == ["auth", "profile", "group", "members", "matrix", "task", "reads", "realtime", "push", "account"])
+        #expect(areas == [
+            "auth", "profile", "group", "members", "matrix", "task", "reads", "realtime", "push", "account",
+            // v2 (docs/CONTRACTS-V2.md)
+            "appearance", "onboarding", "recurrence", "rotation", "checklist", "activity", "recap", "compat",
+        ])
+    }
+
+    /// The v2 scenarios are part of the catalog; those that subscribe to Realtime are named `realtime.v2…`, so the
+    /// backends that skip Realtime by prefix skip them too.
+    @Test func v2ScenariosArePartOfTheCatalog() {
+        let all = Set(ContractScenarios.all.map(\.name))
+        let v2 = ContractScenarios.v2.map(\.name)
+        #expect(Set(v2).isSubset(of: all))
+        #expect(v2.filter { $0.hasPrefix("realtime.") } == ["realtime.v2GroupSignals", "realtime.v2OwnProfileSignals", "realtime.v2RotationTurns"])
     }
 
     /// A scenario must fail with a descriptive `ContractFailure` (not pass) when the backend misbehaves.

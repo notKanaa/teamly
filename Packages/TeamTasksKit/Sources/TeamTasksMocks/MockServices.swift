@@ -65,14 +65,14 @@ struct MockProfileService: ProfileService {
         return try session.backend.updateDisplayName(clientId: session.clientId, name: name)
     }
 
-    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §2, §3; avatar PATCH).
     func updateAvatar(color: ColorKey?, emoji: String?) async throws -> UserProfile {
-        throw AppError.unknown("pas encore disponible")
+        try await session.backend.simulateLatency()
+        return try session.backend.updateAvatar(clientId: session.clientId, color: color, emoji: emoji)
     }
 
-    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 complete_onboarding, §9).
     func completeOnboarding() async throws {
-        throw AppError.unknown("pas encore disponible")
+        try await session.backend.simulateLatency()
+        try session.backend.completeOnboarding(clientId: session.clientId)
     }
 }
 
@@ -134,19 +134,19 @@ struct MockGroupService: GroupService {
         try session.backend.leave(clientId: session.clientId, groupId: groupId)
     }
 
-    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 create_group with appearance).
     func createGroup(name: String, color: ColorKey?, emoji: String?) async throws -> GroupSummary {
-        throw AppError.unknown("pas encore disponible")
+        try await session.backend.simulateLatency()
+        return try session.backend.createGroup(clientId: session.clientId, name: name, color: color, emoji: emoji)
     }
 
-    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 set_group_appearance).
     func setAppearance(groupId: UUID, color: ColorKey?, emoji: String?) async throws -> TeamGroup {
-        throw AppError.unknown("pas encore disponible")
+        try await session.backend.simulateLatency()
+        return try session.backend.setAppearance(clientId: session.clientId, groupId: groupId, color: color, emoji: emoji)
     }
 
-    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §7 activity feed).
     func activity(groupId: UUID) async throws -> [ActivityEvent] {
-        throw AppError.unknown("pas encore disponible")
+        try await session.backend.simulateLatency()
+        return try session.backend.activity(clientId: session.clientId, groupId: groupId)
     }
 }
 
@@ -193,29 +193,29 @@ struct MockTaskService: TaskService {
         return try session.backend.assignments(clientId: session.clientId, since: since)
     }
 
-    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 add_checklist_item).
     func addChecklistItem(taskId: UUID, title: String) async throws -> ChecklistItem {
-        throw AppError.unknown("pas encore disponible")
+        try await session.backend.simulateLatency()
+        return try session.backend.addChecklistItem(clientId: session.clientId, taskId: taskId, title: title)
     }
 
-    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 rename_checklist_item).
     func renameChecklistItem(itemId: UUID, title: String) async throws -> ChecklistItem {
-        throw AppError.unknown("pas encore disponible")
+        try await session.backend.simulateLatency()
+        return try session.backend.renameChecklistItem(clientId: session.clientId, itemId: itemId, title: title)
     }
 
-    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 set_checklist_item_done).
     func setChecklistItemDone(itemId: UUID, done: Bool) async throws -> ChecklistItem {
-        throw AppError.unknown("pas encore disponible")
+        try await session.backend.simulateLatency()
+        return try session.backend.setChecklistItemDone(clientId: session.clientId, itemId: itemId, done: done)
     }
 
-    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §5 delete_checklist_item).
     func deleteChecklistItem(itemId: UUID) async throws {
-        throw AppError.unknown("pas encore disponible")
+        try await session.backend.simulateLatency()
+        try session.backend.deleteChecklistItem(clientId: session.clientId, itemId: itemId)
     }
 
-    // TODO(v2-mocks): implement (docs/CONTRACTS-V2.md §8 weekly recap read).
     func completions(groupId: UUID, since: Date) async throws -> [TaskCompletion] {
-        throw AppError.unknown("pas encore disponible")
+        try await session.backend.simulateLatency()
+        return try session.backend.completions(clientId: session.clientId, groupId: groupId, since: since)
     }
 }
 

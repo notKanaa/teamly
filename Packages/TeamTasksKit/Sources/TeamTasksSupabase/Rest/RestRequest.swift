@@ -68,7 +68,8 @@ struct RestRequest: Sendable, Hashable {
     }
 }
 
-/// Builders of every PostgREST request the adapters make (docs/CONTRACTS.md §4.1, §4.3).
+/// Builders of every PostgREST request the adapters make (docs/CONTRACTS.md §4.1, §4.3; docs/CONTRACTS-V2.md §5,
+/// §7–§10).
 enum RestQuery {
     /// Lowercase canonical form, as Postgres prints UUIDs.
     static func uuid(_ value: UUID) -> String {
@@ -88,9 +89,15 @@ enum RestQuery {
         ])
     }
 
+    /// The profile columns of the members list and of the `PATCH` results (v2: with the avatar).
+    static let profileSelect = "id,display_name,avatar_color,avatar_emoji"
+
+    /// `myProfile` also reads the onboarding fields (docs/CONTRACTS-V2.md §9).
+    static let myProfileSelect = "\(profileSelect),onboarded_at,created_at"
+
     static func members(groupId: UUID) -> RestRequest {
         RestRequest(path: "group_members", query: [
-            item("select", "user_id,role,joined_at,profile:profiles(id,display_name)"),
+            item("select", "user_id,role,joined_at,profile:profiles(\(profileSelect))"),
             item("group_id", "eq.\(uuid(groupId))"),
         ])
     }
@@ -102,7 +109,9 @@ enum RestQuery {
         ])
     }
 
-    static let taskSelect = "*,assignees:task_assignees(user_id)"
+    /// v2: every task read embeds the checklist (docs/CONTRACTS-V2.md §10).
+    static let taskSelect =
+        "*,assignees:task_assignees(user_id),checklist:task_checklist_items(id,title,position,done,done_at,done_by)"
 
     /// Old done tasks: cutoff = `now − 30 × 86 400 s` (not calendar days), inclusive.
     static func oldDoneCutoff(now: Date) -> Date {
@@ -129,9 +138,13 @@ enum RestQuery {
         ])
     }
 
+    /// v2: the embedded group also gives its color and emoji.
     static func myTasks(me: UUID, includeDone: Bool) -> RestRequest {
         var query = [
-            item("select", "\(taskSelect),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name)"),
+            item(
+                "select",
+                "\(taskSelect),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name,color,emoji)"
+            ),
             item("mine.user_id", "eq.\(uuid(me))"),
         ]
         if !includeDone {
@@ -141,9 +154,10 @@ enum RestQuery {
     }
 
     /// Assignments to `me` made by someone else (or by a deleted account) strictly after `since`, oldest first.
+    /// v2: the embedded task gives its rotation (a turn handed out by the server is worded « C’est ton tour »).
     static func assignments(me: UUID, since: Date) -> RestRequest {
         RestRequest(path: "task_assignees", query: [
-            item("select", "task_id,group_id,assigned_by,assigned_at,task:tasks(title,due_at,group:groups(name))"),
+            item("select", "task_id,group_id,assigned_by,assigned_at,task:tasks(title,due_at,rotation,group:groups(name))"),
             item("user_id", "eq.\(uuid(me))"),
             item("assigned_at", "gt.\(PostgresTimestamp.format(since))"),
             item("or", "(assigned_by.is.null,assigned_by.neq.\(uuid(me)))"),
@@ -153,7 +167,7 @@ enum RestQuery {
 
     static func myProfile(me: UUID) -> RestRequest {
         RestRequest(path: "profiles", query: [
-            item("select", "id,display_name"),
+            item("select", myProfileSelect),
             item("id", "eq.\(uuid(me))"),
         ])
     }
@@ -165,17 +179,50 @@ enum RestQuery {
         ])
     }
 
+    /// v2: the group's activity feed, newest first, at most `Limits.activityFeedMax` events (docs/CONTRACTS-V2.md §7).
+    static func activity(groupId: UUID) -> RestRequest {
+        RestRequest(path: "group_activity", query: [
+            item("select", "id,kind,actor_id,subject_id,task_id,task_title,item_title,created_at"),
+            item("group_id", "eq.\(uuid(groupId))"),
+            item("order", "id.desc"),
+            item("limit", String(Limits.activityFeedMax)),
+        ])
+    }
+
+    /// v2: the group's tasks completed at or after `since` (inclusive), for the weekly recap (docs/CONTRACTS-V2.md §8).
+    static func completions(groupId: UUID, since: Date) -> RestRequest {
+        RestRequest(path: "tasks", query: [
+            item("select", "id,completed_by,completed_at"),
+            item("group_id", "eq.\(uuid(groupId))"),
+            item("status", "eq.done"),
+            item("completed_at", "gte.\(PostgresTimestamp.format(since))"),
+        ])
+    }
+
     // MARK: - Writes
 
-    /// `PATCH profiles?select=id,display_name&id=eq.<me>` with `Prefer: return=representation` (0 rows → `.forbidden`).
-    /// The explicit `select` keeps the representation to the columns the client reads, so that a later column-level
-    /// grant on `profiles` (review SEC-3) does not break renaming.
+    /// `PATCH profiles?select=id,display_name,avatar_color,avatar_emoji&id=eq.<me>` with `Prefer: return=representation`
+    /// (0 rows → `.forbidden`). The explicit `select` keeps the representation to the columns the client reads, so that
+    /// a column-level grant on `profiles` (review SEC-3) does not break renaming.
     static func updateDisplayName(me: UUID, name: String) -> RestRequest {
+        updateProfile(me: me, fields: ["display_name": .string(name)])
+    }
+
+    /// v2: `PATCH profiles` of the avatar (column grant, docs/CONTRACTS-V2.md §2): both columns, NULL = automatic color /
+    /// the initials.
+    static func updateAvatar(me: UUID, color: ColorKey?, emoji: String?) -> RestRequest {
+        updateProfile(me: me, fields: [
+            "avatar_color": .optionalString(color?.rawValue),
+            "avatar_emoji": .optionalString(emoji),
+        ])
+    }
+
+    private static func updateProfile(me: UUID, fields: [String: JSONValue]) -> RestRequest {
         RestRequest(
             method: .patch,
             path: "profiles",
-            query: [item("select", "id,display_name"), item("id", "eq.\(uuid(me))")],
-            body: .object(["display_name": .string(name)]),
+            query: [item("select", profileSelect), item("id", "eq.\(uuid(me))")],
+            body: .object(fields),
             prefer: "return=representation"
         )
     }

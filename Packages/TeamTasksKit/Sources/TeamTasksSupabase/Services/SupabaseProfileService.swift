@@ -1,18 +1,20 @@
 import Foundation
 import TeamTasksCore
 
-/// `ProfileService` on PostgREST (docs/CONTRACTS.md §4.3).
+/// `ProfileService` on PostgREST (docs/CONTRACTS.md §4.3; docs/CONTRACTS-V2.md §2, §5, §9).
 struct SupabaseProfileService: ProfileService {
     let context: SupabaseContext
 
     /// No visible profile for the session user means the account no longer exists → `.notAuthenticated`.
+    /// v2: with the avatar and the onboarding fields (`onboardedAt`, `createdAt`), which only this read fills.
     func myProfile() async throws -> UserProfile {
         let rows = try await context.rest.fetch([ProfileRow].self) { RestQuery.myProfile(me: $0.userId) }
         guard let row = rows.first else { throw AppError.notAuthenticated }
         return row.profile
     }
 
-    /// `PATCH profiles?id=eq.<me>` with the trimmed name; 0 rows updated → `.forbidden`.
+    /// `PATCH profiles?id=eq.<me>` with the trimmed name; 0 rows updated → `.forbidden`. v2: the result keeps the
+    /// avatar.
     func updateDisplayName(_ name: String) async throws -> UserProfile {
         let name = try InputValidation.displayName(name)
         let rows = try await context.rest.fetch([ProfileRow].self) {
@@ -22,14 +24,20 @@ struct SupabaseProfileService: ProfileService {
         return row.profile
     }
 
-    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §2 avatar PATCH, §9 profile read).
+    /// v2: `PATCH profiles?id=eq.<me>` of both avatar columns (docs/CONTRACTS-V2.md §2). The emoji is checked and
+    /// normalized first (nil or blank = the initials; a typed color is always valid); 0 rows updated → `.forbidden`.
     func updateAvatar(color: ColorKey?, emoji: String?) async throws -> UserProfile {
-        throw AppError.unknown("pas encore disponible")
+        let emoji = try InputValidation.emoji(emoji)
+        let rows = try await context.rest.fetch([ProfileRow].self) {
+            RestQuery.updateAvatar(me: $0.userId, color: color, emoji: emoji)
+        }
+        guard let row = rows.first else { throw AppError.forbidden }
+        return row.profile
     }
 
-    // TODO(v2-supabase): implement (docs/CONTRACTS-V2.md §5 complete_onboarding).
+    /// v2: `complete_onboarding()` sets `onboarded_at` once; later calls write nothing.
     func completeOnboarding() async throws {
-        throw AppError.unknown("pas encore disponible")
+        _ = try await context.rest.send { _ in RestQuery.rpc("complete_onboarding") }
     }
 }
 

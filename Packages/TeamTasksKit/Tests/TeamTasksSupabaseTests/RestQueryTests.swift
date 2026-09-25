@@ -3,13 +3,17 @@ import TeamTasksCore
 import Testing
 @testable import TeamTasksSupabase
 
-/// The PostgREST requests are those of docs/CONTRACTS.md §4.3, verbatim, with microsecond timestamp filters.
+/// The PostgREST requests are those of docs/CONTRACTS.md §4.3 with the changes of docs/CONTRACTS-V2.md §10, verbatim,
+/// with microsecond timestamp filters.
 @Suite struct RestQueryTests {
     let me = Seed.camille
     let group = Seed.lilas
     let task = Seed.courses
     /// 2026-09-24T10:00:00.123456Z
     let now = PostgresTimestamp.date(epochMicroseconds: 1_790_244_000_123_456)
+
+    static let taskSelect =
+        "*,assignees:task_assignees(user_id),checklist:task_checklist_items(id,title,position,done,done_at,done_by)"
 
     @Test func myGroups() {
         let request = RestQuery.myGroups(me: me)
@@ -18,11 +22,12 @@ import Testing
         #expect(request.readableQuery == "select=role,group:groups(*)&user_id=eq.11111111-1111-4111-8111-111111111111")
     }
 
-    @Test func members() {
+    @Test func membersWithTheirAvatar() {
         let request = RestQuery.members(groupId: group)
         #expect(request.path == "group_members")
         #expect(request.readableQuery
-            == "select=user_id,role,joined_at,profile:profiles(id,display_name)&group_id=eq.a0000000-0000-4000-8000-000000000001")
+            == "select=user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji)"
+            + "&group_id=eq.a0000000-0000-4000-8000-000000000001")
     }
 
     @Test func inviteCode() {
@@ -36,11 +41,10 @@ import Testing
         #expect(recent.path == "tasks")
         // now − 30 × 86 400 s, inclusive, 6 fractional digits in UTC.
         #expect(recent.readableQuery
-            == "select=*,assignees:task_assignees(user_id)&group_id=eq.a0000000-0000-4000-8000-000000000001"
+            == "select=\(Self.taskSelect)&group_id=eq.a0000000-0000-4000-8000-000000000001"
             + "&or=(status.neq.done,completed_at.gte.2026-08-25T10:00:00.123456Z)")
         let all = RestQuery.groupTasks(groupId: group, includeOldDone: true, now: now)
-        #expect(all.readableQuery
-            == "select=*,assignees:task_assignees(user_id)&group_id=eq.a0000000-0000-4000-8000-000000000001")
+        #expect(all.readableQuery == "select=\(Self.taskSelect)&group_id=eq.a0000000-0000-4000-8000-000000000001")
     }
 
     @Test func cutoffIsThirtyTimes86400Seconds() {
@@ -50,47 +54,80 @@ import Testing
         #expect(PostgresTimestamp.epochMicroseconds(cutoff) == 1_793_700_000_000_001 - 2_592_000_000_000)
     }
 
-    @Test func oneTask() {
+    @Test func oneTaskWithItsChecklist() {
         let request = RestQuery.task(id: task)
-        #expect(request.readableQuery
-            == "select=*,assignees:task_assignees(user_id)&id=eq.b0000000-0000-4000-8000-000000000002")
+        #expect(request.readableQuery == "select=\(Self.taskSelect)&id=eq.b0000000-0000-4000-8000-000000000002")
     }
 
-    @Test func myTasks() {
+    @Test func myTasksWithTheGroupAppearance() {
+        let select = "select=\(Self.taskSelect),mine:task_assignees!inner(assigned_at,assigned_by,user_id),"
+            + "group:groups(name,color,emoji)&mine.user_id=eq.11111111-1111-4111-8111-111111111111"
         let open = RestQuery.myTasks(me: me, includeDone: false)
         #expect(open.path == "tasks")
-        #expect(open.readableQuery
-            == "select=*,assignees:task_assignees(user_id),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name)"
-            + "&mine.user_id=eq.11111111-1111-4111-8111-111111111111&status=neq.done")
+        #expect(open.readableQuery == select + "&status=neq.done")
         let all = RestQuery.myTasks(me: me, includeDone: true)
-        #expect(all.readableQuery
-            == "select=*,assignees:task_assignees(user_id),mine:task_assignees!inner(assigned_at,assigned_by,user_id),group:groups(name)"
-            + "&mine.user_id=eq.11111111-1111-4111-8111-111111111111")
+        #expect(all.readableQuery == select)
     }
 
     @Test func assignmentsSinceIsExclusiveWithMicroseconds() {
         let request = RestQuery.assignments(me: me, since: now)
         #expect(request.path == "task_assignees")
         #expect(request.readableQuery
-            == "select=task_id,group_id,assigned_by,assigned_at,task:tasks(title,due_at,group:groups(name))"
+            == "select=task_id,group_id,assigned_by,assigned_at,task:tasks(title,due_at,rotation,group:groups(name))"
             + "&user_id=eq.11111111-1111-4111-8111-111111111111&assigned_at=gt.2026-09-24T10:00:00.123456Z"
             + "&or=(assigned_by.is.null,assigned_by.neq.11111111-1111-4111-8111-111111111111)&order=assigned_at.asc")
     }
 
     @Test func profileAndPushTopic() {
-        #expect(RestQuery.myProfile(me: me).readableQuery == "select=id,display_name&id=eq.11111111-1111-4111-8111-111111111111")
+        #expect(RestQuery.myProfile(me: me).readableQuery
+            == "select=id,display_name,avatar_color,avatar_emoji,onboarded_at,created_at&id=eq.11111111-1111-4111-8111-111111111111")
         #expect(RestQuery.myProfile(me: me).path == "profiles")
         #expect(RestQuery.pushTopic(me: me).readableQuery == "select=topic&user_id=eq.11111111-1111-4111-8111-111111111111")
         #expect(RestQuery.pushTopic(me: me).path == "push_subscriptions")
+    }
+
+    @Test func activityIsTheNewestFiftyEvents() {
+        let request = RestQuery.activity(groupId: group)
+        #expect(request.method == .get)
+        #expect(request.path == "group_activity")
+        #expect(request.readableQuery
+            == "select=id,kind,actor_id,subject_id,task_id,task_title,item_title,created_at"
+            + "&group_id=eq.a0000000-0000-4000-8000-000000000001&order=id.desc&limit=50")
+    }
+
+    @Test func completionsSinceIsInclusiveWithMicroseconds() throws {
+        let request = RestQuery.completions(groupId: group, since: now)
+        #expect(request.path == "tasks")
+        #expect(request.readableQuery
+            == "select=id,completed_by,completed_at&group_id=eq.a0000000-0000-4000-8000-000000000001"
+            + "&status=eq.done&completed_at=gte.2026-09-24T10:00:00.123456Z")
+        let restURL = try #require(URL(string: "http://127.0.0.1:54321/rest/v1"))
+        let url = try #require(request.url(restURL: restURL))
+        #expect(url.absoluteString.hasSuffix("&completed_at=gte.2026-09-24T10:00:00.123456Z"))
     }
 
     @Test func updateDisplayNameIsAPatchReturningTheRow() throws {
         let request = RestQuery.updateDisplayName(me: me, name: "Camille M.")
         #expect(request.method == .patch)
         #expect(request.path == "profiles")
-        #expect(request.readableQuery == "select=id,display_name&id=eq.11111111-1111-4111-8111-111111111111")
+        #expect(request.readableQuery
+            == "select=id,display_name,avatar_color,avatar_emoji&id=eq.11111111-1111-4111-8111-111111111111")
         #expect(request.prefer == "return=representation")
         #expect(String(decoding: try #require(request.body).encoded(), as: UTF8.self) == #"{"display_name":"Camille M."}"#)
+    }
+
+    @Test func updateAvatarPatchesBothColumns() throws {
+        let request = RestQuery.updateAvatar(me: me, color: .teal, emoji: "🦊")
+        #expect(request.method == .patch)
+        #expect(request.path == "profiles")
+        #expect(request.readableQuery
+            == "select=id,display_name,avatar_color,avatar_emoji&id=eq.11111111-1111-4111-8111-111111111111")
+        #expect(request.prefer == "return=representation")
+        #expect(String(decoding: try #require(request.body).encoded(), as: UTF8.self)
+            == #"{"avatar_color":"teal","avatar_emoji":"🦊"}"#)
+        let automatic = RestQuery.updateAvatar(me: me, color: nil, emoji: nil)
+        #expect(String(decoding: try #require(automatic.body).encoded(), as: UTF8.self)
+            == #"{"avatar_color":null,"avatar_emoji":null}"#)
     }
 
     @Test func rpcsArePostsWithNamedParameters() throws {
@@ -104,17 +141,50 @@ import Testing
         #expect(String(decoding: try #require(noParams.body).encoded(), as: UTF8.self) == "{}")
     }
 
+    /// `update_task` has no defaults for its v1 parameters, and v2 sends the full state: `{}` = no rule, `[]` (SQL `'{}'`)
+    /// = no rotation.
     @Test func taskParametersAreAllExplicit() throws {
         let draft = TaskDraft(title: "  Titre  ", details: "   ", priority: .high, dueAt: nil, assigneeIds: [Seed.lucas, Seed.camille])
-        let params = try TaskFields(draft).params(adding: ["p_task_id": .uuid(task)])
+        let params = try TaskFields(draft, for: .update).updateParams(taskId: task)
         let json = String(decoding: try JSONValue.object(params).encoded(), as: UTF8.self)
         #expect(json == #"{"p_assignee_ids":["11111111-1111-4111-8111-111111111111","22222222-2222-4222-8222-222222222222"],"#
-            + #""p_details":null,"p_due_at":null,"p_priority":"high","p_task_id":"b0000000-0000-4000-8000-000000000002","#
-            + #""p_title":"Titre"}"#)
-        let dated = try TaskFields(TaskDraft(title: "T", details: "D", dueAt: now)).params(adding: [:])
+            + #""p_details":null,"p_due_at":null,"p_priority":"high","p_recurrence":{},"p_rotation":[],"#
+            + #""p_task_id":"b0000000-0000-4000-8000-000000000002","p_title":"Titre"}"#)
+        let dated = try TaskFields(TaskDraft(title: "T", details: "D", dueAt: now), for: .create).createParams(groupId: group)
         #expect(dated["p_due_at"] == .string("2026-09-24T10:00:00.123456Z"))
         #expect(dated["p_details"] == .string("D"))
         #expect(dated["p_assignee_ids"] == .array([]))
+        #expect(dated["p_checklist"] == .array([]))
+        #expect(dated["p_group_id"] == .string("a0000000-0000-4000-8000-000000000001"))
+        #expect(dated["p_task_id"] == nil)
+    }
+
+    /// A rule is `{"freq","interval","tz","weekdays"}`, weekdays ascending (or null); `monthDay` is never sent.
+    @Test func recurrenceWireFormat() throws {
+        func json(_ rule: RecurrenceRule?) throws -> String {
+            String(decoding: try JSONValue.recurrence(rule).encoded(), as: UTF8.self)
+        }
+        #expect(try json(nil) == "{}")
+        #expect(try json(RecurrenceRule(frequency: .weekly, interval: 2, weekdays: [5, 1, 3], timeZoneId: "Europe/Paris"))
+            == #"{"freq":"weekly","interval":2,"tz":"Europe/Paris","weekdays":[1,3,5]}"#)
+        #expect(try json(RecurrenceRule(frequency: .monthly, timeZoneId: "America/Argentina/Buenos_Aires", monthDay: 31))
+            == #"{"freq":"monthly","interval":1,"tz":"America/Argentina/Buenos_Aires","weekdays":null}"#)
+    }
+
+    /// The rotation keeps its turn order (unlike the assignee ids, which are a set).
+    @Test func rotationKeepsItsOrder() throws {
+        let rule = RecurrenceRule(frequency: .daily, timeZoneId: "Europe/Paris")
+        let draft = TaskDraft(title: "Vaisselle", dueAt: now, recurrence: rule, rotation: [Seed.ines, Seed.camille, Seed.lucas],
+                              checklist: [" Laver ", "Ranger"])
+        let params = try TaskFields(draft, for: .create).createParams(groupId: group)
+        #expect(params["p_rotation"] == .array([
+            .string("33333333-3333-4333-8333-333333333333"), .string("11111111-1111-4111-8111-111111111111"),
+            .string("22222222-2222-4222-8222-222222222222"),
+        ]))
+        #expect(params["p_checklist"] == .array([.string(" Laver "), .string("Ranger")]), "the server trims the titles")
+        #expect(params["p_recurrence"] == .object([
+            "freq": .string("daily"), "interval": .int(1), "tz": .string("Europe/Paris"), "weekdays": .null,
+        ]))
     }
 
     @Test func percentEncodingKeepsPostgrestSyntaxAndEncodesPlusAndSpace() throws {
@@ -124,6 +194,6 @@ import Testing
         let restURL = try #require(URL(string: "http://127.0.0.1:54321/rest/v1/"))
         let url = try #require(RestQuery.task(id: task).url(restURL: restURL))
         #expect(url.absoluteString
-            == "http://127.0.0.1:54321/rest/v1/tasks?select=*,assignees:task_assignees(user_id)&id=eq.b0000000-0000-4000-8000-000000000002")
+            == "http://127.0.0.1:54321/rest/v1/tasks?select=\(Self.taskSelect)&id=eq.b0000000-0000-4000-8000-000000000002")
     }
 }

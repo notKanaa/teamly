@@ -136,19 +136,35 @@ import Testing
         #expect(task.myAssignedAt == nil && task.groupName == nil)
         let sent = try #require(transport.sent.first)
         #expect(sent.target == "rpc/create_task")
+        // v2: the full state, `{}` = no rule, `[]` = no rotation, no checklist item.
         #expect(sent.body == #"{"p_assignee_ids":["11111111-1111-4111-8111-111111111111","22222222-2222-4222-8222-222222222222"],"#
-            + #""p_details":null,"p_due_at":"2031-01-01T00:00:00.000000Z","p_group_id":"a0000000-0000-4000-8000-000000000001","#
-            + #""p_priority":"high","p_title":"Tâche fixture"}"#)
+            + #""p_checklist":[],"p_details":null,"p_due_at":"2031-01-01T00:00:00.000000Z","#
+            + #""p_group_id":"a0000000-0000-4000-8000-000000000001","p_priority":"high","p_recurrence":{},"p_rotation":[],"#
+            + #""p_title":"Tâche fixture"}"#)
+        #expect(transport.sent.count == 1, "without a checklist, the result needs no read")
     }
 
+    /// v2: the bare row of `update_task` is completed with the assignees and the checklist of a read of the task.
     @Test func updateTaskSendsTheFullDraft() async throws {
-        let transport = FakeTransport([.fixture(200, "create_task")])
+        let read = """
+        [{"id":"94d0d49f-a303-4611-9621-ced98f3d9086","group_id":"e82a930a-a452-4f1c-9884-fbff6d79b8f2","title":"Titre",\
+        "details":"Détails","status":"todo","priority":"low","due_at":null,"created_by":"214442fe-11cc-44fe-949d-af4109d9d950",\
+        "created_at":"2026-09-24T00:24:04.369866+00:00","updated_at":"2026-09-24T00:24:04.369866+00:00","completed_at":null,\
+        "assignees":[{"user_id":"22222222-2222-4222-8222-222222222222"}],\
+        "checklist":[{"id":"c0000000-0000-4000-8000-000000000002","done":false,"title":"Deux","done_at":null,"done_by":null,"position":2},\
+        {"id":"c0000000-0000-4000-8000-000000000001","done":false,"title":"Un","done_at":null,"done_by":null,"position":1}]}]
+        """
+        let transport = FakeTransport([.fixture(200, "create_task"), .json(200, read)])
         let draft = TaskDraft(title: "Titre", details: " Détails ", priority: .low, dueAt: nil, assigneeIds: [])
         let task = try await UnitBackend.services(transport).tasks.update(taskId: Seed.courses, draft: draft)
-        #expect(task.assigneeIds.isEmpty)
+        #expect(task.title == "Tâche fixture", "the fields are the row's")
+        #expect(task.assigneeIds == [Seed.lucas], "the assignees are read")
+        #expect(task.checklist.map(\.title) == ["Un", "Deux"], "the checklist is read and sorted")
         #expect(transport.sent.first?.target == "rpc/update_task")
         #expect(transport.sent.first?.body == #"{"p_assignee_ids":[],"p_details":"Détails","p_due_at":null,"#
-            + #""p_priority":"low","p_task_id":"b0000000-0000-4000-8000-000000000002","p_title":"Titre"}"#)
+            + #""p_priority":"low","p_recurrence":{},"p_rotation":[],"p_task_id":"b0000000-0000-4000-8000-000000000002","#
+            + #""p_title":"Titre"}"#)
+        #expect(transport.sent.last?.target == "tasks?select=\(RestQueryTests.taskSelect)&id=eq.94d0d49f-a303-4611-9621-ced98f3d9086")
     }
 
     @Test func setStatusReadsTheAssigneesOfTheTask() async throws {
@@ -167,7 +183,7 @@ import Testing
         #expect(task.completedAt != nil)
         #expect(transport.sent.map(\.target) == [
             "rpc/set_task_status",
-            "tasks?select=*,assignees:task_assignees(user_id)&id=eq.94d0d49f-a303-4611-9621-ced98f3d9086",
+            "tasks?select=\(RestQueryTests.taskSelect)&id=eq.94d0d49f-a303-4611-9621-ced98f3d9086",
         ])
         #expect(transport.sent[0].body == #"{"p_status":"done","p_task_id":"94d0d49f-a303-4611-9621-ced98f3d9086"}"#)
     }
@@ -216,7 +232,7 @@ import Testing
         #expect(profile == UserProfile(id: Seed.camille, displayName: "Camille M."))
         let sent = try #require(transport.sent.first)
         #expect(sent.method == "PATCH")
-        #expect(sent.target == "profiles?select=id,display_name&id=eq.11111111-1111-4111-8111-111111111111")
+        #expect(sent.target == "profiles?select=id,display_name,avatar_color,avatar_emoji&id=eq.11111111-1111-4111-8111-111111111111")
         #expect(sent.headers["prefer"] == "return=representation")
         #expect(sent.body == #"{"display_name":"Camille M."}"#)
         await #expect(throws: AppError.forbidden) { try await profiles.updateDisplayName("Camille") }

@@ -34,6 +34,10 @@ enum AppErrorName {
         "emailAlreadyUsed": .emailAlreadyUsed, "weakPassword": .weakPassword, "invalidEmail": .invalidEmail,
         "otpInvalid": .otpInvalid, "emailRateLimited": .emailRateLimited, "emailNotConfirmed": .emailNotConfirmed,
         "invalidInput": .invalidInput, "lastAdmin": .lastAdmin, "forbidden": .forbidden, "notFound": .notFound,
+        // v2 (docs/CONTRACTS-V2.md §3)
+        "invalidAppearance": .invalidAppearance, "invalidRecurrence": .invalidRecurrence,
+        "recurrenceNeedsDueDate": .recurrenceNeedsDueDate, "invalidRotation": .invalidRotation,
+        "invalidChecklistItem": .invalidChecklistItem, "tooManyChecklistItems": .tooManyChecklistItems,
         // Conditions without a case of their own: `.unknown` with a French detail.
         "emailDeliveryUnavailable": .unknown(SupabaseErrorMapping.emailDeliveryUnavailable),
         "signupDisabled": .unknown(SupabaseErrorMapping.signupDisabled),

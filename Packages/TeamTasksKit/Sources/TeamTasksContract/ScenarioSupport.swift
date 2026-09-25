@@ -63,12 +63,14 @@ func isWellFormedCode(_ code: InviteCode) -> Bool {
 }
 
 extension TaskItem {
-    /// The task without the `myTasks`-only fields, to compare with `task(id:)`.
+    /// The task without the `myTasks`-only fields (v2: also the group's color and emoji), to compare with `task(id:)`.
     var withoutPersonalFields: TaskItem {
         var copy = self
         copy.myAssignedAt = nil
         copy.myAssignedBy = nil
         copy.groupName = nil
+        copy.groupColor = nil
+        copy.groupEmoji = nil
         return copy
     }
 }
