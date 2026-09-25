@@ -12,13 +12,13 @@ RAW="$OUT-raw"
 # Attachment names of App/UITests/ScreenshotTests.swift (the design checks' captures go to debug/).
 EXPECTED=(01-connexion 02-groupes 03-creer-groupe 04-code-invitation 05-nouvelle-tache 06-detail-groupe 07-mes-taches 08-membres 09-reglages
   10-reglages-compte 11-onboarding-bienvenue 12-onboarding-avatar 13-onboarding-groupe 14-onboarding-notifications)
-# The v2 groups screens (App/UITests/GroupsScreenshotTests.swift).
-EXPECTED+=(02-groupes-sombre 15-groupe-vitrine 16-groupe-activite 16-groupe-activite-sombre 17-groupe-apparence)
 
 if [ ! -d "$RESULT" ]; then
   echo "No result bundle at $RESULT — nothing to export."
   exit 0
 fi
+# The v2 groups screens (App/UITests/GroupsScreenshotTests.swift).
+EXPECTED+=(02-groupes-sombre 15-groupe-vitrine 16-groupe-activite 16-groupe-activite-sombre 17-groupe-apparence)
 rm -rf "$RAW"
 mkdir -p "$OUT" "$RAW"
 xcrun xcresulttool export attachments --path "$RESULT" --output-path "$RAW" || { echo "export failed"; exit 0; }

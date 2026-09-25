@@ -24,6 +24,8 @@ struct GroupDetailView: View {
     @State private var isConfirmingGroupDeletion = false
     @State private var isConfirmingTaskDeletion = false
     @State private var taskPendingDeletion: TaskItem?
+    /// The hero's identity has scrolled away: the pinned bar shows the group's name.
+    @State private var isHeroCollapsed = false
     @Environment(AppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -200,18 +202,23 @@ struct GroupDetailView: View {
 
     // MARK: - Hero
 
-    /// The pinned top bar in the group's fill: back, then « Inviter » (admins) and « … »; on « Activité », the tile and
-    /// the name too, with rounded bottom corners.
+    /// The pinned top bar in the group's fill: back, then « Inviter » (admins) and « … ». On « Activité » it also shows
+    /// the tile and the name, with rounded bottom corners; on « Tâches » it shows them (on one line) once the hero's
+    /// identity has scrolled away (iOS 18).
     private func heroBar(_ appearance: AvatarAppearance) -> some View {
-        let isCompact = model.tab == .activity
+        let isActivity = model.tab == .activity
+        let showsTitle = isActivity || isHeroCollapsed
         return HStack(alignment: .center, spacing: 10) {
             CircleIconButton(systemImage: "chevron.left", accessibilityLabel: "Retour", style: .translucent) {
                 dismiss()
             }
             .accessibilityIdentifier(AccessibilityID.Groups.backButton)
-            if isCompact {
+            if showsTitle {
                 GroupTile(appearance, size: 40, style: .onColor)
                 heroTitle(appearance, font: .rounded(.title3))
+                    .lineLimit(isActivity ? nil : 1)
+                    // On « Tâches » the name is already read in the hero's identity.
+                    .accessibilityHidden(!isActivity)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Spacer(minLength: 0)
@@ -223,16 +230,17 @@ struct GroupDetailView: View {
         }
         .padding(.horizontal, Theme.Spacing.page)
         .padding(.top, 6)
-        .padding(.bottom, isCompact ? 18 : 6)
+        .padding(.bottom, isActivity ? 18 : 6)
         .background {
             UnevenRoundedRectangle(
-                bottomLeadingRadius: isCompact ? 28 : 0,
-                bottomTrailingRadius: isCompact ? 28 : 0,
+                bottomLeadingRadius: isActivity ? 28 : 0,
+                bottomTrailingRadius: isActivity ? 28 : 0,
                 style: .continuous
             )
             .fill(appearance.color.fill)
             .ignoresSafeArea(edges: .top)
         }
+        .animation(reduceMotion ? nil : .snappy, value: showsTitle)
     }
 
     /// The white tile, the name and the members (a link to « Membres »), on the group's fill with rounded bottom
@@ -258,6 +266,7 @@ struct GroupDetailView: View {
                 .fill(appearance.color.fill)
                 .padding(.top, -600)
         }
+        .modifier(GroupHeroVisibilityTracker(isCollapsed: $isHeroCollapsed))
     }
 
     /// The group's name, white on its fill. Its value says the group's look (« 🏠, corail »).
@@ -304,6 +313,9 @@ struct GroupDetailView: View {
             Label("Inviter", systemImage: "person.badge.plus")
                 .labelStyle(.titleAndIcon)
                 .font(Font.subheadline.weight(.heavy))
+                // A bar button: it grows with the text like the round buttons next to it, then the large content
+                // viewer shows it (long press).
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .foregroundStyle(appearance.color.fill)
                 .lineLimit(1)
                 .padding(.horizontal, 16)
@@ -312,6 +324,7 @@ struct GroupDetailView: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.pressable)
+        .accessibilityShowsLargeContentViewer()
         .accessibilityLabel("Inviter avec un code")
         .accessibilityIdentifier(AccessibilityID.Groups.inviteButton)
     }
@@ -603,7 +616,7 @@ struct GroupDetailView: View {
 }
 
 /// The look of a `CircleIconButton` `.translucent` for a menu's label (the « … » of the group hero): a white 22 %
-/// circle of 44 pt at least, growing with Dynamic Type, with a white symbol.
+/// circle of 44 pt, growing with the text up to 60 pt, with a white symbol.
 private struct GroupHeroCircleLabel: View {
     let systemImage: String
 
@@ -614,12 +627,34 @@ private struct GroupHeroCircleLabel: View {
     }
 
     var body: some View {
+        let diameter = min(max(44, side), 60)
         Image(systemName: systemImage)
             .font(Font.body.weight(.bold))
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .foregroundStyle(Theme.onFill)
-            .frame(width: max(44, side), height: max(44, side))
+            .frame(width: diameter, height: diameter)
             .background(Color.white.opacity(0.22), in: Circle())
             .contentShape(Circle())
+    }
+}
+
+/// Tells when the hero's identity (tile, name, members) has scrolled away under the pinned bar, on iOS 18 and later
+/// (on iOS 17 the bar keeps its buttons only).
+private struct GroupHeroVisibilityTracker: ViewModifier {
+    @Binding var isCollapsed: Bool
+
+    init(isCollapsed: Binding<Bool>) {
+        _isCollapsed = isCollapsed
+    }
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollVisibilityChange(threshold: 0.3) { isVisible in
+                isCollapsed = !isVisible
+            }
+        } else {
+            content
+        }
     }
 }
 

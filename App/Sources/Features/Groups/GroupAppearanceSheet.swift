@@ -10,6 +10,7 @@ struct GroupAppearanceSheet: View {
     let onSaved: (TeamGroup) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(model: GroupAppearanceViewModel, onSaved: @escaping (TeamGroup) -> Void) {
         self.model = model
@@ -25,7 +26,8 @@ struct GroupAppearanceSheet: View {
                         EmojiGrid(
                             options: model.emojiOptions,
                             selection: model.emoji,
-                            initials: model.preview.initials
+                            initials: model.preview.initials,
+                            columns: dynamicTypeSize.isAccessibilitySize ? 4 : 6
                         ) { emoji in
                             model.selectEmoji(emoji)
                         }

@@ -12,6 +12,7 @@ struct CreateGroupSheet: View {
     @FocusState private var isNameFocused: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(session: SessionModel, onCreated: @escaping (GroupSummary) -> Void) {
         self.onCreated = onCreated
@@ -26,7 +27,11 @@ struct CreateGroupSheet: View {
                         nameRow
                         nameFooter
                         PickerSection(OnboardingViewModel.emojiSectionTitle) {
-                            EmojiGrid(options: model.emojiOptions, selection: model.emoji) { emoji in
+                            EmojiGrid(
+                                options: model.emojiOptions,
+                                selection: model.emoji,
+                                columns: dynamicTypeSize.isAccessibilitySize ? 4 : 6
+                            ) { emoji in
                                 model.selectEmoji(emoji)
                             }
                         }
