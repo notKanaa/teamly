@@ -40,13 +40,19 @@ extension EquipeApp {
         line: UInt = #line
     ) {
         let toggles = app.switches.matching(identifier: identifier)
-        for _ in 0..<3 {
+        for attempt in 0..<3 {
             // A short wait: a row far down a form only exists once scrolled near, and `reveal` scrolls after it.
             let revealed = reveal(toggles, description, timeout: UITestTimeout.short, file: file, line: line)
             guard let toggle = revealed else { return }
             let isOn = (try? toggle.snapshot())?.value as? String == "1"
             if !isOn {
-                toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+                // The switch on the trailing side of the row; on a retry, the inner switch element when there is one.
+                let inner = toggle.switches.firstMatch
+                if attempt > 0, inner.exists, inner.frame.width >= 1 {
+                    inner.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                } else {
+                    toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+                }
             }
             if outcome.firstMatch.waitForExistence(timeout: UITestTimeout.short) {
                 return
