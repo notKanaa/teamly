@@ -41,6 +41,19 @@
     "experiments": {
       "typedRoutes": false,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "285e6a6d-c794-4b57-a399-6528374030d0"
+      }
+    },
+    "owner": "notkana",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/285e6a6d-c794-4b57-a399-6528374030d0"
     }
   }
 }
