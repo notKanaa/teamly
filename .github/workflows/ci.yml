@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # v2-ui*: the SwiftUI redesign is built and screenshotted on these branches before it is merged into main.
+    branches: [main, 'v2-ui', 'v2-ui-*']
     # The Android app has its own workflow (android.yml): an Android-only change does not rebuild the iOS app.
     paths-ignore: ['android/**', '.github/workflows/android.yml']
   pull_request:
@@ -181,7 +182,8 @@ jobs:
   publish-screenshots:
     name: Publish screenshots (ci-screenshots branch)
     needs: ios
-    if: always() && github.ref == 'refs/heads/main'
+    # main publishes to ci-screenshots, a v2-ui* branch to ci-screenshots-<branch>.
+    if: always() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/v2-ui'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -198,10 +200,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          TARGET=ci-screenshots
+          if [ "$GITHUB_REF_NAME" != "main" ]; then TARGET="ci-screenshots-$GITHUB_REF_NAME"; fi
           cd build/screenshots
-          printf '# Captures CI\n\nCommit %s, run %s.\n' "${GITHUB_SHA::7}" "$GITHUB_RUN_ID" > README.md
-          git init -q -b ci-screenshots
+          printf '# Captures CI\n\nCommit %s (%s), run %s.\n' "${GITHUB_SHA::7}" "$GITHUB_REF_NAME" "$GITHUB_RUN_ID" > README.md
+          git init -q -b "$TARGET"
           git add -A
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "Screenshots of ${GITHUB_SHA::7} (run $GITHUB_RUN_ID)"
-          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$TARGET"
