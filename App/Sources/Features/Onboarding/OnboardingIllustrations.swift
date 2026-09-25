@@ -83,13 +83,14 @@ private struct SampleTaskCard: View {
     var chip: String?
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             StatusGlyph(status, tint: tint, size: 24)
             Text(title)
-                .font(.system(size: 15, weight: .bold))
+                .font(.system(size: 14.5, weight: .bold))
                 .strikethrough(status == .done)
                 .foregroundStyle(status == .done ? Theme.textSecondary : Theme.textPrimary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let symbol {
                 Image(systemName: symbol)
@@ -106,7 +107,7 @@ private struct SampleTaskCard: View {
             }
             AvatarView(person, size: 28)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .cardSurface(radius: 18, elevation: .raised)
     }

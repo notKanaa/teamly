@@ -180,6 +180,35 @@ final class DesignCheckTests: XCTestCase {
         }
     }
 
+    /// The sign-up form and the « Mot de passe oublié » sheet (its e-mail and code steps).
+    @MainActor
+    func testAuthScreens() {
+        let ui = EquipeApp.launch(.signedOut, for: self)
+        ui.waitFor(ui.elements(AccessibilityID.Auth.loginScreen), "the login screen")
+        ui.tap(
+            ui.buttons(AccessibilityID.Auth.goToSignUp), "« Créer un compte »",
+            until: .shows(ui.elements(AccessibilityID.Auth.signUpScreen))
+        )
+        ui.waitForContent(ui.textFields(AccessibilityID.Auth.displayName), "the name field")
+        ui.capture("inscription")
+        ui.goBack(from: "Créer un compte")
+
+        let resetScreen = ui.elements(AccessibilityID.Auth.resetScreen)
+        ui.tap(ui.buttons(AccessibilityID.Auth.forgotPassword), "« Mot de passe oublié ? »", until: .shows(resetScreen))
+        ui.typeText(
+            UITestDemo.camilleEmail, into: ui.textFields(AccessibilityID.Auth.resetEmail), "the e-mail field",
+            expecting: UITestDemo.camilleEmail
+        )
+        ui.capture("mot-de-passe-oublie")
+        ui.app.typeText("\n")
+        ui.waitForContent(ui.elements(AccessibilityID.Auth.resetCode), "the code field")
+        ui.capture("mot-de-passe-code")
+        ui.tap(
+            ui.buttons(AccessibilityID.Auth.resetCancel, orLabel: "Annuler"), "« Annuler »",
+            until: .hides(resetScreen)
+        )
+    }
+
     @MainActor
     func testDarkMode() {
         let ui = EquipeApp.launch(.signedOut, appearance: .dark, for: self)

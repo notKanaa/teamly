@@ -240,7 +240,8 @@ UnassignedAvatar(size: CGFloat = 32)   // the dashed circle of « Personne »
 GroupTile(_ appearance: AvatarAppearance, size: CGFloat = 56, style: GroupTile.Style = .filled)   // .filled | .onColor
 ```
 
-A rounded square (radius 33 %) with the emoji on the group's fill, or the initials in white.
+A rounded square (radius 33 %) with the emoji on the group's fill, or the initials in white (a group symbol while the
+name has no letter yet, in the create preview).
 - `.onColor` is a white tile, for the group hero drawn in the group's fill: the initials then take the fill.
 - Sizes: 56 (group cards), 60 (the create preview), 64 (hero), 40 (the small hero of the activity tab).
 - Decorative.
@@ -446,7 +447,7 @@ CircleIconButton(systemImage: String, accessibilityLabel: String, style: CircleI
     VoiceOver says « En cours ».
   - Disable it with `.disabled(_:)`. Its identifier goes on it.
 - **Secondary:** accent text, 44 pt tall (« Plus tard », « Créer un compte »).
-- **CircleIconButton:** a round 44 pt icon button.
+- **CircleIconButton:** a round icon button, 44 pt, growing with the text up to 60 pt.
   - `.card`: a `card` circle with a `textPrimary` symbol (the onboarding's back button).
   - `.translucent`: white 22 % with a white symbol (the group hero's back and « … »).
 
