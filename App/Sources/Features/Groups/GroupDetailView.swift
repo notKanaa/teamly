@@ -452,19 +452,19 @@ struct GroupDetailView: View {
         if rows.isEmpty {
             emptyTasks
         } else {
-            // What is left to do first; the done tasks after it, under « Terminées », each part in the chosen order.
-            let openRows = rows.filter { !$0.isDone }
-            let doneRows = rows.filter(\.isDone)
+            // One `ForEach` for the cards and the « Terminées » title: a card keeps its identity when its task becomes
+            // done and moves under the title. (With a `ForEach` for each part, the card moved from one to the other
+            // under the same id, and the lazy stack kept showing the old card, spinner included, until the screen was
+            // left.)
             LazyVStack(alignment: .leading, spacing: 10) {
-                ForEach(openRows) { row in
-                    taskCard(row, tint: appearance.color.accent)
-                }
-                if !openRows.isEmpty && !doneRows.isEmpty {
-                    SectionTitle(TaskStatusFilter.done.label)
-                        .padding(.top, 10)
-                }
-                ForEach(doneRows) { row in
-                    taskCard(row, tint: appearance.color.accent)
+                ForEach(GroupTaskLine.lines(rows)) { line in
+                    switch line {
+                    case let .task(row):
+                        taskCard(row, tint: appearance.color.accent)
+                    case .doneTitle:
+                        SectionTitle(TaskStatusFilter.done.label)
+                            .padding(.top, 10)
+                    }
                 }
             }
         }
@@ -517,10 +517,11 @@ struct GroupDetailView: View {
         .accessibilityIdentifier(AccessibilityID.Tasks.filterPicker)
     }
 
-    /// A task card: the task on tap, the status cycle on its ring, the actions on a long press.
+    /// A task card: the task on tap, the status cycle on its ring (the new status shows at once), the actions on a
+    /// long press. Only a deletion in progress makes it busy.
     private func taskCard(_ row: TaskRow, tint: Color) -> some View {
         NavigationLink(value: AppRoute.task(groupId: model.groupId, taskId: row.id)) {
-            TaskRowCard(row: row, tint: tint, isBusy: model.busyTaskIds.contains(row.id)) {
+            TaskRowCard(row: row, tint: tint, isBusy: model.deletingTaskIds.contains(row.id)) {
                 Task { await model.setStatus(row.status.next, for: row.task) }
             }
         }
@@ -688,6 +689,37 @@ private struct GroupHeroVisibilityTracker: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// A line of the group's task list: a card, or the « Terminées » title before the done cards. What is left to do
+/// comes first, then the done tasks, each part in the chosen order.
+private enum GroupTaskLine: Identifiable {
+    case task(TaskRow)
+    case doneTitle
+
+    enum ID: Hashable {
+        case task(UUID)
+        case doneTitle
+    }
+
+    var id: ID {
+        switch self {
+        case let .task(row): .task(row.id)
+        case .doneTitle: .doneTitle
+        }
+    }
+
+    /// The open rows, then « Terminées » (when both parts have rows) and the done rows.
+    static func lines(_ rows: [TaskRow]) -> [GroupTaskLine] {
+        let openRows = rows.filter { !$0.isDone }
+        let doneRows = rows.filter(\.isDone)
+        var lines = openRows.map(GroupTaskLine.task)
+        if !openRows.isEmpty && !doneRows.isEmpty {
+            lines.append(.doneTitle)
+        }
+        lines += doneRows.map(GroupTaskLine.task)
+        return lines
     }
 }
 

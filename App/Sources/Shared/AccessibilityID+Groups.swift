@@ -69,7 +69,7 @@ extension AccessibilityID.Groups {
     static func filterChip(_ key: String) -> String { filterChipPrefix + key }
     static let emptyTasks = "groups.detail.empty"
     static let createFirstTaskButton = "groups.detail.createFirstTask"
-    // The status button of a task card is `Tasks.statusButton`, as in « Mes tâches » (same card).
+    // The status button of a task card is `Tasks.rowStatusButton(title)`, as in « Mes tâches » (same card).
     static let deleteTaskConfirmButton = "groups.detail.deleteTaskConfirm"
 
     // MARK: « Apparence » sheet (admins)

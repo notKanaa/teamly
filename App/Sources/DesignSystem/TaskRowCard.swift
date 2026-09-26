@@ -12,11 +12,13 @@ import TeamTasksCore
 ///
 /// Wrap it in the screen's `NavigationLink` (with `.buttonStyle(.pressable)` or `.plain` in a scroll view) and put the
 /// row's identifier on the link (`AccessibilityID.Tasks.row(row.title)`). VoiceOver reads the card as one sentence
-/// starting with the title and the status, with a « Passer à « … » » action; the status button stays a separate element.
+/// starting with the title and the status, with a « Passer à « … » » action; the status button stays a separate element
+/// (`AccessibilityID.Tasks.rowStatusButton(row.title)`). The lists show a new status at once: `isBusy` (a spinner, no
+/// status change) is for a deletion in progress.
 ///
 /// ```swift
 /// NavigationLink(value: AppRoute.task(groupId: row.task.groupId, taskId: row.id)) {
-///     TaskRowCard(row: row, tint: model.appearance.color.accent, isBusy: model.busyTaskIds.contains(row.id)) {
+///     TaskRowCard(row: row, tint: model.appearance.color.accent, isBusy: model.deletingTaskIds.contains(row.id)) {
 ///         setStatus(row.status.next, for: row)
 ///     }
 /// }
@@ -47,7 +49,13 @@ struct TaskRowCard: View {
     var body: some View {
         let isLarge = dynamicTypeSize.isAccessibilitySize
         HStack(alignment: .center, spacing: 6) {
-            StatusControl(status: row.status, tint: ringTint, isBusy: isBusy, isEnabled: canToggle) {
+            StatusControl(
+                status: row.status,
+                tint: ringTint,
+                isBusy: isBusy,
+                isEnabled: canToggle,
+                identifier: AccessibilityID.Tasks.rowStatusButton(row.title)
+            ) {
                 onToggleStatus?()
             }
 

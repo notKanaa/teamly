@@ -249,6 +249,176 @@ import TeamTasksMocks
         model.apply(foreign)
         #expect(model.tasks.count == 5)
     }
+
+    /// The status circle of a card tapped twice, as on the group screen (the second tap used to spin forever):
+    /// « En cours », then « Terminée ». The task stays in the list, done, under « Terminées », and nothing is busy.
+    @Test func statusTappedTwiceEndsDoneAndNotBusy() async throws {
+        let harness = VMHarness()
+        let model = GroupDetailViewModel(session: harness.makeSession(), groupId: F.lilas)
+        await model.load()
+        var row = try #require(model.rows.first { $0.id == T.reparerFuite })
+        #expect(row.status == .todo)
+
+        #expect(await model.setStatus(row.status.next, for: row.task))
+        row = try #require(model.rows.first { $0.id == T.reparerFuite })
+        #expect(row.status == .inProgress)
+        #expect(model.busyTaskIds.isEmpty)
+
+        #expect(await model.setStatus(row.status.next, for: row.task))
+        row = try #require(model.rows.first { $0.id == T.reparerFuite })
+        #expect(row.status == .done)
+        #expect(row.task.completedAt != nil)
+        #expect(model.busyTaskIds.isEmpty)
+        #expect(model.deletingTaskIds.isEmpty)
+        #expect(model.rows.filter(\.isDone).map(\.id) == [T.nettoyerCuisine, T.reparerFuite])
+        #expect(try await harness.services.tasks.task(id: T.reparerFuite).status == .done)
+
+        // The reload that follows (the feed was bumped) keeps it done.
+        #expect(model.needsRefresh)
+        await model.load()
+        #expect(model.tasks.first { $0.id == T.reparerFuite }?.status == .done)
+        #expect(model.busyTaskIds.isEmpty)
+    }
+
+    /// A status shows at once, before the server answers, and a reload made meanwhile (a Realtime signal) keeps it.
+    @Test func statusShowsAtOnceAndSurvivesAReloadDuringTheSave() async throws {
+        let harness = VMHarness()
+        let model = GroupDetailViewModel(session: harness.makeSession(), groupId: F.lilas)
+        await model.load()
+        let fuite = try #require(model.tasks.first { $0.id == T.reparerFuite })
+
+        harness.faults.hold(.setStatus)
+        let save = Task { await model.setStatus(.done, for: fuite) }
+        await VMWait.until("the held save") { harness.faults.waiting(.setStatus) == 1 }
+        #expect(model.tasks.first { $0.id == fuite.id }?.status == .done)
+        #expect(model.rows.first { $0.id == fuite.id }?.isDone == true)
+        #expect(model.busyTaskIds == [fuite.id])
+        #expect(model.deletingTaskIds.isEmpty)
+
+        // The server still says « À faire »: the reload keeps what the screen shows.
+        await model.reload()
+        #expect(harness.faults.calls(.tasks) == 2)
+        #expect(model.tasks.first { $0.id == fuite.id }?.status == .done)
+
+        harness.faults.release(.setStatus)
+        #expect(await save.value)
+        #expect(model.tasks.first { $0.id == fuite.id }?.status == .done)
+        #expect(model.busyTaskIds.isEmpty)
+        await model.load()
+        #expect(model.tasks.first { $0.id == fuite.id }?.status == .done)
+    }
+
+    /// A failed status change puts the saved status back and says why.
+    @Test func failedStatusChangeRollsBack() async throws {
+        let harness = VMHarness()
+        let session = harness.makeSession()
+        let model = GroupDetailViewModel(session: session, groupId: F.lilas)
+        await model.load()
+        let courses = try #require(model.tasks.first { $0.id == T.faireCourses })
+        #expect(courses.status == .inProgress)
+        let revision = session.feed.groupRevision(F.lilas)
+
+        harness.faults.fail(.setStatus, with: AppError.network)
+        #expect(await !model.setStatus(.done, for: courses))
+        #expect(model.tasks.first { $0.id == courses.id } == courses)
+        #expect(model.errorMessage == AppError.network.messageFR)
+        #expect(model.busyTaskIds.isEmpty)
+        #expect(session.feed.groupRevision(F.lilas) == revision)
+        #expect(try await harness.services.tasks.task(id: courses.id).status == .inProgress)
+    }
+
+    /// Two quick taps: the second one shows at once and is saved right after the first (the last one asked wins).
+    @Test func quickSuccessiveTapsAreSavedInOrder() async throws {
+        let harness = VMHarness()
+        let model = GroupDetailViewModel(session: harness.makeSession(), groupId: F.lilas)
+        await model.load()
+        let fuite = try #require(model.tasks.first { $0.id == T.reparerFuite })
+
+        harness.faults.hold(.setStatus)
+        let first = Task { await model.setStatus(.inProgress, for: fuite) }
+        await VMWait.until("the held save") { harness.faults.waiting(.setStatus) == 1 }
+        let shown = try #require(model.tasks.first { $0.id == fuite.id })
+        #expect(shown.status == .inProgress)
+
+        #expect(await model.setStatus(shown.status.next, for: shown))
+        #expect(model.tasks.first { $0.id == fuite.id }?.status == .done)
+        #expect(harness.faults.calls(.setStatus) == 1)
+
+        harness.faults.release(.setStatus)
+        #expect(await first.value)
+        #expect(harness.faults.calls(.setStatus) == 2)
+        #expect(model.tasks.first { $0.id == fuite.id }?.status == .done)
+        #expect(model.busyTaskIds.isEmpty)
+        #expect(try await harness.services.tasks.task(id: fuite.id).status == .done)
+    }
+}
+
+/// The local changes of a task list (`TaskListChanges`) and the status a list shows before the server answers.
+@MainActor
+@Suite struct TaskListChangesTests {
+    private static let date = Date(timeIntervalSince1970: 1_790_000_000)
+    private static let groupId = UUID()
+
+    private static func task(_ title: String, _ status: TaskStatus = .todo) -> TaskItem {
+        TaskItem(
+            id: UUID(), groupId: groupId, title: title, status: status, createdBy: nil, createdAt: date, updatedAt: date
+        )
+    }
+
+    @Test func settingStatusMirrorsTheServer() {
+        let me = UUID()
+        let later = Self.date.addingTimeInterval(60)
+        let todo = Self.task("A")
+        let done = todo.settingStatus(.done, by: me, at: later)
+        #expect(done.status == .done)
+        #expect(done.completedAt == later)
+        #expect(done.completedBy == me)
+        #expect(done.updatedAt == later)
+        // Already done: the completion and the update date are kept.
+        #expect(done.settingStatus(.done, by: UUID(), at: later.addingTimeInterval(60)) == done)
+        let reopened = done.settingStatus(.inProgress, by: me, at: later.addingTimeInterval(60))
+        #expect(reopened.status == .inProgress)
+        #expect(reopened.completedAt == nil)
+        #expect(reopened.completedBy == nil)
+        #expect(reopened.updatedAt == later.addingTimeInterval(60))
+    }
+
+    @Test func aFetchKeepsTheLocalWritesMadeAfterItStarted() {
+        let changes = TaskListChanges()
+        let a = Self.task("A")
+        let b = Self.task("B")
+        let c = Self.task("C")
+        let fetchStart = changes.mark
+
+        // While the fetch reads: A shown done (being saved), B saved by the editor, C deleted, D created here.
+        let localA = a.settingStatus(.done, by: UUID(), at: Self.date)
+        #expect(changes.beginStatus(.done, for: a.id))
+        #expect(changes.savingIds == [a.id])
+        var localB = b
+        localB.title = "B2"
+        changes.record(b.id)
+        changes.record(c.id)
+        let d = Self.task("D")
+        changes.record(d.id)
+        let local = [localA, localB, d]
+
+        let merged = changes.merge([a, b, c], local: local, since: fetchStart)
+        #expect(merged.map(\.title) == ["A", "B2", "D"])
+        #expect(merged.first?.status == .done)
+
+        // A fetch started after them reads the server, except A, still being saved.
+        let second = changes.merge([a, b, c], local: local, since: changes.mark)
+        #expect(second.map(\.title) == ["A", "B", "C"])
+        #expect(second.map(\.status) == [.done, .todo, .todo])
+
+        // A status asked during the save is sent after it; the save over, the next fetch reads the server.
+        #expect(!changes.beginStatus(.todo, for: a.id))
+        #expect(changes.nextStatus(for: a.id) == .todo)
+        #expect(changes.nextStatus(for: a.id) == nil)
+        changes.endStatus(for: a.id)
+        #expect(changes.savingIds.isEmpty)
+        #expect(changes.merge([a, b, c], local: local, since: changes.mark) == [a, b, c])
+    }
 }
 
 @MainActor

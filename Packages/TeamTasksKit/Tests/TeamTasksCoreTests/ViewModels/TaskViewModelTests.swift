@@ -523,6 +523,38 @@ import TeamTasksMocks
         #expect(!model.tasks.contains { $0.id == courses.id })
     }
 
+    /// A task done from its card leaves its section and joins « terminées aujourd’hui » at once, before the server
+    /// answers, and a reload made meanwhile keeps it there; reopening it fails: it stays done, with the reason.
+    @Test func statusShowsAtOnceAndRollsBackOnFailure() async throws {
+        let harness = VMHarness()
+        let model = MyTasksViewModel(session: harness.makeSession())
+        await model.load()
+        let poubelles = try #require(model.tasks.first { $0.id == T.sortirPoubelles })
+
+        harness.faults.hold(.setStatus)
+        let save = Task { await model.setStatus(.done, for: poubelles) }
+        await VMWait.until("the held save") { harness.faults.waiting(.setStatus) == 1 }
+        #expect(!model.sections.flatMap(\.rows).contains { $0.id == poubelles.id })
+        #expect(model.doneTodayRows.map(\.id) == [poubelles.id])
+        #expect(model.daySummary.doneCount == 1)
+        #expect(model.busyTaskIds == [poubelles.id])
+
+        await model.reload()
+        #expect(model.doneTodayRows.map(\.id) == [poubelles.id])
+        harness.faults.release(.setStatus)
+        #expect(await save.value)
+        #expect(model.busyTaskIds.isEmpty)
+        #expect(model.doneTodayRows.first?.task.groupName == "Coloc' rue des Lilas")
+
+        let done = try #require(model.doneTodayRows.first)
+        harness.faults.fail(.setStatus, with: AppError.network)
+        #expect(await !model.setStatus(.todo, for: done.task))
+        #expect(model.errorMessage == AppError.network.messageFR)
+        #expect(model.doneTodayRows.map(\.id) == [poubelles.id])
+        #expect(!model.sections.flatMap(\.rows).contains { $0.id == poubelles.id })
+        #expect(model.busyTaskIds.isEmpty)
+    }
+
     @Test func emptyState() async {
         let harness = VMHarness(.emptyGroups)
         let model = MyTasksViewModel(session: harness.makeSession())

@@ -24,6 +24,25 @@ extension EquipeApp {
             .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", identifier, text))
     }
 
+    /// Taps the status circle of the task card `title` of the shown list until a card of that task reads `expected`
+    /// (« En cours », « Terminée »): its own button (`rowStatusButton(title)`) when the card exposes it, else the card
+    /// at the circle's place (its leading edge), which is where a finger taps it.
+    func tapTaskStatus(
+        _ title: String,
+        until expected: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let outcome = EquipeApp.Outcome.shows(elements(labelContaining: title, expected))
+        let description = "the status circle of « \(title) »"
+        let statusButton = buttons(AccessibilityID.Tasks.rowStatusButton(title))
+        if statusButton.firstMatch.waitForExistence(timeout: UITestTimeout.short) {
+            tap(statusButton, description, until: outcome, file: file, line: line)
+        } else {
+            tapRow(AccessibilityID.Tasks.row(title), description, at: 0.07, until: outcome, file: file, line: line)
+        }
+    }
+
     /// Every element with this identifier and this accessibility value.
     func elements(_ identifier: String, value: String) -> XCUIElementQuery {
         app.descendants(matching: .any)

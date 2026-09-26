@@ -414,17 +414,19 @@ final class EquipeApp {
     }
 
     /// Taps a list row (`NavigationLink`) by identifier: the widest element holding it (the cell, whatever element
-    /// SwiftUI gives the identifier to), at 60 % of its width, away from the status button of task rows (on the left).
+    /// SwiftUI gives the identifier to), at `dx` of its width: 60 % by default, away from the status button of task
+    /// rows (on the left).
     func tapRow(
         _ identifier: String,
         _ description: String? = nil,
+        at dx: CGFloat = 0.6,
         timeout: TimeInterval = UITestTimeout.long,
         until outcome: Outcome? = nil,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         performTap(
-            elements(identifier), description ?? identifier, timeout: timeout, at: 0.6, widest: true,
+            elements(identifier), description ?? identifier, timeout: timeout, at: dx, widest: true,
             until: outcome, file: file, line: line
         )
     }

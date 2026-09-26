@@ -45,15 +45,18 @@ struct StatusGlyph: View {
 }
 
 /// The status button of a task row (docs/DESIGN-V2.md §5): a `StatusGlyph` in a 44 pt target (at least), growing with
-/// Dynamic Type. A tap asks for the next status of the cycle (the caller runs it: `row.status.next`); a spinner
-/// replaces the glyph while `isBusy`. Borderless: it keeps its own tap inside a `NavigationLink` row or card.
+/// Dynamic Type. A tap asks for the next status of the cycle (the caller runs it: `row.status.next`, and the lists show
+/// it at once); a spinner replaces the glyph while `isBusy` (a deletion in progress). Borderless: it keeps its own tap
+/// inside a `NavigationLink` row or card.
 ///
-/// Accessibility: « Statut : À faire », hint « Passer à « En cours » », identifier `AccessibilityID.Tasks.statusButton`.
+/// Accessibility: « Statut : À faire », hint « Passer à « En cours » », identifier `AccessibilityID.Tasks.statusButton`
+/// (a task card gives its own, `AccessibilityID.Tasks.rowStatusButton(title)`).
 struct StatusControl: View {
     let status: TaskStatus
     var tint: Color
     var isBusy: Bool
     var isEnabled: Bool
+    var identifier: String
     let action: () -> Void
 
     @ScaledMetric(relativeTo: .headline) private var glyphSize: CGFloat = 24
@@ -64,12 +67,14 @@ struct StatusControl: View {
         tint: Color = Theme.accent,
         isBusy: Bool = false,
         isEnabled: Bool = true,
+        identifier: String = AccessibilityID.Tasks.statusButton,
         action: @escaping () -> Void
     ) {
         self.status = status
         self.tint = tint
         self.isBusy = isBusy
         self.isEnabled = isEnabled
+        self.identifier = identifier
         self.action = action
     }
 
@@ -96,6 +101,6 @@ struct StatusControl: View {
         }
         .accessibilityLabel("Statut\u{00A0}: \(status.label)")
         .accessibilityHint(isEnabled ? "Passer à «\u{00A0}\(status.next.label)\u{00A0}»" : "")
-        .accessibilityIdentifier(AccessibilityID.Tasks.statusButton)
+        .accessibilityIdentifier(identifier)
     }
 }
