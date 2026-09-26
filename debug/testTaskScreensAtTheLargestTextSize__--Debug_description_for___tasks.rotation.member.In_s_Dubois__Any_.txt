@@ -1,0 +1,5 @@
+Query chain:
+ →Find: Target Application 'io.github.notkanaa.equipe'
+  ↪︎Find: Descendants matching type Any
+    ↪︎Find: Elements matching predicate '"tasks.rotation.member.Inès Dubois" IN identifiers'
+      ↪︎Find: First Match

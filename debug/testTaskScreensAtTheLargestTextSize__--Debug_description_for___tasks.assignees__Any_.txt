@@ -1,0 +1,5 @@
+Query chain:
+ →Find: Target Application 'io.github.notkanaa.equipe'
+  ↪︎Find: Descendants matching type Any
+    ↪︎Find: Elements matching predicate '"tasks.assignees" IN identifiers'
+      ↪︎Find: First Match
