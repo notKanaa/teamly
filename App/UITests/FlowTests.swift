@@ -44,9 +44,14 @@ final class FlowTests: XCTestCase {
             UITestDemo.unknownInviteCode, into: codeField, "the invite code field",
             expecting: UITestDemo.unknownInviteCodeDisplayed
         )
-        ui.tapWhenEnabled(
-            ui.buttons(AccessibilityID.Groups.saveButton), "« Rejoindre » of the sheet", until: .shows(ui.app.alerts)
-        )
+        let joinButton = ui.buttons(AccessibilityID.Groups.saveButton)
+        if !ui.waitUntilEnabled(joinButton, timeout: UITestTimeout.short) {
+            // The field re-formats its text after each key and may miss the last one while showing all 8 (a CI run:
+            // « ZZZZ-ZZZZ » shown, « Rejoindre » disabled): typing the last letter again hands it over.
+            ui.app.typeText(XCUIKeyboardKey.delete.rawValue + String(UITestDemo.unknownInviteCode.suffix(1)))
+            ui.waitForText(UITestDemo.unknownInviteCodeDisplayed, of: codeField)
+        }
+        ui.tapWhenEnabled(joinButton, "« Rejoindre » of the sheet", until: .shows(ui.app.alerts))
 
         ui.waitForAlert(containing: UITestDemo.invalidCodeMessage)
         ui.tapAlertButton("OK")

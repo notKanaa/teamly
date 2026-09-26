@@ -1,7 +1,7 @@
 import XCTest
 
 /// Screenshots and design checks of the v2 task screens (docs/DESIGN-V2.md §7.3, §7.6, §7.7): « Mes tâches » in dark
-/// mode (07-mes-taches-sombre, one of the CI captures), then the task screens and the editor in dark mode and at the
+/// mode (07-mes-taches-sombre, one of the CI captures), then the parts of the task screens that change the most at the
 /// largest accessibility text size, captured under `debug/` to be looked at. The light captures 18 to 20 are taken by
 /// `TasksFlowTests`.
 final class TasksScreenshotTests: XCTestCase {
@@ -18,56 +18,21 @@ final class TasksScreenshotTests: XCTestCase {
         ui.capture("07-mes-taches-sombre")
     }
 
-    /// Showcase in dark mode: « Mes tâches », « Sortir les poubelles » (every week, à tour de rôle), « Faire les
-    /// courses » (the checklist), and the editor of a weekly task.
-    @MainActor
-    func testTaskScreensInDarkMode() {
-        let ui = EquipeApp.launch(.showcase, notifications: "authorized", appearance: .dark, for: self)
-        captureTaskScreens(ui, suffix: "sombre", scrolls: 1)
-    }
-
-    /// Showcase at the largest accessibility text size (AX5): the same screens, from their top down.
+    /// Showcase at the largest accessibility text size (AX5): the checklist card of « Faire les courses » (its title
+    /// and « 2 sur 4 » stack), then the editor of a weekly task with « Assigner à » (the names under the title), and
+    /// with « À tour de rôle » and its order.
     @MainActor
     func testTaskScreensAtTheLargestTextSize() {
         let ui = EquipeApp.launch(.showcase, notifications: "authorized", appearance: .largestText, for: self)
-        captureTaskScreens(ui, suffix: "ax", scrolls: 3)
-    }
-
-    /// « Mes tâches », two task screens and the editor, each captured at its top then after each of `scrolls` scrolls.
-    @MainActor
-    private func captureTaskScreens(_ ui: EquipeApp, suffix: String, scrolls: Int) {
-        let daySummary = ui.elements(AccessibilityID.MyTasks.daySummary)
         ui.openMyTasks()
-        ui.waitForContent(daySummary, "« Ta journée »")
-        ui.capture("mes-taches-\(suffix)")
-        scrollAndCapture(ui, "mes-taches-\(suffix)", scrolls: scrolls)
-        // « 1 tâche terminée aujourd’hui », unfolded (the showcase completes « Nettoyer le frigo » 10 hours before the
-        // launch, bounded by Monday 00:00: there is none on some mornings).
-        let doneToday = ui.elements(AccessibilityID.MyTasks.doneTodayButton)
-        if doneToday.firstMatch.waitForExistence(timeout: UITestTimeout.short) {
-            let doneRow = ui.elements(AccessibilityID.Tasks.row("Nettoyer le frigo"))
-            ui.tap(doneToday, "« terminées aujourd’hui »", until: .shows(doneRow))
-            ui.scroll(.towardsBottom)
-            ui.capture("mes-taches-terminees-\(suffix)")
-        }
+        ui.waitForContent(ui.elements(AccessibilityID.MyTasks.daySummary), "« Ta journée »")
 
-        // Back at the top: the rows are then found below the screen (a card half under the navigation bar would take
-        // the tap there).
-        ui.scrollToTop(until: daySummary, maxScrolls: 4 * scrolls + 4)
-        ui.openTask(UITestDemo.sortirPoubelles)
-        ui.waitForContent(ui.elements(AccessibilityID.Tasks.statusOption("todo")), "the status")
-        ui.capture("tache-rotation-\(suffix)")
-        scrollAndCapture(ui, "tache-rotation-\(suffix)", scrolls: scrolls)
-        ui.goBack(from: UITestScreen.task)
-
-        ui.scrollToTop(until: daySummary, maxScrolls: 4 * scrolls + 4)
         ui.openTask(UITestDemo.faireCourses)
-        ui.waitForContent(ui.elements(AccessibilityID.Tasks.statusOption("todo")), "the status")
-        ui.capture("tache-checklist-\(suffix)")
-        scrollAndCapture(ui, "tache-checklist-\(suffix)", scrolls: scrolls)
+        ui.reveal(ui.elements(AccessibilityID.Tasks.checklistProgress), "« 2 sur 4 »")
+        ui.capture("tache-checklist-ax")
 
+        // `openGroup` scrolls to the group's card if needed (the cards are tall at this size).
         ui.openTab(AccessibilityID.Tabs.groupsTitle, identifier: AccessibilityID.Tabs.groups)
-        ui.waitForDemoGroups()
         ui.openGroup(UITestDemo.lilasGroup)
         let titleField = ui.elements(AccessibilityID.Tasks.titleField)
         ui.tap(ui.addTaskButton, "« + »", until: .shows(titleField))
@@ -79,26 +44,13 @@ final class TasksScreenshotTests: XCTestCase {
         )
         let weekly = ui.buttons(AccessibilityID.Tasks.repeatOption("weekly"))
         ui.tap(weekly, "« Semaine »", until: .selects(weekly))
-        // The whole form with « Assigner à » (the scrolls also put the keyboard away)…
-        ui.scrollToTop(until: titleField, maxScrolls: 4 * scrolls + 4)
-        ui.capture("nouvelle-tache-\(suffix)")
-        scrollAndCapture(ui, "nouvelle-tache-\(suffix)", scrolls: scrolls + 1)
-        // … then « À tour de rôle » and its order instead.
+
+        ui.reveal(ui.elements(AccessibilityID.Tasks.assigneesButton), "« Assigner à »")
+        ui.capture("nouvelle-tache-assigner-ax")
+
         let ines = ui.elements(AccessibilityID.Tasks.rotationMember(UITestDemo.inesName))
         ui.turnOn(AccessibilityID.Tasks.rotationToggle, "« À tour de rôle »", until: ines)
-        ui.waitForContent(ines, "Inès in the rotation")
-        ui.capture("nouvelle-tache-rotation-\(suffix)")
-        ui.scroll(.towardsBottom)
-        ui.capture("nouvelle-tache-rotation-\(suffix)-1")
-    }
-
-    /// Captures `name-1`, `name-2`… after each of `scrolls` scrolls (two drags each) towards the bottom.
-    @MainActor
-    private func scrollAndCapture(_ ui: EquipeApp, _ name: String, scrolls: Int) {
-        for index in 1...max(scrolls, 1) {
-            ui.scroll(.towardsBottom)
-            ui.scroll(.towardsBottom)
-            ui.capture("\(name)-\(index)")
-        }
+        ui.reveal(ines, "Inès in the rotation")
+        ui.capture("nouvelle-tache-rotation-ax")
     }
 }

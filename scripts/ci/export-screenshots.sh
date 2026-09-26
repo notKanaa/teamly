@@ -47,6 +47,13 @@ if [ -f "$MANIFEST" ]; then
         cp "$RAW/$file" "$OUT/$base.$ext" 2>/dev/null || echo "Could not copy $file ($name)."
       else
         safe="$(printf '%s--%s' "${test##*/}" "$base" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-120)"
+        # GitHub refuses files over 100 MB: the screen recording of a long failed test would stop the publication of
+        # every capture (the xcresult artifact keeps it).
+        size="$(wc -c < "$RAW/$file" 2>/dev/null | tr -d ' ')"
+        if [ "${size:-0}" -gt 90000000 ]; then
+          echo "::warning title=Screenshots::Not published: $safe.$ext ($size bytes, over the 100 MB file limit)."
+          continue
+        fi
         cp "$RAW/$file" "$OUT/debug/$safe.$ext" 2>/dev/null || echo "Could not copy $file ($name)."
       fi
     done

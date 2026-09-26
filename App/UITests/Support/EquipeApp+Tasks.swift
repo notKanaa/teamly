@@ -64,10 +64,8 @@ extension EquipeApp {
     /// the keyboard (with its toolbar) or the home indicator at the bottom. Nil when the row is gone.
     private func switchPoint(of toggle: XCUIElement) -> XCUICoordinate? {
         for _ in 0..<5 {
-            guard let snapshot = try? toggle.snapshot() else { return nil }
-            let row = snapshot.frame
-            let inner = Self.innerSwitchFrame(in: snapshot)
-            let target = inner.map { CGPoint(x: $0.midX, y: $0.midY) }
+            guard let row = try? toggle.snapshot().frame else { return nil }
+            let target = innerSwitchCenter(of: toggle, rowWidth: row.width)
                 ?? CGPoint(x: row.minX + row.width * 0.92, y: row.midY)
             let screen = app.frame
             var bottom = screen.maxY - 40
@@ -81,22 +79,19 @@ extension EquipeApp {
             } else if target.y < top {
                 scroll(.towardsTop)
             } else {
-                return app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: target.x, dy: target.y))
+                let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+                return origin.withOffset(CGVector(dx: target.x, dy: target.y))
             }
         }
         return nil
     }
 
-    /// The frame of the switch drawn inside a `Toggle` row (a descendant switch narrower than the row), if any.
-    private static func innerSwitchFrame(in snapshot: any XCUIElementSnapshot) -> CGRect? {
-        var stack = snapshot.children
-        while let child = stack.popLast() {
-            let frame = child.frame
-            if child.elementType == .switch, frame.width >= 1, frame.height >= 1, frame.width < snapshot.frame.width * 0.5 {
-                return frame
-            }
-            stack.append(contentsOf: child.children)
-        }
-        return nil
+    /// The center of the switch drawn inside a `Toggle` row (a descendant switch narrower than the row), if any.
+    private func innerSwitchCenter(of toggle: XCUIElement, rowWidth: CGFloat) -> CGPoint? {
+        let inner = toggle.switches.firstMatch
+        guard inner.exists, let frame = try? inner.snapshot().frame,
+              frame.width >= 1, frame.height >= 1, frame.width < rowWidth * 0.5
+        else { return nil }
+        return CGPoint(x: frame.midX, y: frame.midY)
     }
 }

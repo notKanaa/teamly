@@ -83,7 +83,8 @@ jobs:
   ios:
     name: iOS app (build, UI tests, screenshots)
     runs-on: macos-26
-    timeout-minutes: 60
+    # The UI tests of every v2 screen take about 45 min, and booting the simulator alone 3 to 9 min.
+    timeout-minutes: 75
     # Read-only token, not kept in .git/config: the build and the tests run without write access (the
     # publish-screenshots job pushes the screenshots).
     permissions:
