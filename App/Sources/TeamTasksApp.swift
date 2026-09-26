@@ -1,7 +1,7 @@
 import SwiftUI
 import TeamTasksCore
 
-/// « Équipe »: the backend is chosen once at launch (`AppContainer` / `AppEnvironment`), then `RootView` follows
+/// « Teamly »: the backend is chosen once at launch (`AppContainer` / `AppEnvironment`), then `RootView` follows
 /// `AppModel.phase`.
 @main
 struct TeamTasksApp: App {

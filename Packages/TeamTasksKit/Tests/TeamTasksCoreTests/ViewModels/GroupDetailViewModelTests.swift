@@ -434,7 +434,7 @@ import TeamTasksMocks
         #expect(model.members.map(\.user.displayName) == ["Camille Martin", "Inès Dubois", "Lucas Bernard"])
         #expect(model.isAdmin && model.canManageMembers && model.canSeeInviteCode)
         #expect(model.inviteCodeText == "LYLA-S234")
-        #expect(model.shareText == "Rejoins mon groupe «\u{00A0}Coloc' rue des Lilas\u{00A0}» sur Équipe avec le code LYLA-S234")
+        #expect(model.shareText == "Rejoins mon groupe «\u{00A0}Coloc' rue des Lilas\u{00A0}» sur Teamly avec le code LYLA-S234")
         #expect(model.displayName(of: model.members[0]) == "Camille Martin (toi)")
         #expect(model.displayName(of: model.members[1]) == "Inès Dubois")
         #expect(!model.canRemove(model.members[0]))

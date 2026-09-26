@@ -1,6 +1,6 @@
-# Équipe
+# Teamly
 
-**Équipe** est une app iPhone native (SwiftUI) pour organiser les tâches d'un groupe : une coloc, une asso, une équipe de sport, une famille…
+**Teamly** (anciennement « Équipe ») est une app iPhone native (SwiftUI) pour organiser les tâches d'un groupe : une coloc, une asso, une équipe de sport, une famille…
 
 - **Comptes** : e-mail + mot de passe, « Mot de passe oublié » avec un code à 6 chiffres reçu par e-mail.
 - **Groupes** : on crée un groupe, puis on invite les autres avec un **code de 8 caractères** à partager.

@@ -109,7 +109,7 @@ struct InviteCodeSheet: View {
                 .accessibilityHint("Code d’invitation du groupe")
                 .accessibilityIdentifier(AccessibilityID.Groups.inviteCode)
             if let shareText = model.shareText {
-                ShareLink(item: shareText, subject: Text("Invitation dans Équipe")) {
+                ShareLink(item: shareText, subject: Text("Invitation dans Teamly")) {
                     Label("Partager le code", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(.primary)

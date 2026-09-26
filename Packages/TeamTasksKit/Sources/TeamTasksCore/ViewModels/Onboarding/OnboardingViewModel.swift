@@ -109,7 +109,7 @@ public final class OnboardingViewModel: ErrorPresenting, Identifiable {
     public static let skipButtonTitle = "Passer"
     public static let laterButtonTitle = "Plus tard"
     public static let welcomeMessage =
-        "Équipe, c’est la liste de tâches de ton groupe. Trois choses à savoir avant de commencer."
+        "Teamly, c’est la liste de tâches de ton groupe. Trois choses à savoir avant de commencer."
     public static let highlights = [
         Highlight(
             title: "À tour de rôle",

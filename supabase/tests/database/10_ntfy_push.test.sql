@@ -106,7 +106,7 @@ select is((select headers from tests.pushes()), '{"Content-Type": "application/j
 select is((select body from tests.pushes()),
   jsonb_build_object(
     'topic', 'equipe-bbbbbbbbbbbbbbbbbbbbbbbb',
-    'title', 'Équipe',
+    'title', 'Teamly',
     'message', 'Nouvelle tâche assignée dans « Coloc'' "rue" des Lilas »',
     'click', 'equipe://task/' || tests.id('G')::text || '/' || tests.id('T1')::text),
   'ntfy JSON body: topic, title, message with the group name, click deep link');

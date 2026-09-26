@@ -38,7 +38,7 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Équipe
+        CFBundleDisplayName: Teamly
         CFBundleDevelopmentRegion: fr
         CFBundleLocalizations: [fr]
         CFBundleShortVersionString: $(MARKETING_VERSION)

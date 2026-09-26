@@ -113,7 +113,7 @@ private struct SampleTaskCard: View {
     }
 }
 
-/// The illustration of the notifications step (docs/DESIGN-V2.md §7.1): three sample notifications of « Équipe »
+/// The illustration of the notifications step (docs/DESIGN-V2.md §7.1): three sample notifications of « Teamly »
 /// (a turn, an assignment, the weekly recap), as cards with the app icon. Text capped at the xxLarge size. Decorative:
 /// hidden from VoiceOver.
 struct OnboardingNotificationSamples: View {
@@ -157,7 +157,7 @@ struct OnboardingNotificationSamples: View {
                 .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("Équipe")
+                    Text("Teamly")
                         .font(Font.subheadline.weight(.bold))
                         .foregroundStyle(Theme.textPrimary)
                     Spacer(minLength: 8)

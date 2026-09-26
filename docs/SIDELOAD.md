@@ -1,4 +1,4 @@
-# Installer Équipe sur ton iPhone depuis Windows
+# Installer Teamly sur ton iPhone depuis Windows
 
 Sans compte développeur Apple payant, on ne peut pas publier l'app sur l'App Store ni sur TestFlight. On l'installe donc soi-même (*sideload*) avec **Sideloadly**, un outil gratuit pour Windows, et un **Apple ID gratuit**.
 
@@ -45,7 +45,7 @@ L'IPA contient l'adresse de ton projet Supabase ([docs/SUPABASE.md](SUPABASE.md)
 
 1. **Mode développeur** (obligatoire pour les apps installées ainsi) : *Réglages → Confidentialité et sécurité → Mode développeur* (tout en bas de la page) → active-le. L'iPhone redémarre. Après le redémarrage, confirme **Activer** et tape ton code. L'option n'apparaît qu'une fois une app installée par Sideloadly.
 2. **Faire confiance à ton Apple ID** : *Réglages → Général → VPN et gestion de l'appareil* → sous « App de développeur », touche ton adresse Apple ID → **Faire confiance à « … »** → confirme.
-3. Ouvre **Équipe**. Accepte les notifications si tu veux les rappels (voir [NOTIFICATIONS.md](NOTIFICATIONS.md)).
+3. Ouvre **Teamly**. Accepte les notifications si tu veux les rappels (voir [NOTIFICATIONS.md](NOTIFICATIONS.md)).
 
 ## 5. Tous les 7 jours : ré-signer
 
@@ -62,7 +62,7 @@ Si ta version de Sideloadly propose l'actualisation automatique (*auto-refresh*,
 | Limite | Conséquence |
 |---|---|
 | Signature valable 7 jours | Réinstaller chaque semaine (étape 5) |
-| 3 apps installées ainsi au maximum par iPhone | Équipe en occupe une |
+| 3 apps installées ainsi au maximum par iPhone | Teamly en occupe une |
 | 10 identifiants d'app (*App ID*) par semaine | Ne pas changer de Bundle ID à chaque installation |
 | Pas de notifications push Apple (APNs) | Rappels locaux + option ntfy à la place ([NOTIFICATIONS.md](NOTIFICATIONS.md)) |
 | Pas de TestFlight ni d'App Store | **Chaque membre du groupe** installe l'app lui-même, depuis son ordinateur, avec son propre Apple ID (Sideloadly existe aussi sur Mac) |

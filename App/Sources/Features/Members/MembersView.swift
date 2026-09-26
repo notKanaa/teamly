@@ -110,7 +110,7 @@ struct MembersView: View {
         Section {
             inviteCodeRow
             if let shareText = model.shareText {
-                ShareLink(item: shareText, subject: Text("Invitation dans Équipe")) {
+                ShareLink(item: shareText, subject: Text("Invitation dans Teamly")) {
                     rowLabel("Partager le code", systemImage: "square.and.arrow.up", tone: ColorKey.blue.tone)
                 }
                 .accessibilityIdentifier(AccessibilityID.Members.shareCodeButton)

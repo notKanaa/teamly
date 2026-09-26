@@ -117,14 +117,14 @@ public final class MembersViewModel: ErrorPresenting {
     /// `ABCD-EFGH` (admins).
     public var inviteCodeText: String? { inviteCode?.formatted }
 
-    /// Text shared with `ShareLink`: « Rejoins mon groupe « X » sur Équipe avec le code ABCD-EFGH ».
+    /// Text shared with `ShareLink`: « Rejoins mon groupe « X » sur Teamly avec le code ABCD-EFGH ».
     public var shareText: String? {
         guard let inviteCode, let group else { return nil }
         return Self.shareText(groupName: group.name, code: inviteCode)
     }
 
     public static func shareText(groupName: String, code: InviteCode) -> String {
-        "Rejoins mon groupe «\u{00A0}\(groupName)\u{00A0}» sur Équipe avec le code \(code.formatted)"
+        "Rejoins mon groupe «\u{00A0}\(groupName)\u{00A0}» sur Teamly avec le code \(code.formatted)"
     }
 
     public func isMe(_ member: Membership) -> Bool { member.user.id == session.userId }

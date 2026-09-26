@@ -94,7 +94,7 @@ import TeamTasksMocks
         #expect(SettingsViewModel.pushInstructionSteps.count == 3)
         #expect(SettingsViewModel.pushInstructionSteps[0].contains("ntfy"))
         #expect(SettingsViewModel.pushInstructionSteps[2]
-            == "Une notification te prévient quand une tâche t’est assignée, même quand Équipe est fermée.")
+            == "Une notification te prévient quand une tâche t’est assignée, même quand l’app Teamly est fermée.")
 
         #expect(await model.setPushEnabled(true))
         let topic = try #require(model.pushTopic)

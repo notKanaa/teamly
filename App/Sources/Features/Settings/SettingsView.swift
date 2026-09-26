@@ -480,7 +480,7 @@ struct SettingsView: View {
             }
             .accessibilityIdentifier(AccessibilityID.Settings.version)
         } footer: {
-            Text("Équipe — les tâches de ton groupe.")
+            Text("Teamly — les tâches de ton groupe.")
         }
         .listRowBackground(Theme.card)
     }
