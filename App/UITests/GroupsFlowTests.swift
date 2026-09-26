@@ -67,5 +67,8 @@ final class GroupsFlowTests: XCTestCase {
         ui.scrollToTop(until: tasksTab)
         ui.showGroupTab("tasks")
         ui.waitForContent(ui.addTaskButton, "the « + » of the tasks")
+        // The hero unfolded again: its members are back under the name (debug capture).
+        ui.waitForContent(ui.elements(AccessibilityID.Groups.membersButton), "the hero's members")
+        ui.capture("groupe-retour-taches")
     }
 }
