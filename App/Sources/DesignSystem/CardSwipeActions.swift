@@ -37,6 +37,10 @@ struct CardSwipeActionsModifier: ViewModifier {
     @State private var direction = DragDirection.undecided
     /// True while a finger drags (reset by SwiftUI when the drag ends or is cancelled).
     @GestureState private var isDragging = false
+    /// The card's own buttons are disabled from the moment a drag turns out horizontal until a little after it ends: a
+    /// `NavigationLink` would otherwise open when the finger is lifted inside it (a scroll view only cancels its
+    /// buttons for vertical drags).
+    @State private var suppressesTaps = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .caption) private var buttonWidth: CGFloat = 84
 
@@ -58,6 +62,7 @@ struct CardSwipeActionsModifier: ViewModifier {
         } else {
             let position = currentPosition
             content
+                .disabled(suppressesTaps)
                 .overlay {
                     if offset != 0 {
                         // The open card closes on a tap instead of opening.
@@ -78,6 +83,7 @@ struct CardSwipeActionsModifier: ViewModifier {
                     guard !dragging, direction != .undecided || translation != 0 else { return }
                     direction = .undecided
                     settle(from: offset + translation)
+                    releaseTaps()
                 }
                 .accessibilityActions {
                     ForEach(leading + trailing) { action in
@@ -103,13 +109,17 @@ struct CardSwipeActionsModifier: ViewModifier {
     }
 
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 16, coordinateSpace: .local)
+        // Global coordinates: the card moves with the finger, its own space would move too.
+        DragGesture(minimumDistance: 16, coordinateSpace: .global)
             .updating($isDragging) { _, state, _ in
                 state = true
             }
             .onChanged { value in
                 if direction == .undecided {
                     direction = Self.isHorizontal(value.translation) ? .horizontal : .vertical
+                    if direction == .horizontal {
+                        suppressesTaps = true
+                    }
                 }
                 if direction == .horizontal {
                     translation = value.translation.width
@@ -120,10 +130,21 @@ struct CardSwipeActionsModifier: ViewModifier {
                 direction = .undecided
                 if wasHorizontal {
                     settle(from: offset + value.predictedEndTranslation.width)
+                    releaseTaps()
                 } else {
                     translation = 0
                 }
             }
+    }
+
+    /// The card's buttons work again once the lifted finger's tap has been dropped.
+    private func releaseTaps() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            if direction == .undecided {
+                suppressesTaps = false
+            }
+        }
     }
 
     private static func isHorizontal(_ translation: CGSize) -> Bool {

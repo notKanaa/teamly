@@ -65,6 +65,7 @@ struct QuietHoursSheet: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
     }
 
     private var value: QuietHours {

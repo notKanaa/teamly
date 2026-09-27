@@ -167,8 +167,12 @@ struct SettingsView: View {
     // MARK: - Profile card
 
     private var profileCard: some View {
-        Card(padding: 20, spacing: 18, radius: 26) {
-            HStack(spacing: 16) {
+        // At accessibility text sizes the avatar goes above the name, which then gets the whole width.
+        let identityLayout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+        return Card(padding: 20, spacing: 18, radius: 26) {
+            identityLayout {
                 avatarButton
                 VStack(alignment: .leading, spacing: 2) {
                     if let profile = model.profile {

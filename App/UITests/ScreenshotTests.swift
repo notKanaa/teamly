@@ -128,9 +128,10 @@ final class ScreenshotTests: XCTestCase {
         ui.waitForContent(ui.buttons(AccessibilityID.Settings.quietHoursTile), "« Heures calmes »")
         ui.capture("09-reglages")
 
-        // « Compte » and what follows are under the tab bar: scrolled into view for their own capture.
+        // « Compte » and what follows are under the tab bar: scrolled into view for their own capture, down to the
+        // footer (« Supprimer mon compte » above the tab bar).
         ui.reveal(ui.buttons(AccessibilityID.Settings.deleteAccount), "« Supprimer mon compte »")
-        ui.reveal(ui.buttons(AccessibilityID.Settings.passwordRow), "« Mot de passe »")
+        ui.reveal(ui.elements(AccessibilityID.Settings.version), "the footer")
         ui.capture("10-reglages-compte")
     }
 
