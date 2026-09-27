@@ -89,11 +89,13 @@ struct AppEnvironment: Sendable {
 
     /// Platform services of a real device (docs/CONTRACTS.md §7).
     static func devicePlatform() -> PlatformServices {
-        PlatformServices(
-            notifications: UserNotificationScheduler(),
-            store: UserDefaultsKeyValueStore(),
+        let store = UserDefaultsKeyValueStore()
+        let calendar = AppCalendar.french
+        return PlatformServices(
+            notifications: UserNotificationScheduler(store: store, calendar: calendar),
+            store: store,
             now: { Date() },
-            calendar: AppCalendar.french
+            calendar: calendar
         )
     }
 }

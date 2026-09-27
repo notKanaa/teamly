@@ -159,7 +159,8 @@ public actor ReminderSynchronizer {
     }
 
     /// Reconciles the pending reminders with `myTasks` (tasks assigned to `userId`). Waits for the
-    /// synchronization in progress, then reads the lead time; does nothing if `removeAll()` was called since.
+    /// synchronization in progress, then reads the lead time and (v3) the quiet hours; does nothing if `removeAll()`
+    /// was called since.
     @discardableResult
     public func synchronize(myTasks: [TaskItem], userId: UUID) async -> ReminderReconciliation {
         let started = epoch
@@ -168,9 +169,10 @@ public actor ReminderSynchronizer {
         guard epoch == started else { return ReminderReconciliation() }
 
         let leadTime = ReminderLeadTime.load(from: store)
+        let quietHours = QuietHours.load(from: store)
         let authorized = await scheduler.authorizationStatus() == .authorized
         let desired = authorized
-            ? planner.plan(tasks: myTasks, userId: userId, leadTime: leadTime, now: now())
+            ? planner.plan(tasks: myTasks, userId: userId, leadTime: leadTime, now: now(), quietHours: quietHours)
             : []
         return await reconciler.apply(desired, while: { await self.isCurrent(started) })
     }

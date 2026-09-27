@@ -3,8 +3,8 @@ import UIKit
 import UserNotifications
 
 /// UIKit entry points SwiftUI has no modifier for: the local notification delegate (banner while the app is in
-/// the foreground, tap → deep link through the `Router`, docs/CONTRACTS.md §7) and the navigation bar appearance of
-/// the v2 design (docs/DESIGN-V2.md §2).
+/// the foreground, tap → deep link through the `Router`, docs/CONTRACTS.md §7), the navigation bar appearance of
+/// the v2 design (docs/DESIGN-V2.md §2) and the home-screen quick actions (`QuickActionCenter`).
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
@@ -16,6 +16,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // Before the first navigation bar exists.
         NavigationBarAppearance.apply()
         return true
+    }
+
+    /// A launch from a quick action brings it here; later ones go to the scene delegate, which only handles them (the
+    /// window stays SwiftUI's).
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        if let shortcutItem = options.shortcutItem {
+            QuickActionCenter.shared.receive(shortcutItem)
+        }
+        let configuration = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        configuration.delegateClass = QuickActionSceneDelegate.self
+        return configuration
     }
 
     // The system calls these on a background queue: they must not be main-actor isolated.

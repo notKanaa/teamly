@@ -6,7 +6,13 @@ import UserNotifications
 ///
 /// Stateless: every call goes to `UNUserNotificationCenter.current()`, which is thread-safe.
 /// Foreground presentation (banner) and taps are handled by `AppDelegate`.
+///
+/// v3: a notification shown at once (a new assignment) plays no sound during the quiet hours of this device
+/// (docs/CONTRACTS-V3.md §9), read from `store` in `calendar`'s time zone.
 struct UserNotificationScheduler: NotificationScheduler {
+    let store: any KeyValueStore
+    let calendar: Calendar
+
     private var center: UNUserNotificationCenter { UNUserNotificationCenter.current() }
 
     func authorizationStatus() async -> NotificationAuthorization {
@@ -55,7 +61,8 @@ struct UserNotificationScheduler: NotificationScheduler {
         let content = UNMutableNotificationContent()
         content.title = notification.title
         content.body = notification.body
-        content.sound = .default
+        let isQuiet = trigger == nil && QuietHours.load(from: store).contains(Date(), calendar: calendar)
+        content.sound = isQuiet ? nil : .default
         var userInfo: [AnyHashable: Any] = [:]
         for (key, value) in notification.userInfo {
             userInfo[key] = value
