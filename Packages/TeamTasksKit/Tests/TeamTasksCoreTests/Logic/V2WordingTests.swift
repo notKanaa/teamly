@@ -122,7 +122,7 @@ import TeamTasksMocks
     static let names = [me: "Camille", lucas: "Lucas", ines: "Inès"]
 
     private func text(
-        _ kind: ActivityEvent.Kind,
+        _ kind: ActivityKind,
         actor: UUID? = nil,
         subject: UUID? = nil,
         task: String? = "Sortir les poubelles",
@@ -318,11 +318,13 @@ import TeamTasksMocks
         let names = [F.me: "Camille", F.other: "Inès"]
         var shown: [String] = []
         let people: [(UUID?, UUID?)] = [(F.me, F.me), (F.other, F.other), (F.other, F.me), (F.me, nil), (nil, nil), (nil, F.other)]
-        for kind in ActivityEvent.Kind.allCases {
+        // v3: every kind, the v3 ones included (the absence with its dates).
+        for kind in ActivityKind.allCases {
             for (actor, subject) in people {
                 let event = ActivityEvent(
                     id: 1, kind: kind, actorId: actor, subjectId: subject, taskTitle: "Vaisselle", itemTitle: "Éponge",
-                    createdAt: F.date(2026, 9, 24)
+                    createdAt: F.date(2026, 9, 24), startsOn: LocalDate(year: 2026, month: 9, day: 28),
+                    endsOn: LocalDate(year: 2026, month: 10, day: 4)
                 )
                 shown.append(ActivityText.text(for: event, currentUserId: F.me, names: names).plainText)
             }

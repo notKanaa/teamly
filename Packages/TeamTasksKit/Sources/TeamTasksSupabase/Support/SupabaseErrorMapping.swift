@@ -71,6 +71,58 @@ enum SupabaseErrorMapping {
         return AppError.unknown(unexpectedAnswer)
     }
 
+    // MARK: - Storage (docs/CONTRACTS-V3.md §6)
+
+    /// Maps an error of the storage client (the bucket `task-photos`): a `StorageError` (the body of a refusal) or an
+    /// `HTTPError` (a refusal without such a body) by its status and code; transport failures as usual.
+    static func storage(_ error: any Error) -> any Error {
+        if error is CancellationError || error is AppError { return error }
+        if let storageError = error as? StorageError {
+            return storage(status: storageError.statusCode.flatMap { Int($0) }, code: storageError.error, message: storageError.message)
+        }
+        if let httpError = error as? HTTPError {
+            let body = try? JSONDecoder().decode(StorageErrorBody.self, from: httpError.data)
+            return storage(status: httpError.response.statusCode, code: body?.error, message: body?.message ?? "")
+        }
+        return transport(error)
+    }
+
+    /// The JSON error body of the Storage API: `{"statusCode": "413", "error": "Payload too large", "message": …}`.
+    struct StorageErrorBody: Decodable, Sendable {
+        let error: String?
+        let message: String?
+    }
+
+    /// A refusal of the Storage API → `AppError`:
+    /// - the bucket's limits (5 MB, JPEG / PNG / HEIC): `.invalidPhoto`;
+    /// - a policy refusal (not a member of the path's group, not the owner): `.forbidden`; an expired session:
+    ///   `.notAuthenticated`;
+    /// - no such object (or bucket): `.notFound`; an object already at that path: `.conflict`;
+    /// - 5xx and 429: the temporary failure of the server.
+    static func storage(status: Int?, code: String?, message: String) -> AppError {
+        let text = "\(code ?? "") \(message)".lowercased()
+        if status == 413 || text.contains("too large") || text.contains("maximum allowed size") || text.contains("mime") {
+            return .invalidPhoto
+        }
+        if text.contains("row-level security") || text.contains("row level security") {
+            return .forbidden
+        }
+        if text.contains("not found") || text.contains("nosuchkey") || text.contains("nosuchbucket") {
+            return .notFound
+        }
+        if text.contains("duplicate") || text.contains("already exists") {
+            return .conflict
+        }
+        switch status ?? 0 {
+        case 401: return .notAuthenticated
+        case 403: return .forbidden
+        case 404: return .notFound
+        case 409: return .conflict
+        case 429, 500...: return .unknown(serverUnavailable)
+        default: return .unknown(unexpectedAnswer)
+        }
+    }
+
     // MARK: - Auth
 
     /// Where an Auth error happened: a few codes mean something specific to one call.

@@ -34,6 +34,23 @@ public enum BackendErrorMapper {
         "invalid_item_title": .invalidChecklistItem,
         "too_many_items": .tooManyChecklistItems,
         "item_not_found": .notFound,
+        // v3 (docs/CONTRACTS-V3.md §10)
+        "task_done": .taskDone,
+        "nudge_no_recipient": .nudgeNoRecipient,
+        "nudge_rate_limited": .nudgeRateLimited,
+        "invalid_away": .invalidAway,
+        "not_your_turn": .notYourTurn,
+        "swap_pending": .swapPending,
+        "swap_not_pending": .swapNotPending,
+        "swap_not_found": .notFound,
+        "activity_not_found": .notFound,
+        "invalid_reaction": .invalidReaction,
+        "invalid_comment": .invalidComment,
+        "invalid_mentions": .invalidMentions,
+        "comment_not_found": .notFound,
+        "invalid_photo": .invalidPhoto,
+        "photo_limit": .photoLimit,
+        "photo_not_found": .notFound,
     ]
 
     /// - Parameters:

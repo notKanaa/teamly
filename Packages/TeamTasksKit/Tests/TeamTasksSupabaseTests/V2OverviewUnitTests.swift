@@ -114,7 +114,7 @@ import FoundationNetworking
 
         let sortedIds = Self.inList([Self.a, Self.b, Self.c])
         #expect(transport.sent(to: "group_members") == [
-            "group_members?select=group_id,user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji)"
+            "group_members?select=group_id,user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji,away_from,away_until)"
                 + "&\(sortedIds)&order=group_id.asc&limit=1000",
         ])
         #expect(transport.sent(to: "tasks") == [

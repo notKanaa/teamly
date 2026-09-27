@@ -127,6 +127,13 @@ struct SupabaseGroupService: GroupService {
         return rows.map(\.event).sorted { $0.id > $1.id }
     }
 
+    /// v3 `toggle_reaction(p_activity_id, p_emoji)` (docs/CONTRACTS-V3.md §4): true = added, false = removed.
+    func toggleReaction(activityId: Int64, emoji: ReactionEmoji) async throws -> Bool {
+        try await rest.fetch(Bool.self) { _ in
+            RestQuery.rpc("toggle_reaction", ["p_activity_id": .int(Int(activityId)), "p_emoji": .string(emoji.rawValue)])
+        }
+    }
+
     // MARK: - Groups overview (docs/CONTRACTS-V2.md §10)
 
     /// Pages read at most per overview read (each page holds `Limits.readRowsMax` rows): the groups left after them

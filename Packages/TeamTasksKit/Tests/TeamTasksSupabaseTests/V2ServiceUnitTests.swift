@@ -25,7 +25,7 @@ import Testing
         #expect(profile == UserProfile(id: V2Seed.camille, displayName: "Camille Fixture", avatarColor: .teal, avatarEmoji: "🦊"))
         let sent = try #require(transport.sent.first)
         #expect(sent.method == "PATCH")
-        #expect(sent.target == "profiles?select=id,display_name,avatar_color,avatar_emoji&id=eq.8488c3bb-3233-4bf9-a1e6-24b66878ba02")
+        #expect(sent.target == "profiles?select=id,display_name,avatar_color,avatar_emoji,away_from,away_until&id=eq.8488c3bb-3233-4bf9-a1e6-24b66878ba02")
         #expect(sent.headers["prefer"] == "return=representation")
         #expect(sent.body == #"{"avatar_color":"teal","avatar_emoji":"🦊"}"#, "the emoji is sent normalized")
 
@@ -42,7 +42,7 @@ import Testing
         #expect(profile.avatarColor == .teal && profile.avatarEmoji == "🦊")
         #expect(profile.onboardedAt != nil && profile.createdAt != nil)
         #expect(transport.sent.first?.target
-            == "profiles?select=id,display_name,avatar_color,avatar_emoji,onboarded_at,created_at&id=eq.8488c3bb-3233-4bf9-a1e6-24b66878ba02")
+            == "profiles?select=id,display_name,avatar_color,avatar_emoji,away_from,away_until,onboarded_at,created_at&id=eq.8488c3bb-3233-4bf9-a1e6-24b66878ba02")
     }
 
     @Test func updateDisplayNameKeepsTheAvatar() async throws {
@@ -116,8 +116,8 @@ import Testing
         #expect(events.count == 11)
         #expect(zip(events, events.dropFirst()).allSatisfy { $0.id > $1.id })
         #expect(transport.sent.first?.target
-            == "group_activity?select=id,kind,actor_id,subject_id,task_id,task_title,item_title,created_at"
-            + "&group_id=eq.68b726d0-9f22-460c-8410-39efeead2cc1&order=id.desc&limit=50")
+            == "group_activity?select=id,kind,actor_id,subject_id,task_id,task_title,item_title,starts_on,ends_on,created_at"
+            + ",reactions:activity_reactions(user_id,emoji)&group_id=eq.68b726d0-9f22-460c-8410-39efeead2cc1&order=id.desc&limit=50")
     }
 
     // MARK: - Task create / update

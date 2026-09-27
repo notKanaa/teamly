@@ -94,7 +94,8 @@ extension InMemoryBackend {
     /// details, due date, recurrence (shape, then the due date), rotation (with its membership), assignees when there
     /// is no rotation (count, then membership), checklist (each title, then the count). The write quota is not
     /// mirrored. With a rotation the assignee ids are ignored: `rotation[0]` is the turn holder and the only assignee,
-    /// assigned by the creator. The checklist items get the positions 1…n. Writes `task_created`.
+    /// assigned by the creator (v3: the first listed member who is not away on the local due date, `rotation[0]` when
+    /// all of them are). The checklist items get the positions 1…n. Writes `task_created`.
     func createTask(clientId: UUID, groupId: UUID, draft: TaskDraft) throws -> TaskItem {
         try write(as: clientId) { transaction, me in
             guard transaction.data.isMember(me, of: groupId) else { throw AppError.forbidden }
@@ -127,7 +128,9 @@ extension InMemoryBackend {
                 task.recurrence = StoredRecurrence.created(rule, dueAt: dueAt)
                 task.seriesId = task.id
                 task.rotation = rotation
-                task.turnUserId = rotation.first
+                let data = transaction.data
+                let day = data.localDueDate(of: task)
+                task.turnUserId = RotationHandover.firstTurn(of: rotation) { data.isAway($0, on: day) }
             }
             transaction.data.tasks[task.id] = task
             transaction.bump(groupId)

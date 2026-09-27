@@ -39,6 +39,23 @@ struct SupabaseProfileService: ProfileService {
     func completeOnboarding() async throws {
         _ = try await context.rest.send { _ in RestQuery.rpc("complete_onboarding") }
     }
+
+    /// v3 `set_away(p_from, p_until, p_announce)` (docs/CONTRACTS-V3.md §2). The dates' order and range are checked
+    /// first (`InputValidation.awayDates`); the clock rule (`until` not before yesterday) is the server's. Returns the
+    /// whole `profiles` row.
+    func setAway(from: LocalDate, until: LocalDate, announce: Bool) async throws -> UserProfile {
+        try InputValidation.awayDates(from: from, until: until)
+        let row = try await context.rest.fetch(ProfileRow.self) { _ in
+            RestQuery.rpc("set_away", ["p_from": .date(from), "p_until": .date(until), "p_announce": .bool(announce)])
+        }
+        return row.profile
+    }
+
+    /// v3 `clear_away()`: returns the whole `profiles` row.
+    func clearAway() async throws -> UserProfile {
+        let row = try await context.rest.fetch(ProfileRow.self) { _ in RestQuery.rpc("clear_away") }
+        return row.profile
+    }
 }
 
 /// `PushService` on the `enable_push` / `disable_push` RPCs and `push_subscriptions` (docs/CONTRACTS.md §4, §7).

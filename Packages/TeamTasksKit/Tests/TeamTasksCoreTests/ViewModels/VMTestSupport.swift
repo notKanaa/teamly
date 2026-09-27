@@ -163,6 +163,9 @@ final class VMFaults: @unchecked Sendable {
         case updateAvatar, completeOnboarding
         case setAppearance, activity, overviews
         case addChecklistItem, renameChecklistItem, setChecklistItemDone, deleteChecklistItem, completions
+        // v3
+        case setAway, clearAway, toggleReaction, nudge, requestTurnSwap, respondToTurnSwap, cancelTurnSwap, turnSwaps
+        case pendingTurnSwaps, comments, addComment, deleteComment, uploadPhoto, deletePhoto, photoURL, myCompletions
     }
 
     private let lock = NSLock()
@@ -303,6 +306,16 @@ struct VMProfileService: ProfileService {
         try await faults.check(.completeOnboarding)
         try await base.completeOnboarding()
     }
+
+    func setAway(from: LocalDate, until: LocalDate, announce: Bool) async throws -> UserProfile {
+        try await faults.check(.setAway)
+        return try await base.setAway(from: from, until: until, announce: announce)
+    }
+
+    func clearAway() async throws -> UserProfile {
+        try await faults.check(.clearAway)
+        return try await base.clearAway()
+    }
 }
 
 struct VMGroupService: GroupService {
@@ -384,6 +397,11 @@ struct VMGroupService: GroupService {
         try await faults.check(.overviews)
         return try await base.overviews(groupIds: groupIds, doneSince: doneSince)
     }
+
+    func toggleReaction(activityId: Int64, emoji: ReactionEmoji) async throws -> Bool {
+        try await faults.check(.toggleReaction)
+        return try await base.toggleReaction(activityId: activityId, emoji: emoji)
+    }
 }
 
 struct VMTaskService: TaskService {
@@ -459,6 +477,71 @@ struct VMTaskService: TaskService {
     func completions(groupId: UUID, since: Date) async throws -> [TaskCompletion] {
         try await faults.check(.completions)
         return try await base.completions(groupId: groupId, since: since)
+    }
+
+    func nudge(taskId: UUID) async throws -> Int {
+        try await faults.check(.nudge)
+        return try await base.nudge(taskId: taskId)
+    }
+
+    func requestTurnSwap(taskId: UUID, to userId: UUID) async throws -> TurnSwap {
+        try await faults.check(.requestTurnSwap)
+        return try await base.requestTurnSwap(taskId: taskId, to: userId)
+    }
+
+    func respondToTurnSwap(swapId: UUID, accept: Bool) async throws -> TurnSwap {
+        try await faults.check(.respondToTurnSwap)
+        return try await base.respondToTurnSwap(swapId: swapId, accept: accept)
+    }
+
+    func cancelTurnSwap(swapId: UUID) async throws -> TurnSwap {
+        try await faults.check(.cancelTurnSwap)
+        return try await base.cancelTurnSwap(swapId: swapId)
+    }
+
+    func turnSwaps(taskId: UUID) async throws -> [TurnSwap] {
+        try await faults.check(.turnSwaps)
+        return try await base.turnSwaps(taskId: taskId)
+    }
+
+    func pendingTurnSwaps() async throws -> [TurnSwap] {
+        try await faults.check(.pendingTurnSwaps)
+        return try await base.pendingTurnSwaps()
+    }
+
+    func comments(taskId: UUID) async throws -> [TaskComment] {
+        try await faults.check(.comments)
+        return try await base.comments(taskId: taskId)
+    }
+
+    func addComment(taskId: UUID, body: String, mentions: [UUID]) async throws -> TaskComment {
+        try await faults.check(.addComment)
+        return try await base.addComment(taskId: taskId, body: body, mentions: mentions)
+    }
+
+    func deleteComment(commentId: UUID) async throws {
+        try await faults.check(.deleteComment)
+        try await base.deleteComment(commentId: commentId)
+    }
+
+    func uploadPhoto(taskId: UUID, jpegData: Data) async throws -> TaskPhoto {
+        try await faults.check(.uploadPhoto)
+        return try await base.uploadPhoto(taskId: taskId, jpegData: jpegData)
+    }
+
+    func deletePhoto(_ photo: TaskPhoto) async throws {
+        try await faults.check(.deletePhoto)
+        try await base.deletePhoto(photo)
+    }
+
+    func photoURL(_ photo: TaskPhoto) async throws -> URL {
+        try await faults.check(.photoURL)
+        return try await base.photoURL(photo)
+    }
+
+    func myCompletions(since: Date) async throws -> [TaskCompletion] {
+        try await faults.check(.myCompletions)
+        return try await base.myCompletions(since: since)
     }
 }
 

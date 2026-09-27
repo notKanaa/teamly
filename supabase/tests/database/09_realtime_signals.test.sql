@@ -114,10 +114,11 @@ $$;
 -- Publication ------------------------------------------------------------------------------------------------
 select set_eq(
   $$ select tablename::text from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' $$,
-  array['groups', 'profiles', 'task_assignees'], 'publication: exactly groups, profiles, task_assignees');
+  array['groups', 'profiles', 'task_assignees', 'task_nudges', 'turn_swaps', 'activity_reactions', 'task_comments'],
+  'publication: exactly groups, profiles, task_assignees (v1) and task_nudges, turn_swaps, activity_reactions, task_comments (v3)');
 select is(
   (select count(*)::int from pg_publication_tables where pubname = 'supabase_realtime'),
-  3, 'publication: nothing else is published');
+  7, 'publication: nothing else is published');
 -- Realtime does not apply RLS to DELETE (and TRUNCATE) events: publishing them would send the primary keys
 -- of other groups' rows to any authenticated subscriber. Clients only consume INSERT and UPDATE.
 select results_eq(

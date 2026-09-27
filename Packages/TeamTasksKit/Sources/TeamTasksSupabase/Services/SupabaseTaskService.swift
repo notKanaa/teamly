@@ -94,9 +94,12 @@ struct SupabaseTaskService: TaskService {
     private func completed(_ row: TaskDTO) async throws -> TaskItem {
         do {
             let current = try await task(id: row.id)
-            return row.item(assigneeIds: current.assigneeIds, checklist: current.checklist)
+            return row.item(
+                assigneeIds: current.assigneeIds, checklist: current.checklist, commentCount: current.commentCount,
+                photos: current.photos
+            )
         } catch AppError.notFound {
-            return row.item(assigneeIds: [], checklist: [])
+            return row.item(assigneeIds: [], checklist: [], commentCount: 0, photos: [])
         }
     }
 
@@ -144,6 +147,121 @@ struct SupabaseTaskService: TaskService {
             RestQuery.completions(groupId: groupId, since: since)
         }
         return rows.map(\.completion).sorted { lhs, rhs in
+            if lhs.completedAt != rhs.completedAt { return lhs.completedAt < rhs.completedAt }
+            return lhs.taskId.uuidString < rhs.taskId.uuidString
+        }
+    }
+}
+
+extension SupabaseTaskService {
+    // MARK: - Relancer (docs/CONTRACTS-V3.md §1)
+
+    /// `nudge_task(p_task_id)`: the number of assignees nudged.
+    func nudge(taskId: UUID) async throws -> Int {
+        try await rest.fetch(Int.self) { _ in RestQuery.rpc("nudge_task", ["p_task_id": .uuid(taskId)]) }
+    }
+
+    // MARK: - Échanger mon tour (§3)
+
+    func requestTurnSwap(taskId: UUID, to userId: UUID) async throws -> TurnSwap {
+        try await rest.fetch(SwapRow.self) { _ in
+            RestQuery.rpc("request_turn_swap", ["p_task_id": .uuid(taskId), "p_to_user": .uuid(userId)])
+        }.swap
+    }
+
+    func respondToTurnSwap(swapId: UUID, accept: Bool) async throws -> TurnSwap {
+        try await rest.fetch(SwapRow.self) { _ in
+            RestQuery.rpc("respond_turn_swap", ["p_swap_id": .uuid(swapId), "p_accept": .bool(accept)])
+        }.swap
+    }
+
+    func cancelTurnSwap(swapId: UUID) async throws -> TurnSwap {
+        try await rest.fetch(SwapRow.self) { _ in RestQuery.rpc("cancel_turn_swap", ["p_swap_id": .uuid(swapId)]) }.swap
+    }
+
+    /// Oldest first; swaps with a status unknown to this client are left out. Non-members read an empty list (RLS).
+    func turnSwaps(taskId: UUID) async throws -> [TurnSwap] {
+        let rows = try await rest.fetchRows(SwapRow.self) { _ in RestQuery.turnSwaps(taskId: taskId) }
+        return TurnSwap.sorted(rows.map(\.swap))
+    }
+
+    func pendingTurnSwaps() async throws -> [TurnSwap] {
+        let rows = try await rest.fetchRows(SwapRow.self) { RestQuery.pendingTurnSwaps(me: $0.userId) }
+        return TurnSwap.sorted(rows.map(\.swap))
+    }
+
+    // MARK: - Commentaires (§5)
+
+    /// Oldest first (then by id). Non-members read an empty list (RLS).
+    func comments(taskId: UUID) async throws -> [TaskComment] {
+        let rows = try await rest.fetch([CommentRow].self) { _ in RestQuery.comments(taskId: taskId) }
+        return TaskComment.sorted(rows.map(\.comment))
+    }
+
+    /// The body and the mentions are sent as typed (`ServerChecked`): the server checks them after the task
+    /// (`task_not_found` → `invalid_comment` → `invalid_mentions`), and trims the body.
+    func addComment(taskId: UUID, body: String, mentions: [UUID]) async throws -> TaskComment {
+        let body = ServerChecked.commentBody(body)
+        return try await rest.fetch(CommentRow.self) { _ in
+            RestQuery.rpc("add_task_comment", [
+                "p_task_id": .uuid(taskId), "p_body": .string(body), "p_mentions": .orderedUUIDs(mentions),
+            ])
+        }.comment
+    }
+
+    func deleteComment(commentId: UUID) async throws {
+        _ = try await rest.send { _ in RestQuery.rpc("delete_task_comment", ["p_comment_id": .uuid(commentId)]) }
+    }
+
+    // MARK: - Photo preuve (§6)
+
+    /// Reads the task (`.notFound`; it gives the group of the path), checks the bytes (`.invalidPhoto`), uploads them
+    /// to `<group_id>/<task_id>/<uuid>.jpg`, then calls `attach_task_photo`. When the server refuses the photo
+    /// (`forbidden`, `photo_limit`…), the uploaded object is removed (best effort); after a network failure it is left
+    /// (the photo may have been attached), like the objects of deleted tasks.
+    func uploadPhoto(taskId: UUID, jpegData: Data) async throws -> TaskPhoto {
+        let task = try await task(id: taskId)
+        let bytes = try InputValidation.photo(jpegData)
+        let path = TaskPhoto.newPath(groupId: task.groupId, taskId: task.id)
+        try await context.photoStorage.upload(path: path, data: bytes, contentType: "image/jpeg")
+        do {
+            let row = try await rest.fetch(PhotoRow.self) { _ in
+                RestQuery.rpc("attach_task_photo", ["p_task_id": .uuid(task.id), "p_path": .string(path)])
+            }
+            return row.photo(taskId: task.id, groupId: task.groupId)
+        } catch let error as AppError where Self.refusesThePhoto(error) {
+            try? await context.photoStorage.remove(path: path)
+            throw error
+        }
+    }
+
+    /// Server answers after which the uploaded object is surely not attached.
+    private static func refusesThePhoto(_ error: AppError) -> Bool {
+        switch error {
+        case .forbidden, .notFound, .invalidPhoto, .photoLimit, .conflict, .notAuthenticated, .invalidInput: true
+        default: false
+        }
+    }
+
+    /// `delete_task_photo(p_photo_id)`, then the removal of the object (best effort: an object left behind is an
+    /// orphan, docs/CONTRACTS-V3.md §6).
+    func deletePhoto(_ photo: TaskPhoto) async throws {
+        _ = try await rest.send { _ in RestQuery.rpc("delete_task_photo", ["p_photo_id": .uuid(photo.id)]) }
+        try? await context.photoStorage.remove(path: photo.path)
+    }
+
+    /// A signed URL valid `Limits.photoURLLifetime` seconds.
+    func photoURL(_ photo: TaskPhoto) async throws -> URL {
+        try await context.photoStorage.signedURL(path: photo.path, expiresIn: Limits.photoURLLifetime)
+    }
+
+    // MARK: - Personal stats (§8)
+
+    /// `since` inclusive, with microseconds; ordered by completion, then task id.
+    func myCompletions(since: Date) async throws -> [TaskCompletion] {
+        let me = try await rest.credentials().userId
+        let rows = try await rest.fetch([MyCompletionRow].self) { RestQuery.myCompletions(me: $0.userId, since: since) }
+        return rows.map { $0.completion(by: me) }.sorted { lhs, rhs in
             if lhs.completedAt != rhs.completedAt { return lhs.completedAt < rhs.completedAt }
             return lhs.taskId.uuidString < rhs.taskId.uuidString
         }

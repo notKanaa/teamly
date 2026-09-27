@@ -1,6 +1,6 @@
 -- Schema, privileges, private schema isolation, publication, ping.
 begin;
-select plan(41);
+select plan(46);
 
 -- Test helpers (created inside this transaction, rolled back at the end) ----------------------------
 create schema tests;
@@ -56,8 +56,9 @@ select is(auth.uid(), null, 'helper: as_postgres clears the JWT claims');
 -- Schema ------------------------------------------------------------------------------------------------
 select tables_are('public',
   array['profiles', 'groups', 'group_invites', 'group_members', 'tasks', 'task_assignees', 'push_subscriptions',
-        'task_checklist_items', 'group_activity'],
-  'public tables are exactly the contract tables (v1 + v2)');
+        'task_checklist_items', 'group_activity',
+        'task_nudges', 'turn_swaps', 'activity_reactions', 'task_comments', 'task_photos'],
+  'public tables are exactly the contract tables (v1 + v2 + v3)');
 select tables_are('private', array['join_attempts', 'settings', 'push_log', 'write_log'], 'private tables');
 select enum_has_labels('public', 'member_role', array['admin', 'member'], 'member_role labels');
 select enum_has_labels('public', 'task_status', array['todo', 'in_progress', 'done'], 'task_status labels');
@@ -89,6 +90,11 @@ select table_privs_are('public', 'task_assignees', 'authenticated', array['SELEC
 select table_privs_are('public', 'push_subscriptions', 'authenticated', array['SELECT'], 'push_subscriptions: authenticated table privileges');
 select table_privs_are('public', 'task_checklist_items', 'authenticated', array['SELECT'], 'task_checklist_items: authenticated table privileges');
 select table_privs_are('public', 'group_activity', 'authenticated', array['SELECT'], 'group_activity: authenticated table privileges');
+select table_privs_are('public', 'task_nudges', 'authenticated', array['SELECT'], 'task_nudges: authenticated table privileges');
+select table_privs_are('public', 'turn_swaps', 'authenticated', array['SELECT'], 'turn_swaps: authenticated table privileges');
+select table_privs_are('public', 'activity_reactions', 'authenticated', array['SELECT'], 'activity_reactions: authenticated table privileges');
+select table_privs_are('public', 'task_comments', 'authenticated', array['SELECT'], 'task_comments: authenticated table privileges');
+select table_privs_are('public', 'task_photos', 'authenticated', array['SELECT'], 'task_photos: authenticated table privileges');
 select set_eq($$
   select c.relname || '.' || a.attname || ':' || p.priv
   from pg_class c
@@ -119,8 +125,10 @@ $$, array[
   'remove_member', 'leave_group', 'create_task', 'update_task', 'set_task_status', 'delete_task', 'set_task_assignees',
   'delete_my_account', 'enable_push', 'disable_push', 'ping',
   'set_group_appearance', 'complete_onboarding', 'add_checklist_item', 'rename_checklist_item', 'set_checklist_item_done',
-  'delete_checklist_item'
-], 'authenticated can execute exactly the contract RPCs (v1 + v2)');
+  'delete_checklist_item',
+  'nudge_task', 'set_away', 'clear_away', 'request_turn_swap', 'respond_turn_swap', 'cancel_turn_swap', 'toggle_reaction',
+  'add_task_comment', 'delete_task_comment', 'attach_task_photo', 'delete_task_photo'
+], 'authenticated can execute exactly the contract RPCs (v1 + v2 + v3)');
 select set_eq($$
   select p.proname::text from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'private' and has_function_privilege('authenticated', p.oid, 'EXECUTE')
@@ -138,7 +146,7 @@ $$, 'every function pins search_path to an empty string');
 select is(
   (select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.prosecdef),
-  18, 'the 18 definer RPCs are security definer (create_task/update_task/set_task_status/delete_task/ping are invoker)');
+  29, 'the 29 definer RPCs are security definer (create_task/update_task/set_task_status/delete_task/ping are invoker)');
 
 -- Private schema is unusable by API roles ----------------------------------------------------------------
 select ok(not has_schema_privilege('anon', 'private', 'USAGE'), 'anon has no USAGE on schema private');
@@ -163,8 +171,9 @@ select tests.as_postgres();
 -- Realtime publication -----------------------------------------------------------------------------------
 select set_eq($$
   select schemaname || '.' || tablename from pg_publication_tables where pubname = 'supabase_realtime'
-$$, array['public.groups', 'public.profiles', 'public.task_assignees'],
-  'supabase_realtime publishes exactly groups, profiles and task_assignees');
+$$, array['public.groups', 'public.profiles', 'public.task_assignees',
+        'public.task_nudges', 'public.turn_swaps', 'public.activity_reactions', 'public.task_comments'],
+  'supabase_realtime publishes exactly groups, profiles, task_assignees (v1) and the four v3 tables');
 
 select * from finish();
 rollback;

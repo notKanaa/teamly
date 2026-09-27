@@ -80,6 +80,7 @@ public enum ContractScenarios {
         + pushScenarios
         + accountScenarios
         + v2
+        + v3
 
     /// The scenarios of docs/CONTRACTS-V2.md (also part of `all`). Those that subscribe to Realtime are named
     /// `realtime.v2…`, like every Realtime scenario.
@@ -94,6 +95,13 @@ public enum ContractScenarios {
         + readV2Scenarios
         + compatScenarios
         + realtimeV2Scenarios
+
+    /// The scenarios of docs/CONTRACTS-V3.md (also part of `all`). Those that subscribe to Realtime are named
+    /// `realtime.v3…`.
+    public static let v3: [ContractScenario] =
+        socialScenarios
+        + awaySwapScenarios
+        + realtimeV3Scenarios
 
     public static func named(_ name: String) -> ContractScenario? {
         all.first { $0.name == name }

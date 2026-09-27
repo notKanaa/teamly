@@ -61,6 +61,27 @@ enum ScenarioMutation: String, CaseIterable, Sendable, CustomTestStringConvertib
     /// (contract: RLS, non-members read nothing).
     case overviewsOfEveryAskedGroup
 
+    // v3 (docs/CONTRACTS-V3.md)
+    /// A nudge refused by the 20-hour window reads as a success (contract: `nudge_rate_limited`).
+    case nudgeIgnoresTheWindow
+    /// The comments are read newest first (contract: `order=created_at.asc`).
+    case commentsNewestFirst
+    /// The client checks the comment before calling the server (contract: `task_not_found` first).
+    case clientChecksCommentBeforeTask
+    /// The task reads leave out the comment count and the photos (contract: `comments:task_comments(count)`,
+    /// `photos:task_photos(…)`).
+    case taskReadsWithoutCommentsAndPhotos
+    /// The feed is read without its reactions (contract: `reactions:activity_reactions(user_id,emoji)`).
+    case feedWithoutReactions
+    /// The members are read without their absence (contract: `profile:profiles(…,away_from,away_until)`).
+    case membersWithoutAbsence
+    /// The personal stats leave out a completion exactly at `since` (contract: `completed_at=gte.`).
+    case myCompletionsSinceExclusive
+    /// Every subscriber receives the comments of every group (missing `group_id=in.(…)` filter).
+    case commentsToEveryone
+    /// Declining a swap reads as accepting it.
+    case declineReadsAsAccept
+
     var testDescription: String { rawValue }
 }
 
@@ -197,6 +218,15 @@ final class MutationRegistry: @unchecked Sendable {
         inject(.membershipsChanged)
     }
 
+    /// After a comment in `groupId` (v3).
+    func commented(_ comment: TaskComment) {
+        guard mutation == .commentsToEveryone else { return }
+        inject(.commentAdded(
+            commentId: comment.id, taskId: comment.taskId, groupId: comment.groupId, authorId: comment.authorId,
+            mentions: comment.mentions
+        )) { !$0.groupIds.contains(comment.groupId) }
+    }
+
     /// After new assignment rows of `userIds`.
     func assigned(_ userIds: Set<UUID>, taskId: UUID, groupId: UUID, by assigner: UUID) {
         guard mutation == .assignedToEveryone else { return }
@@ -247,6 +277,18 @@ struct MutatedProfileService: ProfileService {
     func completeOnboarding() async throws {
         registry.beforeWrite()
         try await base.completeOnboarding()
+    }
+
+    // v3: forwarded without mutation.
+
+    func setAway(from: LocalDate, until: LocalDate, announce: Bool) async throws -> UserProfile {
+        registry.beforeWrite()
+        return try await base.setAway(from: from, until: until, announce: announce)
+    }
+
+    func clearAway() async throws -> UserProfile {
+        registry.beforeWrite()
+        return try await base.clearAway()
     }
 }
 
@@ -316,12 +358,23 @@ struct MutatedGroupService: GroupService {
     func members(groupId: UUID) async throws -> [Membership] {
         if mutation == .nonMemberReadsThrow, !(await isMember(groupId)) { throw AppError.forbidden }
         let members = try await base.members(groupId: groupId)
-        guard mutation == .membersWithoutAvatar else { return members }
-        return members.map { member in
-            var copy = member
-            copy.user.avatarColor = nil
-            copy.user.avatarEmoji = nil
-            return copy
+        switch mutation {
+        case .membersWithoutAvatar:
+            return members.map { member in
+                var copy = member
+                copy.user.avatarColor = nil
+                copy.user.avatarEmoji = nil
+                return copy
+            }
+        case .membersWithoutAbsence:
+            return members.map { member in
+                var copy = member
+                copy.user.awayFrom = nil
+                copy.user.awayUntil = nil
+                return copy
+            }
+        default:
+            return members
         }
     }
 
@@ -389,7 +442,23 @@ struct MutatedGroupService: GroupService {
 
     func activity(groupId: UUID) async throws -> [ActivityEvent] {
         let feed = try await base.activity(groupId: groupId)
-        return mutation == .activityOldestFirst ? feed.reversed() : feed
+        switch mutation {
+        case .activityOldestFirst:
+            return feed.reversed()
+        case .feedWithoutReactions:
+            return feed.map { event in
+                var copy = event
+                copy.reactions = []
+                return copy
+            }
+        default:
+            return feed
+        }
+    }
+
+    func toggleReaction(activityId: Int64, emoji: ReactionEmoji) async throws -> Bool {
+        registry.beforeWrite()
+        return try await base.toggleReaction(activityId: activityId, emoji: emoji)
     }
 
     func overviews(groupIds: [UUID], doneSince: Date) async throws -> [GroupOverview] {
@@ -465,6 +534,10 @@ struct MutatedTaskService: TaskService {
         }
         if mutation == .checklistUnsorted {
             copy.checklist.reverse()
+        }
+        if mutation == .taskReadsWithoutCommentsAndPhotos {
+            copy.commentCount = 0
+            copy.photos = []
         }
         return copy
     }
@@ -543,6 +616,83 @@ struct MutatedTaskService: TaskService {
         let completions = try await base.completions(groupId: groupId, since: since)
         return mutation == .completionsSinceExclusive ? completions.filter { $0.completedAt > since } : completions
     }
+
+    // v3
+
+    func nudge(taskId: UUID) async throws -> Int {
+        registry.beforeWrite()
+        do {
+            return try await base.nudge(taskId: taskId)
+        } catch AppError.nudgeRateLimited where mutation == .nudgeIgnoresTheWindow {
+            return 1
+        }
+    }
+
+    func requestTurnSwap(taskId: UUID, to userId: UUID) async throws -> TurnSwap {
+        registry.beforeWrite()
+        return try await base.requestTurnSwap(taskId: taskId, to: userId)
+    }
+
+    func respondToTurnSwap(swapId: UUID, accept: Bool) async throws -> TurnSwap {
+        registry.beforeWrite()
+        let swap = try await base.respondToTurnSwap(swapId: swapId, accept: accept)
+        guard mutation == .declineReadsAsAccept, !accept else { return swap }
+        var copy = swap
+        copy.status = .accepted
+        return copy
+    }
+
+    func cancelTurnSwap(swapId: UUID) async throws -> TurnSwap {
+        registry.beforeWrite()
+        return try await base.cancelTurnSwap(swapId: swapId)
+    }
+
+    func turnSwaps(taskId: UUID) async throws -> [TurnSwap] {
+        try await base.turnSwaps(taskId: taskId)
+    }
+
+    func pendingTurnSwaps() async throws -> [TurnSwap] {
+        try await base.pendingTurnSwaps()
+    }
+
+    func comments(taskId: UUID) async throws -> [TaskComment] {
+        let comments = try await base.comments(taskId: taskId)
+        return mutation == .commentsNewestFirst ? comments.reversed() : comments
+    }
+
+    func addComment(taskId: UUID, body: String, mentions: [UUID]) async throws -> TaskComment {
+        registry.beforeWrite()
+        if mutation == .clientChecksCommentBeforeTask {
+            _ = try InputValidation.commentBody(body)
+        }
+        let comment = try await base.addComment(taskId: taskId, body: body, mentions: mentions)
+        registry.commented(comment)
+        return comment
+    }
+
+    func deleteComment(commentId: UUID) async throws {
+        registry.beforeWrite()
+        try await base.deleteComment(commentId: commentId)
+    }
+
+    func uploadPhoto(taskId: UUID, jpegData: Data) async throws -> TaskPhoto {
+        registry.beforeWrite()
+        return try await base.uploadPhoto(taskId: taskId, jpegData: jpegData)
+    }
+
+    func deletePhoto(_ photo: TaskPhoto) async throws {
+        registry.beforeWrite()
+        try await base.deletePhoto(photo)
+    }
+
+    func photoURL(_ photo: TaskPhoto) async throws -> URL {
+        try await base.photoURL(photo)
+    }
+
+    func myCompletions(since: Date) async throws -> [TaskCompletion] {
+        let completions = try await base.myCompletions(since: since)
+        return mutation == .myCompletionsSinceExclusive ? completions.filter { $0.completedAt > since } : completions
+    }
 }
 
 @Suite struct ScenarioMutationTests {
@@ -589,6 +739,16 @@ struct MutatedTaskService: TaskService {
         .myTasksDoneSinceUnbounded: ["reads.myTasksDoneSince"],
         .overviewsCountEveryDoneTask: ["reads.groupOverviews"],
         .overviewsOfEveryAskedGroup: ["reads.groupOverviews"],
+        // v3 (docs/CONTRACTS-V3.md)
+        .nudgeIgnoresTheWindow: ["nudge.basics"],
+        .commentsNewestFirst: ["comments.addReadDelete"],
+        .clientChecksCommentBeforeTask: ["comments.addReadDelete"],
+        .taskReadsWithoutCommentsAndPhotos: ["comments.addReadDelete", "photos.uploadAndDelete", "compat.v3ReadsAgree"],
+        .feedWithoutReactions: ["reactions.toggle"],
+        .membersWithoutAbsence: ["away.setAndClear"],
+        .myCompletionsSinceExclusive: ["stats.myCompletions"],
+        .commentsToEveryone: ["realtime.v3Comments"],
+        .declineReadsAsAccept: ["swap.declineCancelAndAutoCancel"],
     ]
 
     @Test func decoratorsAloneBreakNothing() async {
@@ -596,10 +756,13 @@ struct MutatedTaskService: TaskService {
         #expect(failures.isEmpty, "\(failures)")
     }
 
+    /// Only the detectors run (the whole catalog per mutation starved the other suites running in parallel);
+    /// `decoratorsAloneBreakNothing` runs the whole catalog once.
     @Test(arguments: ScenarioMutation.allCases.filter { $0 != .staleEventsAndSilentTaskCreation })
     func catalogDetects(_ mutation: ScenarioMutation) async throws {
         let detectors = try #require(Self.detectors[mutation])
-        let failures = await Self.failingScenarios(mutation)
+        let scenarios = try detectors.map { name in try #require(ContractScenarios.named(name), "unknown scenario \(name)") }
+        let failures = await Self.failingScenarios(mutation, among: scenarios)
         for name in detectors {
             #expect(failures[name] != nil, "\(name) does not detect \(mutation); failing: \(failures.keys.sorted())")
         }

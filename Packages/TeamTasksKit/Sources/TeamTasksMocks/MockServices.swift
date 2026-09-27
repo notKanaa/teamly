@@ -74,6 +74,16 @@ struct MockProfileService: ProfileService {
         try await session.backend.simulateLatency()
         try session.backend.completeOnboarding(clientId: session.clientId)
     }
+
+    func setAway(from: LocalDate, until: LocalDate, announce: Bool) async throws -> UserProfile {
+        try await session.backend.simulateLatency()
+        return try session.backend.setAway(clientId: session.clientId, from: from, until: until, announce: announce)
+    }
+
+    func clearAway() async throws -> UserProfile {
+        try await session.backend.simulateLatency()
+        return try session.backend.clearAway(clientId: session.clientId)
+    }
 }
 
 struct MockGroupService: GroupService {
@@ -153,6 +163,11 @@ struct MockGroupService: GroupService {
         try await session.backend.simulateLatency()
         return try session.backend.activity(clientId: session.clientId, groupId: groupId)
     }
+
+    func toggleReaction(activityId: Int64, emoji: ReactionEmoji) async throws -> Bool {
+        try await session.backend.simulateLatency()
+        return try session.backend.toggleReaction(clientId: session.clientId, activityId: activityId, emoji: emoji)
+    }
 }
 
 struct MockTaskService: TaskService {
@@ -227,13 +242,78 @@ struct MockTaskService: TaskService {
         try await session.backend.simulateLatency()
         return try session.backend.completions(clientId: session.clientId, groupId: groupId, since: since)
     }
+
+    func nudge(taskId: UUID) async throws -> Int {
+        try await session.backend.simulateLatency()
+        return try session.backend.nudge(clientId: session.clientId, taskId: taskId)
+    }
+
+    func requestTurnSwap(taskId: UUID, to userId: UUID) async throws -> TurnSwap {
+        try await session.backend.simulateLatency()
+        return try session.backend.requestTurnSwap(clientId: session.clientId, taskId: taskId, to: userId)
+    }
+
+    func respondToTurnSwap(swapId: UUID, accept: Bool) async throws -> TurnSwap {
+        try await session.backend.simulateLatency()
+        return try session.backend.respondToTurnSwap(clientId: session.clientId, swapId: swapId, accept: accept)
+    }
+
+    func cancelTurnSwap(swapId: UUID) async throws -> TurnSwap {
+        try await session.backend.simulateLatency()
+        return try session.backend.cancelTurnSwap(clientId: session.clientId, swapId: swapId)
+    }
+
+    func turnSwaps(taskId: UUID) async throws -> [TurnSwap] {
+        try await session.backend.simulateLatency()
+        return try session.backend.turnSwaps(clientId: session.clientId, taskId: taskId)
+    }
+
+    func pendingTurnSwaps() async throws -> [TurnSwap] {
+        try await session.backend.simulateLatency()
+        return try session.backend.pendingTurnSwaps(clientId: session.clientId)
+    }
+
+    func comments(taskId: UUID) async throws -> [TaskComment] {
+        try await session.backend.simulateLatency()
+        return try session.backend.comments(clientId: session.clientId, taskId: taskId)
+    }
+
+    func addComment(taskId: UUID, body: String, mentions: [UUID]) async throws -> TaskComment {
+        try await session.backend.simulateLatency()
+        return try session.backend.addComment(clientId: session.clientId, taskId: taskId, body: body, mentions: mentions)
+    }
+
+    func deleteComment(commentId: UUID) async throws {
+        try await session.backend.simulateLatency()
+        try session.backend.deleteComment(clientId: session.clientId, commentId: commentId)
+    }
+
+    func uploadPhoto(taskId: UUID, jpegData: Data) async throws -> TaskPhoto {
+        try await session.backend.simulateLatency()
+        return try session.backend.uploadPhoto(clientId: session.clientId, taskId: taskId, jpegData: jpegData)
+    }
+
+    func deletePhoto(_ photo: TaskPhoto) async throws {
+        try await session.backend.simulateLatency()
+        try session.backend.deletePhoto(clientId: session.clientId, photoId: photo.id)
+    }
+
+    func photoURL(_ photo: TaskPhoto) async throws -> URL {
+        try await session.backend.simulateLatency()
+        return try session.backend.photoURL(clientId: session.clientId, path: photo.path)
+    }
+
+    func myCompletions(since: Date) async throws -> [TaskCompletion] {
+        try await session.backend.simulateLatency()
+        return try session.backend.myCompletions(clientId: session.clientId, since: since)
+    }
 }
 
 struct MockRealtimeService: RealtimeService {
     let session: MockSession
 
-    /// Emits `.connected` immediately, then the change signals of docs/CONTRACTS.md §6 for `userId`, as far as
-    /// this client's session may see them (nothing while signed out).
+    /// Emits `.connected` immediately, then the change signals of docs/CONTRACTS.md §6 (and docs/CONTRACTS-V3.md §11)
+    /// for `userId`, as far as this client's session may see them (nothing while signed out).
     func events(userId: UUID, groupIds: [UUID]) -> AsyncStream<RealtimeEvent> {
         session.backend.subscribe(clientId: session.clientId, userId: userId, groupIds: groupIds)
     }

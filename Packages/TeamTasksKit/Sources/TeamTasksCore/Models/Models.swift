@@ -26,6 +26,11 @@ public struct UserProfile: Sendable, Hashable, Identifiable {
     public var onboardedAt: Date?
     /// v2: when the account was created. Only read by `ProfileService.myProfile()` (nil in the members list).
     public var createdAt: Date?
+    /// v3 (docs/CONTRACTS-V3.md §2): the first day of the user's absence; set iff `awayUntil` is set. Read by the
+    /// profile and the members reads.
+    public var awayFrom: LocalDate?
+    /// v3: the last day of the absence (on or after `awayFrom`).
+    public var awayUntil: LocalDate?
 
     public init(
         id: UUID,
@@ -33,7 +38,9 @@ public struct UserProfile: Sendable, Hashable, Identifiable {
         avatarColor: ColorKey? = nil,
         avatarEmoji: String? = nil,
         onboardedAt: Date? = nil,
-        createdAt: Date? = nil
+        createdAt: Date? = nil,
+        awayFrom: LocalDate? = nil,
+        awayUntil: LocalDate? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -41,10 +48,23 @@ public struct UserProfile: Sendable, Hashable, Identifiable {
         self.avatarEmoji = avatarEmoji
         self.onboardedAt = onboardedAt
         self.createdAt = createdAt
+        self.awayFrom = awayFrom
+        self.awayUntil = awayUntil
     }
 
     /// The avatar color to show: `avatarColor`, or the automatic color of the user id.
     public var resolvedColor: ColorKey { ColorKey.resolved(avatarColor, for: id) }
+
+    /// v3: the absence, `awayFrom…awayUntil`; nil without one (or with inconsistent dates).
+    public var awayRange: ClosedRange<LocalDate>? {
+        guard let awayFrom, let awayUntil, awayFrom <= awayUntil else { return nil }
+        return awayFrom...awayUntil
+    }
+
+    /// v3: the user is away on `day` (both dates included).
+    public func isAway(on day: LocalDate) -> Bool {
+        awayRange?.contains(day) ?? false
+    }
 }
 
 // MARK: - Groups
@@ -201,6 +221,10 @@ public struct TaskItem: Sendable, Hashable, Identifiable {
     public var groupColor: ColorKey?
     /// v2, only filled by `TaskService.myTasks`: the group's emoji.
     public var groupEmoji: String?
+    /// v3 (docs/CONTRACTS-V3.md §5): the number of comments (`comments:task_comments(count)`), for the rows.
+    public var commentCount: Int
+    /// v3 (§6): the photos, oldest first (`TaskPhoto.sorted(_:)`), at most `Limits.photosPerTaskMax`.
+    public var photos: [TaskPhoto]
 
     public init(
         id: UUID,
@@ -226,7 +250,9 @@ public struct TaskItem: Sendable, Hashable, Identifiable {
         completedBy: UUID? = nil,
         checklist: [ChecklistItem] = [],
         groupColor: ColorKey? = nil,
-        groupEmoji: String? = nil
+        groupEmoji: String? = nil,
+        commentCount: Int = 0,
+        photos: [TaskPhoto] = []
     ) {
         self.id = id
         self.groupId = groupId
@@ -252,6 +278,8 @@ public struct TaskItem: Sendable, Hashable, Identifiable {
         self.checklist = checklist
         self.groupColor = groupColor
         self.groupEmoji = groupEmoji
+        self.commentCount = commentCount
+        self.photos = photos
     }
 
     /// v2: the task repeats (`recurrence` is set).
@@ -389,4 +417,33 @@ public enum RealtimeEvent: Sendable, Hashable {
     case membershipsChanged
     /// A task was assigned to the current user.
     case assigned(taskId: UUID, groupId: UUID, assignedBy: UUID?)
+
+    // v3 (docs/CONTRACTS-V3.md §11): shown as local notifications (`SocialNotificationText`).
+
+    /// `fromUserId` nudged the current user about a task (`task_nudges` INSERT, `to_user=eq.<me>`).
+    case nudged(nudgeId: UUID, taskId: UUID, groupId: UUID, fromUserId: UUID)
+    /// `fromUserId` proposes their turn to the current user (`turn_swaps` INSERT, `to_user=eq.<me>`).
+    case turnSwapProposed(swapId: UUID, taskId: UUID, groupId: UUID, fromUserId: UUID)
+    /// A swap the current user proposed changed (`turn_swaps` UPDATE, `from_user=eq.<me>`): accepted, declined or
+    /// cancelled by `toUserId`'s answer or by the server; `isRepaid` when the update is the repayment of an accepted
+    /// swap (`repaid_at` set), which is no news for its author.
+    case turnSwapUpdated(swapId: UUID, taskId: UUID, groupId: UUID, toUserId: UUID, status: TurnSwap.Status, isRepaid: Bool)
+    /// `userId` reacted to an event of the current user (`activity_reactions` INSERT, `target_user=eq.<me>`), maybe
+    /// the current user themselves.
+    case reactionAdded(activityId: Int64, groupId: UUID, userId: UUID, emoji: ReactionEmoji)
+    /// A comment was added in one of the subscribed groups (`task_comments` INSERT, `group_id=in.(…)`), maybe by the
+    /// current user.
+    case commentAdded(commentId: UUID, taskId: UUID, groupId: UUID, authorId: UUID?, mentions: [UUID])
+
+    /// The group of a v3 event; nil for the v1 cases.
+    public var socialGroupId: UUID? {
+        switch self {
+        case .connected, .groupActivity, .membershipsChanged, .assigned: nil
+        case let .nudged(_, _, groupId, _): groupId
+        case let .turnSwapProposed(_, _, groupId, _): groupId
+        case let .turnSwapUpdated(_, _, groupId, _, _, _): groupId
+        case let .reactionAdded(_, groupId, _, _): groupId
+        case let .commentAdded(_, _, groupId, _, _): groupId
+        }
+    }
 }

@@ -383,6 +383,19 @@ final class LogicFakeTaskService: TaskService, @unchecked Sendable {
     func setChecklistItemDone(itemId: UUID, done: Bool) async throws -> ChecklistItem { throw AppError.unknown("non utilisé") }
     func deleteChecklistItem(itemId: UUID) async throws { throw AppError.unknown("non utilisé") }
     func completions(groupId: UUID, since: Date) async throws -> [TaskCompletion] { throw AppError.unknown("non utilisé") }
+    func nudge(taskId: UUID) async throws -> Int { throw AppError.unknown("non utilisé") }
+    func requestTurnSwap(taskId: UUID, to userId: UUID) async throws -> TurnSwap { throw AppError.unknown("non utilisé") }
+    func respondToTurnSwap(swapId: UUID, accept: Bool) async throws -> TurnSwap { throw AppError.unknown("non utilisé") }
+    func cancelTurnSwap(swapId: UUID) async throws -> TurnSwap { throw AppError.unknown("non utilisé") }
+    func turnSwaps(taskId: UUID) async throws -> [TurnSwap] { throw AppError.unknown("non utilisé") }
+    func pendingTurnSwaps() async throws -> [TurnSwap] { throw AppError.unknown("non utilisé") }
+    func comments(taskId: UUID) async throws -> [TaskComment] { throw AppError.unknown("non utilisé") }
+    func addComment(taskId: UUID, body: String, mentions: [UUID]) async throws -> TaskComment { throw AppError.unknown("non utilisé") }
+    func deleteComment(commentId: UUID) async throws { throw AppError.unknown("non utilisé") }
+    func uploadPhoto(taskId: UUID, jpegData: Data) async throws -> TaskPhoto { throw AppError.unknown("non utilisé") }
+    func deletePhoto(_ photo: TaskPhoto) async throws { throw AppError.unknown("non utilisé") }
+    func photoURL(_ photo: TaskPhoto) async throws -> URL { throw AppError.unknown("non utilisé") }
+    func myCompletions(since: Date) async throws -> [TaskCompletion] { throw AppError.unknown("non utilisé") }
 }
 
 // MARK: - Realtime service

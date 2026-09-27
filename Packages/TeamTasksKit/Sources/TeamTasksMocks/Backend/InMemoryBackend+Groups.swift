@@ -110,7 +110,7 @@ extension InMemoryBackend {
                 .filter { $0.groupId == groupId }
                 .sorted { $0.id > $1.id }
                 .prefix(Limits.activityFeedMax)
-                .map(\.event)
+                .map(data.activityEvent)
         }
     }
 

@@ -14,6 +14,7 @@ import Testing
 
     static let taskSelect =
         "*,assignees:task_assignees(user_id),checklist:task_checklist_items(id,title,position,done,done_at,done_by)"
+            + ",comments:task_comments(count),photos:task_photos(id,path,uploaded_by,created_at)"
 
     @Test func myGroups() {
         let request = RestQuery.myGroups(me: me)
@@ -26,7 +27,7 @@ import Testing
         let request = RestQuery.members(groupId: group)
         #expect(request.path == "group_members")
         #expect(request.readableQuery
-            == "select=user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji)"
+            == "select=user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji,away_from,away_until)"
             + "&group_id=eq.a0000000-0000-4000-8000-000000000001")
     }
 
@@ -92,7 +93,7 @@ import Testing
         #expect(members.method == .get)
         #expect(members.path == "group_members")
         #expect(members.readableQuery
-            == "select=group_id,user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji)"
+            == "select=group_id,user_id,role,joined_at,profile:profiles(id,display_name,avatar_color,avatar_emoji,away_from,away_until)"
             + "&group_id=in.(a0000000-0000-4000-8000-000000000001,a0000000-0000-4000-8000-000000000002)"
             + "&order=group_id.asc&limit=1000")
         let tasks = RestQuery.overviewTasks(groupIds: groups, doneSince: now)
@@ -118,7 +119,7 @@ import Testing
 
     @Test func profileAndPushTopic() {
         #expect(RestQuery.myProfile(me: me).readableQuery
-            == "select=id,display_name,avatar_color,avatar_emoji,onboarded_at,created_at&id=eq.11111111-1111-4111-8111-111111111111")
+            == "select=id,display_name,avatar_color,avatar_emoji,away_from,away_until,onboarded_at,created_at&id=eq.11111111-1111-4111-8111-111111111111")
         #expect(RestQuery.myProfile(me: me).path == "profiles")
         #expect(RestQuery.pushTopic(me: me).readableQuery == "select=topic&user_id=eq.11111111-1111-4111-8111-111111111111")
         #expect(RestQuery.pushTopic(me: me).path == "push_subscriptions")
@@ -129,8 +130,8 @@ import Testing
         #expect(request.method == .get)
         #expect(request.path == "group_activity")
         #expect(request.readableQuery
-            == "select=id,kind,actor_id,subject_id,task_id,task_title,item_title,created_at"
-            + "&group_id=eq.a0000000-0000-4000-8000-000000000001&order=id.desc&limit=50")
+            == "select=id,kind,actor_id,subject_id,task_id,task_title,item_title,starts_on,ends_on,created_at"
+            + ",reactions:activity_reactions(user_id,emoji)&group_id=eq.a0000000-0000-4000-8000-000000000001&order=id.desc&limit=50")
     }
 
     @Test func completionsSinceIsInclusiveWithMicroseconds() throws {
@@ -149,7 +150,7 @@ import Testing
         #expect(request.method == .patch)
         #expect(request.path == "profiles")
         #expect(request.readableQuery
-            == "select=id,display_name,avatar_color,avatar_emoji&id=eq.11111111-1111-4111-8111-111111111111")
+            == "select=id,display_name,avatar_color,avatar_emoji,away_from,away_until&id=eq.11111111-1111-4111-8111-111111111111")
         #expect(request.prefer == "return=representation")
         #expect(String(decoding: try #require(request.body).encoded(), as: UTF8.self) == #"{"display_name":"Camille M."}"#)
     }
@@ -159,7 +160,7 @@ import Testing
         #expect(request.method == .patch)
         #expect(request.path == "profiles")
         #expect(request.readableQuery
-            == "select=id,display_name,avatar_color,avatar_emoji&id=eq.11111111-1111-4111-8111-111111111111")
+            == "select=id,display_name,avatar_color,avatar_emoji,away_from,away_until&id=eq.11111111-1111-4111-8111-111111111111")
         #expect(request.prefer == "return=representation")
         #expect(String(decoding: try #require(request.body).encoded(), as: UTF8.self)
             == #"{"avatar_color":"teal","avatar_emoji":"🦊"}"#)

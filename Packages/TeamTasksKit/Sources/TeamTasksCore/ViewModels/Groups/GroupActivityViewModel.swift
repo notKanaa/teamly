@@ -20,7 +20,11 @@ public struct ActivityFeedRow: Sendable, Hashable, Identifiable {
     }
 
     public var id: Int64 { event.id }
-    public var kind: ActivityEvent.Kind { event.kind }
+    /// The event's v2 kind. `GroupActivityViewModel` only shows the v2 kinds (the v3 feed is not built yet); a v3 row
+    /// built elsewhere reads `.taskCreated` here: use `activityKind`.
+    public var kind: ActivityEvent.Kind { ActivityEvent.Kind(event.kind) ?? .taskCreated }
+    /// v3: the event's kind, v3 kinds included.
+    public var activityKind: ActivityKind { event.kind }
     public var systemImage: String { event.kind.systemImage }
     /// The task concerned (it may have been deleted since): `AppRoute.task(groupId:taskId:)`.
     public var taskId: UUID? { event.taskId }
@@ -136,7 +140,8 @@ public final class GroupActivityViewModel: ErrorPresenting {
                 markGone()
                 return
             }
-            self.events = events.sorted { $0.id > $1.id }
+            // The v2 screen shows the v2 kinds only (`ActivityFeedRow.kind`); the v3 kinds wait for the v3 feed.
+            self.events = events.filter { !$0.kind.isV3 }.sorted { $0.id > $1.id }
             self.members = members
             recap = WeeklyRecap(completions: completions, members: members, now: now, calendar: calendar)
             referenceDate = now
@@ -203,12 +208,14 @@ public final class GroupActivityViewModel: ErrorPresenting {
     /// Loaded, without any event.
     public var isFeedEmpty: Bool { loadState == .loaded && events.isEmpty }
 
-    /// Who an event is about: the actor, the turn holder of `turnStarted`, the member of the member events.
-    private static func personId(of event: ActivityEvent) -> UUID? {
+    /// Who an event is about: the actor, the turn holder of `turnStarted`, the member of the member events; v3: the
+    /// actor (who nudged, who took the turn, the author), the member of `memberAway`.
+    static func personId(of event: ActivityEvent) -> UUID? {
         switch event.kind {
         case .taskCreated, .taskCompleted, .checklistItemDone: event.actorId
         case .turnStarted, .memberLeft: event.subjectId
-        case .memberJoined: event.subjectId ?? event.actorId
+        case .memberJoined, .memberAway: event.subjectId ?? event.actorId
+        case .taskNudged, .turnSwapped, .commentAdded, .photoAdded: event.actorId
         }
     }
 

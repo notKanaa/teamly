@@ -1,7 +1,8 @@
 import Foundation
 import TeamTasksCore
 
-// JSON rows returned by PostgREST for the reads and RPCs of docs/CONTRACTS.md §4 and docs/CONTRACTS-V2.md §5, §8, §10.
+// JSON rows returned by PostgREST for the reads and RPCs of docs/CONTRACTS.md §4, docs/CONTRACTS-V2.md §5, §8, §10 and
+// docs/CONTRACTS-V3.md.
 // Column names are the SQL ones; embedded resources use the aliases of the `select` parameters (`group`, `profile`,
 // `assignees`, `checklist`, `mine`, `task`). Dates are decoded by `RestDecoding` (0 to 6 fractional digits).
 //
@@ -67,8 +68,8 @@ struct MyGroupRow: Decodable, Sendable, Hashable {
     }
 }
 
-/// `profiles?select=id,display_name,avatar_color,avatar_emoji` (members, the `PATCH` results), plus
-/// `onboarded_at,created_at` for `myProfile` (absent keys read as nil).
+/// `profiles?select=id,display_name,avatar_color,avatar_emoji,away_from,away_until` (members, the `PATCH` results), plus
+/// `onboarded_at,created_at` for `myProfile` and the whole row of `set_away` / `clear_away` (absent keys read as nil).
 struct ProfileRow: Decodable, Sendable, Hashable {
     let id: UUID
     let displayName: String
@@ -77,6 +78,9 @@ struct ProfileRow: Decodable, Sendable, Hashable {
     let avatarEmoji: String?
     let onboardedAt: Date?
     let createdAt: Date?
+    /// v3 `away_from`, `away_until` (SQL `date`, `"2026-10-12"`).
+    let awayFrom: LocalDate?
+    let awayUntil: LocalDate?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -85,6 +89,8 @@ struct ProfileRow: Decodable, Sendable, Hashable {
         case avatarEmoji = "avatar_emoji"
         case onboardedAt = "onboarded_at"
         case createdAt = "created_at"
+        case awayFrom = "away_from"
+        case awayUntil = "away_until"
     }
 
     /// nil: automatic, or a color unknown to this client.
@@ -93,7 +99,7 @@ struct ProfileRow: Decodable, Sendable, Hashable {
     var profile: UserProfile {
         UserProfile(
             id: id, displayName: displayName, avatarColor: avatarColor, avatarEmoji: avatarEmoji,
-            onboardedAt: onboardedAt, createdAt: createdAt
+            onboardedAt: onboardedAt, createdAt: createdAt, awayFrom: awayFrom, awayUntil: awayUntil
         )
     }
 }
@@ -125,7 +131,9 @@ struct MemberRow: Decodable, Sendable, Hashable {
                 id: userId,
                 displayName: profile?.displayName ?? "",
                 avatarColor: profile?.avatarColor,
-                avatarEmoji: profile?.avatarEmoji
+                avatarEmoji: profile?.avatarEmoji,
+                awayFrom: profile?.awayFrom,
+                awayUntil: profile?.awayUntil
             ),
             role: role,
             joinedAt: joinedAt
@@ -261,6 +269,10 @@ struct TaskDTO: Decodable, Sendable, Hashable {
     let mine: [MyAssignmentRow]?
     /// `group:groups(name,color,emoji)` (`myTasks` only).
     let group: GroupNameRow?
+    /// v3 `comments:task_comments(count)`: `[{"count": 2}]` (absent from RPC results).
+    let comments: [CountRow]?
+    /// v3 `photos:task_photos(id,path,uploaded_by,created_at)` (absent from RPC results).
+    let photos: [PhotoRow]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -288,6 +300,8 @@ struct TaskDTO: Decodable, Sendable, Hashable {
         case checklist
         case mine
         case group
+        case comments
+        case photos
     }
 
     init(from decoder: any Decoder) throws {
@@ -313,6 +327,8 @@ struct TaskDTO: Decodable, Sendable, Hashable {
         checklist = try container.decodeIfPresent([ChecklistItemRow].self, forKey: .checklist)
         mine = try container.decodeIfPresent([MyAssignmentRow].self, forKey: .mine)
         group = try container.decodeIfPresent(GroupNameRow.self, forKey: .group)
+        comments = try container.decodeIfPresent([CountRow].self, forKey: .comments)
+        photos = try container.decodeIfPresent([PhotoRow].self, forKey: .photos)
     }
 
     /// The rule of the `repeat_*` columns: nil when `repeat_freq` is NULL (or absent: a v1 server). A frequency added by
@@ -338,9 +354,15 @@ struct TaskDTO: Decodable, Sendable, Hashable {
     var status: TaskStatus { knownStatus.value }
     var priority: TaskPriority { knownPriority.value }
 
-    /// The task. `assigneeIds` defaults to the embedded assignees, `checklist` to the embedded items; the assignees are
-    /// sorted by `uuidString`, the items with `ChecklistItem.sorted` (reads return both unordered).
-    func item(assigneeIds: [UUID]? = nil, checklist items: [ChecklistItem]? = nil) -> TaskItem {
+    /// The task. `assigneeIds` defaults to the embedded assignees, `checklist` to the embedded items (v3: the comment
+    /// count and the photos to the embedded ones); the assignees are sorted by `uuidString`, the items with
+    /// `ChecklistItem.sorted`, the photos with `TaskPhoto.sorted` (reads return them unordered).
+    func item(
+        assigneeIds: [UUID]? = nil,
+        checklist items: [ChecklistItem]? = nil,
+        commentCount: Int? = nil,
+        photos taskPhotos: [TaskPhoto]? = nil
+    ) -> TaskItem {
         let ids = assigneeIds ?? (assignees ?? []).map(\.userId)
         return TaskItem(
             id: id,
@@ -361,7 +383,9 @@ struct TaskDTO: Decodable, Sendable, Hashable {
             seriesId: seriesId,
             nextOccurrenceId: nextOccurrenceId,
             completedBy: completedBy,
-            checklist: ChecklistItem.sorted(items ?? (checklist ?? []).map(\.item))
+            checklist: ChecklistItem.sorted(items ?? (checklist ?? []).map(\.item)),
+            commentCount: commentCount ?? comments?.first?.count ?? 0,
+            photos: TaskPhoto.sorted(taskPhotos ?? (photos ?? []).map { $0.photo(taskId: id, groupId: groupId) })
         )
     }
 
@@ -433,17 +457,24 @@ struct AssignmentRow: Decodable, Sendable, Hashable {
     }
 }
 
-/// `group_activity?select=id,kind,actor_id,subject_id,task_id,task_title,item_title,created_at` (docs/CONTRACTS-V2.md §7).
-/// A kind unknown to this client leaves the row out of the list (`Known`).
+/// `group_activity?select=id,kind,actor_id,subject_id,task_id,task_title,item_title,starts_on,ends_on,created_at,
+/// reactions:activity_reactions(user_id,emoji)` (docs/CONTRACTS-V2.md §7, docs/CONTRACTS-V3.md §4, §7).
+/// A kind unknown to this client leaves the row out of the list (`Known`); a reaction with an emoji unknown to this
+/// client is left out of the event.
 struct ActivityRow: Decodable, Sendable, Hashable {
     let id: Int64
-    private let knownKind: Known<ActivityEvent.Kind>
+    private let knownKind: Known<ActivityKind>
     let actorId: UUID?
     let subjectId: UUID?
     let taskId: UUID?
     let taskTitle: String?
     let itemTitle: String?
     let createdAt: Date
+    /// v3 (`member_away`).
+    let startsOn: LocalDate?
+    let endsOn: LocalDate?
+    /// v3, absent from a v2 read.
+    let reactions: [ReactionRow]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -454,13 +485,148 @@ struct ActivityRow: Decodable, Sendable, Hashable {
         case taskTitle = "task_title"
         case itemTitle = "item_title"
         case createdAt = "created_at"
+        case startsOn = "starts_on"
+        case endsOn = "ends_on"
+        case reactions
     }
 
     var event: ActivityEvent {
         ActivityEvent(
             id: id, kind: knownKind.value, actorId: actorId, subjectId: subjectId, taskId: taskId,
-            taskTitle: taskTitle, itemTitle: itemTitle, createdAt: createdAt
+            taskTitle: taskTitle, itemTitle: itemTitle, createdAt: createdAt,
+            reactions: ActivityReaction.sorted((reactions ?? []).compactMap(\.reaction)), startsOn: startsOn, endsOn: endsOn
         )
+    }
+}
+
+// MARK: - v3 (docs/CONTRACTS-V3.md)
+
+/// `{count}` of an embedded count (`comments:task_comments(count)`).
+struct CountRow: Decodable, Sendable, Hashable {
+    let count: Int
+}
+
+/// `{user_id, emoji}` of the embedded `reactions:activity_reactions(user_id,emoji)`.
+struct ReactionRow: Decodable, Sendable, Hashable {
+    let userId: UUID
+    let emoji: String
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case emoji
+    }
+
+    /// nil for an emoji unknown to this client.
+    var reaction: ActivityReaction? {
+        ReactionEmoji(rawValue: emoji).map { ActivityReaction(userId: userId, emoji: $0) }
+    }
+}
+
+/// `public.turn_swaps` row (the swap RPCs and reads). A status unknown to this client leaves the row out of a list
+/// (`Known`).
+struct SwapRow: Decodable, Sendable, Hashable {
+    let id: UUID
+    let taskId: UUID
+    let groupId: UUID
+    let seriesId: UUID
+    let fromUser: UUID
+    let toUser: UUID
+    private let knownStatus: Known<TurnSwap.Status>
+    let createdAt: Date
+    let respondedAt: Date?
+    let repaidAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case taskId = "task_id"
+        case groupId = "group_id"
+        case seriesId = "series_id"
+        case fromUser = "from_user"
+        case toUser = "to_user"
+        case knownStatus = "status"
+        case createdAt = "created_at"
+        case respondedAt = "responded_at"
+        case repaidAt = "repaid_at"
+    }
+
+    var swap: TurnSwap {
+        TurnSwap(
+            id: id, taskId: taskId, groupId: groupId, seriesId: seriesId, fromUserId: fromUser, toUserId: toUser,
+            status: knownStatus.value, createdAt: createdAt, respondedAt: respondedAt, repaidAt: repaidAt
+        )
+    }
+}
+
+/// `public.task_comments` row (`add_task_comment`, `task_comments?select=*`).
+struct CommentRow: Decodable, Sendable, Hashable {
+    let id: UUID
+    let taskId: UUID
+    let groupId: UUID
+    let authorId: UUID?
+    let body: String
+    let mentions: [UUID]?
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case taskId = "task_id"
+        case groupId = "group_id"
+        case authorId = "author_id"
+        case body
+        case mentions
+        case createdAt = "created_at"
+    }
+
+    var comment: TaskComment {
+        TaskComment(
+            id: id, taskId: taskId, groupId: groupId, authorId: authorId, body: body, mentions: mentions ?? [],
+            createdAt: createdAt
+        )
+    }
+}
+
+/// `public.task_photos` row: the whole row of `attach_task_photo`, or the embedded
+/// `photos:task_photos(id,path,uploaded_by,created_at)` (without `task_id` and `group_id`: those of the task).
+struct PhotoRow: Decodable, Sendable, Hashable {
+    let id: UUID
+    let taskId: UUID?
+    let groupId: UUID?
+    let path: String
+    let uploadedBy: UUID?
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case taskId = "task_id"
+        case groupId = "group_id"
+        case path
+        case uploadedBy = "uploaded_by"
+        case createdAt = "created_at"
+    }
+
+    /// The photo, `taskId` and `groupId` defaulting to the row's own.
+    func photo(taskId defaultTaskId: UUID, groupId defaultGroupId: UUID) -> TaskPhoto {
+        TaskPhoto(
+            id: id, taskId: taskId ?? defaultTaskId, groupId: groupId ?? defaultGroupId, path: path, uploadedBy: uploadedBy,
+            createdAt: createdAt
+        )
+    }
+}
+
+/// `tasks?select=id,group_id,completed_at&completed_by=eq.<me>` (the personal stats, docs/CONTRACTS-V3.md §8).
+struct MyCompletionRow: Decodable, Sendable, Hashable {
+    let id: UUID
+    let groupId: UUID
+    let completedAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case groupId = "group_id"
+        case completedAt = "completed_at"
+    }
+
+    func completion(by userId: UUID) -> TaskCompletion {
+        TaskCompletion(taskId: id, completedBy: userId, completedAt: completedAt, groupId: groupId)
     }
 }
 

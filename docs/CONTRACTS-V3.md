@@ -39,6 +39,17 @@ and the resolution is written back here.
 - body « « <titre> » » (looked up by the client);
 - identifier `nudge-<id>`.
 
+**Resolved (SQL, pgTAP `18_v3_nudges`):**
+- **Order of the errors:** `task_not_found` → `task_done` → `nudge_no_recipient` → `nudge_rate_limited`.
+- **Rate limit window:** inclusive, like the v1 windows: a nudge exactly 20 hours old still counts.
+- **Rows and events:** in recipient id order (uuid order), one row then one event per recipient.
+- **Push:**
+  - Exact message: `<prénom> te relance dans « <groupe> »`, with no-break spaces (U+00A0) inside the guillemets, as the rotation push of V2 §11.
+  - « Prénom » is the first word of the display name, as `FrenchText.firstName`: the trimmed name up to its first Unicode White_Space character (« Jean-Pierre Durand » → « Jean-Pierre »).
+  - JSON `{topic, title: "Teamly", message, click: "equipe://task/<groupId>/<taskId>"}`, like the assignment push.
+  - At most one nudge push per (recipient, task) per hour. Every push kind counts in `push_max_per_hour` (30 per user per hour). `private.push_log` gains `kind` (`assignment`, `nudge`, `mention`).
+  - An earlier assignment push does not stop a nudge push. The assignment push keeps its v1 rule unchanged: no assignment push to a user already pushed about that task within the hour, whatever the kind.
+
 ## 2. Mode absent
 
 **Profile columns** `away_from date null`, `away_until date null`: both NULL or both set, with `away_until >= away_from`. They are returned by the profile and member reads.
@@ -53,6 +64,33 @@ and the resolution is written back here.
 **Absence skip:** whenever the server chooses a turn holder (create with a rotation, spawn, handover, swap repayment), it skips members who are away on the occurrence's local due date.
 - If every candidate is away, the normal choice applies.
 - Tasks without a rotation are not changed.
+
+**Resolved (SQL, pgTAP `19_v3_away`):**
+- **Validation:**
+  - « today » is the UTC date, `(now() at time zone 'UTC')::date`: the result does not depend on the session time zone.
+  - « at most 366 days » counts both ends: `p_until − p_from <= 365`.
+  - A NULL date raises `invalid_away`. A NULL `p_announce` counts as true, the default.
+- **Writes, in this order:**
+  1. the profile;
+  2. one `member_away` event per group of the caller, in group id order;
+  3. the handovers, in local due date order, each with its `turn_started`.
+- **Handover in `set_away`:**
+  - The next member after the caller in the rotation who is not away on that day takes the turn; when every other member is away, the next member.
+  - An occurrence whose rotation lists no other member keeps its turn.
+  - The new turn holder is assigned with `assigned_by` NULL, so it is pushed and notified « C’est ton tour ».
+- **Signals:**
+  - A change of `away_from` / `away_until` bumps every group of the user, like an avatar change (V2 §2), so co-members reload the members.
+  - The profile UPDATE is the user's own `.membershipsChanged`.
+  - `clear_away` writes nothing (no signal) when the caller is not away.
+- **Columns:**
+  - Not writable directly: no column grant. They are read with the profile and the members, e.g. `profile:profiles(id,display_name,avatar_color,avatar_emoji,away_from,away_until)`.
+  - The check constraint `profiles_away_range` enforces both or neither, and `away_until >= away_from`.
+- **The choice (`private.pick_turn`):**
+  - The candidates are the members of the group listed in the rotation, in rotation order, cyclically after the previous turn holder's position. The previous holder comes last, and the list starts at `rotation[1]` when there is no previous holder.
+  - The first candidate not away on the local due date wins. When all of them are away, the first candidate wins (the normal choice).
+  - At spawn, the previous turn holder is a candidate too: in a rotation of two, when the other member is away, the completer keeps the turn (assigned by themselves).
+  - At create, `rotation[1]` unless away.
+- **`update_task`** keeps its V2 rule, without any absence skip: a new rotation that does not list the turn holder gives the turn to `rotation[1]`, in the order the editor chose.
 
 ## 3. Échanger mon tour (turn swap: a favour that is paid back)
 
@@ -93,6 +131,25 @@ and the resolution is written back here.
 - INSERT with filter `to_user=eq.<me>`: the notification « <Prénom> te propose son tour pour « <titre> » », identifier `swap-<id>`;
 - UPDATE with filter `from_user=eq.<me>`: accepted or declined.
 
+**Resolved (SQL, pgTAP `20_v3_turn_swaps`):**
+- **Order of the errors:**
+  - `request_turn_swap`: `task_not_found` → `not_your_turn` (done, no rotation, or another turn holder) → `invalid_rotation` (NULL, the caller, not listed, or listed but no longer a member) → `swap_pending`.
+  - `respond_turn_swap`: `swap_not_found` → `forbidden` (not `to_user`, the requester included) → `23502 invalid_input` (NULL `p_accept`, as `set_checklist_item_done`) → `swap_not_pending`.
+  - `cancel_turn_swap`: `swap_not_found` → `forbidden` (not `from_user`) → `swap_not_pending`.
+- **`responded_at`** is set by every status change: accepted, declined, cancelled (by `from_user` or automatically). Check `(status = 'pending') = (responded_at is null)`.
+- **Signals:** every write of `turn_swaps` bumps the group, not only the acceptance: request, answer, cancellation, repayment.
+- **Automatic cancellation:** a pending swap becomes `cancelled` as soon as it can no longer be accepted as asked:
+  - its occurrence becomes done, loses its rotation, gets another turn holder than `from_user` (handover, `set_away`, `update_task`), or no longer lists `to_user`;
+  - `from_user` or `to_user` stops being a member of the group.
+  - A deleted occurrence, or a deleted account of `from_user` / `to_user`, deletes the swap (foreign key cascade). There is no UPDATE event then.
+  - An `in_progress` occurrence is still pending: its swap stays.
+- **Repayment:**
+  - The oldest swap is taken by `created_at`, then `id`, among the accepted, unrepaid swaps of the series with `to_user = N` whose `from_user` is still a member listed in the rotation (a swap whose `from_user` left never blocks the others).
+  - When that `from_user` is away on the new local due date, nothing is repaid this time.
+  - The repaid turn is assigned like any spawned turn: `assigned_by` NULL, or the completer when the completer takes it.
+  - The debt is kept on the swap row. If the occurrence it was made on is deleted, the debt goes with it (foreign key cascade).
+- **Realtime UPDATE events for `from_user`** are also sent for automatic cancellations and repayments (`repaid_at` set, status still `accepted`). Clients notify only when `status` is `declined`, or `accepted` with `repaid_at` NULL.
+
 ## 4. Bravo (reactions)
 
 **Table** `activity_reactions`:
@@ -114,6 +171,13 @@ and the resolution is written back here.
 **Read:** the activity feed embeds `reactions:activity_reactions(user_id,emoji)`.
 
 **Realtime:** INSERT with filter `target_user=eq.<me>` gives the notification « <Prénom> a réagi <emoji> à « <titre> » », which clients throttle to one per event.
+
+**Resolved (SQL, pgTAP `21_v3_reactions`):**
+- **Order of the errors:** `activity_not_found` (unknown event, or the caller is not a member of its group) → `invalid_reaction`.
+- **The emojis** are compared exactly, without normalization: 👏 U+1F44F, 🔥 U+1F525, 💪 U+1F4AA, ❤️ U+2764 U+FE0F (the variation selector is required: a bare U+2764 is refused), 😂 U+1F602. NULL and `''` are refused.
+- **`target_user`** is NULL for an event without actor (`turn_started`, trusted writes). It becomes NULL when the actor's account is deleted.
+- **Signals:** adding and removing both bump the group.
+- **Cascades:** the reactions go with their event (the 90-day retention included) and with the reacting account.
 
 ## 5. Commentaires
 
@@ -143,6 +207,25 @@ It writes a `comment_added` event (actor = author, `task_title` snapshot, `item_
 **Push:** ntfy push to mentioned users with a subscription: « <Prénom> t’a mentionné dans « <groupe> » ».
 
 **Realtime:** `task_comments` joins the publication. Clients listen to INSERT with filter `group_id=in.(<my groups>)`, the same 60-id limit as groups. They show a notification when they are mentioned or when they are assigned to the task, and never for their own comments.
+
+**Resolved (SQL, pgTAP `22_v3_comments`):**
+- **Order of the errors:**
+  - `add_task_comment`: `task_not_found` → `invalid_comment` → `invalid_mentions`.
+  - `delete_task_comment`: `comment_not_found` (missing, or the caller is not a member of its group, the author included) → `forbidden`.
+- **Body:** trimmed with `clean_text` and stored trimmed. A NULL or blank body raises `invalid_comment`. Lengths count code points.
+- **Mentions:**
+  - NULL means none.
+  - Refused with `invalid_mentions`: a NULL element, a multi-dimensional array, more than 20 distinct ids, a non-member.
+  - Duplicates are dropped; the first occurrence and the order are kept.
+  - Mentioning yourself is allowed; it is stored but not pushed.
+- **Event:** `item_title` holds the first 80 code points of the stored (trimmed) body.
+- **Delete:** a comment whose author's account was deleted (`author_id` NULL) can only be deleted by an admin. The `comment_added` event stays.
+- **Signals:** every write (add, delete) bumps the group.
+- **Push:**
+  - Exact message: `<prénom> t’a mentionné dans « <groupe> »`, with U+2019 and no-break spaces, title « Teamly », the task's deep link. No comment text is sent.
+  - Never to the author.
+  - At most one mention push per (user, task) per hour; it counts in `push_max_per_hour`.
+- **The count read** `comments:task_comments(count)` works without PostgREST aggregates (checked on v14.5) and returns `"comments": [{"count": 3}]`, a one-element array.
 
 ## 6. Photo preuve
 
@@ -176,9 +259,41 @@ It writes a `comment_added` event (actor = author, `task_title` snapshot, `item_
 
 **Orphans:** objects of deleted tasks are left behind; cleanup is a later task.
 
+**Resolved (SQL, pgTAP `23_v3_photos`):**
+- **Bucket:** the 5 MB limit is 5 MiB, i.e. 5 242 880 bytes.
+- **Path, exactly:** `<group_id>/<task_id>/<uuid>.<ext>`.
+  - The three ids are **lowercase**: Postgres `uuid::text`. Swift must use `uuidString.lowercased()`: an uppercase path is refused by the storage policies and by `attach_task_photo`.
+  - `<ext>` is `jpg`, `jpeg`, `png` or `heic`, in lowercase.
+  - Nothing else is accepted: no subfolder, no other file name.
+- **Policies on `storage.objects`:**
+  - `task_photos_objects_select` and `task_photos_objects_insert`: the first segment, as text, is one of my groups. A malformed first segment is simply refused, without an error.
+  - `task_photos_objects_delete`: while a member of that group, the object's owner (`owner_id` = my id) or an admin of the group.
+  - There is no UPDATE policy: clients upload without upsert (`x-upsert: false`), and objects are never moved.
+- **`attach_task_photo`:**
+  - Order of the errors: `task_not_found` → `forbidden` → `invalid_photo` → `photo_limit`.
+  - `invalid_photo` also covers a NULL path, a path of another task's folder, a missing object, and a path already attached.
+- **`delete_task_photo`:** `photo_not_found` → `42501 forbidden` (a member who is neither the uploader nor an admin, the task's creator included).
+- **Signals:** attaching and deleting bump the group.
+- **Realtime:** `task_photos` is not published; members reload through the group signal.
+- **Account deletion:** a deleted uploader leaves `uploaded_by` NULL; after that, only admins may delete the photo.
+
 ## 7. Activity kinds added
 `task_nudged`, `member_away`, `turn_swapped`, `comment_added`, `photo_added`. The `group_activity` kind check is dropped
 and recreated with the full list.
+
+**Resolved (SQL, pgTAP `24_v3_activity_realtime`):**
+
+| `kind` | `actor_id` | `subject_id` | `task_id`, `task_title` | `item_title` | `starts_on`, `ends_on` |
+|---|---|---|---|---|---|
+| `task_nudged` | the caller | the nudged person (one event each) | the task | – | – |
+| `member_away` | the caller | the caller | – | – | the range |
+| `turn_swapped` | `to_user` | `from_user` | the occurrence | – | – |
+| `comment_added` | the author | – | the task | the first 80 code points of the body | – |
+| `photo_added` | the caller | – | the task | – | – |
+
+- **Dates:** `starts_on` and `ends_on` are both set or both NULL, only on `member_away`, with `ends_on >= starts_on` (check `group_activity_away_range`).
+- **Feed read:** `GET group_activity?select=id,kind,actor_id,subject_id,task_id,task_title,item_title,created_at,starts_on,ends_on,reactions:activity_reactions(user_id,emoji)&group_id=eq.<g>&order=id.desc&limit=50`.
+- **Signals:** writing an event still does not bump by itself. The 90-day retention deletes the reactions of the events it removes, and that deletion bumps the group, which the triggering write has already done in the same transaction.
 
 ## 8. Personal stats (Réglages)
 **Read:** `tasks?select=id,group_id,completed_at&completed_by=eq.<me>&completed_at=gte.<since>`.
@@ -220,6 +335,15 @@ All these values are stored per device.
 | `photo_limit` | « 5 photos au maximum par tâche. » |
 | `photo_not_found` | `.notFound` |
 
+Also raised by the v3 RPCs, with their existing mapping:
+- `not_authenticated`: every v3 RPC, without a JWT or with the JWT of a deleted account.
+- `42501 forbidden`:
+  - `respond_turn_swap` and `cancel_turn_swap`, when the caller is not the right party;
+  - `delete_task_comment`;
+  - `attach_task_photo`;
+  - `delete_task_photo`.
+- `23502 invalid_input` → `.invalidInput`: a NULL `p_accept` in `respond_turn_swap`.
+
 ## 11. Realtime bindings (one channel)
 The v1 and v2 bindings, plus:
 - `task_nudges` INSERT, `to_user=eq.<me>`;
@@ -229,3 +353,25 @@ The v1 and v2 bindings, plus:
 - `task_comments` INSERT, `group_id=in.(<my groups>)`.
 
 DELETE is never published.
+
+**Resolved (SQL):** the publication is exactly `groups`, `profiles`, `task_assignees`, `task_nudges`, `turn_swaps`,
+`activity_reactions` and `task_comments`, with `publish = 'insert, update'`. Realtime applies the SELECT policy of each
+table to every subscriber:
+- **Nudges:** a nudge reaches only its sender and its recipient, while they are members.
+- **Others:** the other tables reach the members of the group.
+
+## 12. Backend implementation (migrations `20260926000200`–`20260926000600`)
+
+- **`…200_v3_schema`:** the columns, the tables, the kind check, `private.push_log.kind`, RLS and grants.
+- **`…300_v3_helpers`:** the private helpers:
+  - `is_away`, `pick_turn`, `first_name`;
+  - `write_activity`, which `log_activity` now calls;
+  - `queue_push`, `push_message`.
+- **`…400_v3_turns`:**
+  - the absence skip at create (trigger `tasks_before_insert_v3`);
+  - `spawn_next_occurrence` and `hand_over_turns`, replaced with their v2 body plus the absence skip and the repayment;
+  - the automatic cancellation of swaps;
+  - the away signal.
+- **`…500_v3_rpcs`:** the eleven RPCs, the group signal of the new tables, and the nudge and mention pushes.
+- **`…600_v3_storage_realtime`:** the bucket, the `storage.objects` policies and the publication.
+- **Compatibility:** without anyone away and without swaps, every v1 and v2 behaviour is unchanged. No v1 or v2 signature changes.

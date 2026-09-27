@@ -3,7 +3,8 @@ import Foundation
 /// Text the adapters send unchecked, for the server to check at its turn: after checks the client cannot make (the
 /// group or task exists, the caller's rights, the members of a rotation, the assignees), so that the first error is the
 /// server's (docs/CONTRACTS-V2.md §3). This covers the emoji of `set_group_appearance`, the title of the checklist
-/// RPCs and the checklist of `create_task`.
+/// RPCs and the checklist of `create_task`; v3: the body and the mentions of `add_task_comment` (`task_not_found` comes
+/// first).
 ///
 /// Postgres cannot receive U+0000: a request holding it fails as a whole with `22P05` (`.invalidInput`) before any
 /// check. Such a value is invalid anyway, so it is replaced by another invalid value, which the server refuses with the
@@ -11,6 +12,11 @@ import Foundation
 enum ServerChecked {
     /// A checklist item title: the empty title stands for one holding U+0000 (`invalid_item_title`).
     static func title(_ raw: String) -> String {
+        holdsNul(raw) ? "" : raw
+    }
+
+    /// v3: a comment body: the empty body stands for one holding U+0000 (`invalid_comment`).
+    static func commentBody(_ raw: String) -> String {
         holdsNul(raw) ? "" : raw
     }
 

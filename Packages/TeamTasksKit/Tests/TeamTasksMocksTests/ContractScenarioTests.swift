@@ -42,6 +42,18 @@ struct MockHarness: ContractHarness {
             "auth", "profile", "group", "members", "matrix", "task", "reads", "realtime", "push", "account",
             // v2 (docs/CONTRACTS-V2.md)
             "appearance", "onboarding", "recurrence", "rotation", "checklist", "activity", "recap", "compat",
+            // v3 (docs/CONTRACTS-V3.md)
+            "nudge", "away", "swap", "reactions", "comments", "photos", "stats",
+        ])
+    }
+
+    /// The v3 scenarios are part of the catalog; those that subscribe to Realtime are named `realtime.v3…`.
+    @Test func v3ScenariosArePartOfTheCatalog() {
+        let all = Set(ContractScenarios.all.map(\.name))
+        let v3 = ContractScenarios.v3.map(\.name)
+        #expect(Set(v3).isSubset(of: all))
+        #expect(v3.filter { $0.hasPrefix("realtime.") } == [
+            "realtime.v3Nudges", "realtime.v3Swaps", "realtime.v3Reactions", "realtime.v3Comments",
         ])
     }
 

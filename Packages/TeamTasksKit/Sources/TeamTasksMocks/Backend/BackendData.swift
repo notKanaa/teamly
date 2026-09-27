@@ -1,7 +1,8 @@
 import Foundation
 import TeamTasksCore
 
-// Rows of the in-memory "database". They mirror the tables of docs/CONTRACTS.md §3 and docs/CONTRACTS-V2.md §2.
+// Rows of the in-memory "database". They mirror the tables of docs/CONTRACTS.md §3, docs/CONTRACTS-V2.md §2 and
+// docs/CONTRACTS-V3.md.
 
 struct AccountRecord: Sendable {
     var id: UUID
@@ -23,6 +24,15 @@ struct ProfileRecord: Sendable {
     var avatarEmoji: String? = nil
     /// NULL for a new sign-up until `complete_onboarding()`.
     var onboardedAt: Date? = nil
+    // v3: both NULL or both set (`set_away`, `clear_away`).
+    var awayFrom: LocalDate? = nil
+    var awayUntil: LocalDate? = nil
+
+    /// v3: away on `day` (both days included).
+    func isAway(on day: LocalDate) -> Bool {
+        guard let awayFrom, let awayUntil else { return false }
+        return awayFrom <= day && day <= awayUntil
+    }
 }
 
 struct GroupRecord: Sendable {
@@ -126,20 +136,121 @@ struct ChecklistItemRecord: Sendable {
 struct ActivityRecord: Sendable {
     var id: Int64
     var groupId: UUID
-    var kind: ActivityEvent.Kind
+    var kind: ActivityKind
     var actorId: UUID?
     var subjectId: UUID?
     var taskId: UUID?
     var taskTitle: String?
     var itemTitle: String?
     var createdAt: Date
+    // v3: `member_away` only.
+    var startsOn: LocalDate? = nil
+    var endsOn: LocalDate? = nil
 
-    var event: ActivityEvent {
+    /// The event with its reactions (`reactions:activity_reactions(user_id,emoji)`).
+    func event(reactions: [ReactionRecord]) -> ActivityEvent {
         ActivityEvent(
             id: id, kind: kind, actorId: actorId, subjectId: subjectId, taskId: taskId,
-            taskTitle: taskTitle, itemTitle: itemTitle, createdAt: createdAt
+            taskTitle: taskTitle, itemTitle: itemTitle, createdAt: createdAt,
+            reactions: ActivityReaction.sorted(reactions.map { ActivityReaction(userId: $0.userId, emoji: $0.emoji) }),
+            startsOn: startsOn, endsOn: endsOn
         )
     }
+}
+
+// MARK: - v3 (docs/CONTRACTS-V3.md)
+
+/// `public.task_nudges` (§1).
+struct NudgeRecord: Sendable {
+    var id: UUID
+    var taskId: UUID
+    var groupId: UUID
+    var fromUser: UUID
+    var toUser: UUID
+    var createdAt: Date
+
+    var nudge: TaskNudge {
+        TaskNudge(id: id, taskId: taskId, groupId: groupId, fromUserId: fromUser, toUserId: toUser, createdAt: createdAt)
+    }
+}
+
+/// `public.turn_swaps` (§3).
+struct SwapRecord: Sendable {
+    var id: UUID
+    var taskId: UUID
+    var groupId: UUID
+    var seriesId: UUID
+    var fromUser: UUID
+    var toUser: UUID
+    var status: TurnSwap.Status
+    var createdAt: Date
+    var respondedAt: Date? = nil
+    var repaidAt: Date? = nil
+
+    var swap: TurnSwap {
+        TurnSwap(
+            id: id, taskId: taskId, groupId: groupId, seriesId: seriesId, fromUserId: fromUser, toUserId: toUser,
+            status: status, createdAt: createdAt, respondedAt: respondedAt, repaidAt: repaidAt
+        )
+    }
+
+    /// The order of the swap reads and of the repayment (« the oldest »): `created_at`, then `id`.
+    static func olderFirst(_ lhs: SwapRecord, _ rhs: SwapRecord) -> Bool {
+        (lhs.createdAt, lhs.id.uuidString) < (rhs.createdAt, rhs.id.uuidString)
+    }
+}
+
+/// `public.activity_reactions` (§4); primary key `(activity_id, user_id, emoji)`.
+struct ReactionRecord: Sendable {
+    var activityId: Int64
+    var groupId: UUID
+    var userId: UUID
+    /// The event's actor when the reaction was made (NULL for an event without actor, or once that account is gone).
+    var targetUser: UUID?
+    var emoji: ReactionEmoji
+    var createdAt: Date
+}
+
+/// `public.task_comments` (§5).
+struct CommentRecord: Sendable {
+    var id: UUID
+    var taskId: UUID
+    var groupId: UUID
+    var authorId: UUID?
+    var body: String
+    var mentions: [UUID]
+    var createdAt: Date
+
+    var comment: TaskComment {
+        TaskComment(
+            id: id, taskId: taskId, groupId: groupId, authorId: authorId, body: body, mentions: mentions,
+            createdAt: createdAt
+        )
+    }
+}
+
+/// `public.task_photos` (§6).
+struct PhotoRecord: Sendable {
+    var id: UUID
+    var taskId: UUID
+    var groupId: UUID
+    var path: String
+    var uploadedBy: UUID?
+    var createdAt: Date
+
+    var photo: TaskPhoto {
+        TaskPhoto(id: id, taskId: taskId, groupId: groupId, path: path, uploadedBy: uploadedBy, createdAt: createdAt)
+    }
+}
+
+/// An object of the bucket `task-photos` (`storage.objects`), bytes included.
+struct StoredObject: Sendable {
+    var path: String
+    var data: Data
+    var contentType: String
+    /// `storage.objects.owner`: the uploader.
+    var owner: UUID?
+    var createdAt: Date
 }
 
 struct PushRecord: Sendable {
@@ -183,6 +294,18 @@ struct BackendData: Sendable {
     var activity: [ActivityRecord] = []
     /// v2: the last `group_activity.id` handed out (identities never go back, even when rows are deleted).
     var lastActivityId: Int64 = 0
+    /// v3: nudges, oldest first.
+    var nudges: [NudgeRecord] = []
+    /// v3: turn swaps, keyed by id.
+    var swaps: [UUID: SwapRecord] = [:]
+    /// v3: reactions, in insertion order.
+    var reactions: [ReactionRecord] = []
+    /// v3: comments, keyed by id.
+    var comments: [UUID: CommentRecord] = [:]
+    /// v3: photo rows, keyed by id.
+    var photos: [UUID: PhotoRecord] = [:]
+    /// v3: the objects of the bucket `task-photos`, keyed by path.
+    var photoObjects: [String: StoredObject] = [:]
 }
 
 // MARK: - Queries
@@ -283,19 +406,41 @@ extension BackendData {
             seriesId: record.seriesId,
             nextOccurrenceId: record.nextOccurrenceId,
             completedBy: record.completedBy,
-            checklist: checklist(of: record.id).map(\.item)
+            checklist: checklist(of: record.id).map(\.item),
+            commentCount: comments.values.filter { $0.taskId == record.id }.count,
+            photos: TaskPhoto.sorted(photos.values.filter { $0.taskId == record.id }.map(\.photo))
         )
     }
 
-    /// The profile as a co-member reads it (`profile:profiles(id,display_name,avatar_color,avatar_emoji)`), and as the
-    /// profile `PATCH`es return it.
+    /// v3: the event of an activity row, with its reactions.
+    func activityEvent(_ record: ActivityRecord) -> ActivityEvent {
+        record.event(reactions: reactions.filter { $0.activityId == record.id })
+    }
+
+    /// v3: the local date of a task's due date in its rule's time zone (`(due_at at time zone repeat_tz)::date`); nil
+    /// without due date or rule.
+    func localDueDate(of task: TaskRecord) -> LocalDate? {
+        guard let dueAt = task.dueAt, let zone = task.recurrence?.timeZone else { return nil }
+        return LocalDate(dueAt, timeZone: zone)
+    }
+
+    /// v3: `userId` is away on `day` (a nil day: never).
+    func isAway(_ userId: UUID, on day: LocalDate?) -> Bool {
+        guard let day else { return false }
+        return profiles[userId]?.isAway(on: day) ?? false
+    }
+
+    /// The profile as a co-member reads it (`profile:profiles(id,display_name,avatar_color,avatar_emoji,away_from,
+    /// away_until)`), and as the profile `PATCH`es return it.
     func publicProfile(_ record: ProfileRecord) -> UserProfile {
         UserProfile(
-            id: record.id, displayName: record.displayName, avatarColor: record.avatarColor, avatarEmoji: record.avatarEmoji
+            id: record.id, displayName: record.displayName, avatarColor: record.avatarColor, avatarEmoji: record.avatarEmoji,
+            awayFrom: record.awayFrom, awayUntil: record.awayUntil
         )
     }
 
-    /// The profile as its owner reads it (docs/CONTRACTS-V2.md §9: with `onboarded_at` and `created_at`).
+    /// The profile as its owner reads it (docs/CONTRACTS-V2.md §9: with `onboarded_at` and `created_at`; v3: the away
+    /// dates), and as `set_away` / `clear_away` return it.
     func ownProfile(_ record: ProfileRecord) -> UserProfile {
         UserProfile(
             id: record.id,
@@ -303,7 +448,9 @@ extension BackendData {
             avatarColor: record.avatarColor,
             avatarEmoji: record.avatarEmoji,
             onboardedAt: record.onboardedAt,
-            createdAt: record.createdAt
+            createdAt: record.createdAt,
+            awayFrom: record.awayFrom,
+            awayUntil: record.awayUntil
         )
     }
 

@@ -60,6 +60,8 @@ final class SupabaseContext: Sendable {
     let client: SupabaseClient
     let realtime: RealtimeClientV2
     let rest: RestClient
+    /// v3: the bucket `task-photos` (docs/CONTRACTS-V3.md §6).
+    let photoStorage: any PhotoStorage
     let publishableKey: String
     let now: @Sendable () -> Date
 
@@ -67,13 +69,15 @@ final class SupabaseContext: Sendable {
     ///   - realtimeFactory: Realtime client for this session (default: `client.realtimeV2`).
     ///   - transport: PostgREST transport (unit tests answer with fixtures).
     ///   - credentials: credentials of the PostgREST requests; defaults to the Auth session of `client`.
+    ///   - photoStorage: the photos' bucket; defaults to supabase-swift's storage client of `client`.
     init(
         configuration: SupabaseConfiguration,
         authStorage: any AuthLocalStorage,
         now: @escaping @Sendable () -> Date,
         realtimeFactory: (@Sendable (SupabaseClient) -> RealtimeClientV2)? = nil,
         transport: any HTTPTransport = URLSessionTransport(session: .shared),
-        credentials: (any CredentialsProvider)? = nil
+        credentials: (any CredentialsProvider)? = nil,
+        photoStorage: (any PhotoStorage)? = nil
     ) {
         let client = SupabaseClient(
             supabaseURL: configuration.url,
@@ -93,6 +97,7 @@ final class SupabaseContext: Sendable {
             transport: transport,
             session: credentials ?? AuthSessionCredentials(auth: client.auth)
         )
+        self.photoStorage = photoStorage ?? SupabasePhotoStorage(client: client)
         publishableKey = configuration.publishableKey
         self.now = now
     }

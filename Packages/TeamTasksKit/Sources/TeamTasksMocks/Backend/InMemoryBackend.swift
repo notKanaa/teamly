@@ -1,11 +1,13 @@
 import Foundation
 import TeamTasksCore
 
-/// In-memory backend reproducing the SQL backend of docs/CONTRACTS.md and docs/CONTRACTS-V2.md: Auth, PostgREST
-/// reads, RPCs, the permission matrix, the change signals and Realtime, and the v2 server rules (appearance,
-/// onboarding, recurrence spawning with `NextDueCalculator` and this backend's clock as `now()`, rotation and the turn
-/// handover, checklists, the activity feed, `completed_by`). Quotas and push are not mirrored, as in v1. Used by
-/// previews, UI tests and unit tests.
+/// In-memory backend reproducing the SQL backend of docs/CONTRACTS.md, docs/CONTRACTS-V2.md and docs/CONTRACTS-V3.md:
+/// Auth, PostgREST reads, RPCs, the permission matrix, the change signals and Realtime, the v2 server rules
+/// (appearance, onboarding, recurrence spawning with `NextDueCalculator` and this backend's clock as `now()`, rotation
+/// and the turn handover, checklists, the activity feed, `completed_by`) and the v3 ones (nudges and their rate limit,
+/// absences and the absence skip, turn swaps with their repayment and automatic cancellation, reactions, comments,
+/// photos with their bytes kept in memory, the five new Realtime bindings). Quotas and push are not mirrored, as in
+/// v1. Used by previews, UI tests and unit tests.
 ///
 /// Several "devices" can act on the same backend: `services(for:)` returns an `AppServices` bound to its own
 /// session. Every access goes through one lock; a write runs on a copy of the data and is committed only if it
@@ -118,6 +120,11 @@ public final class InMemoryBackend: @unchecked Sendable {
         withLock { body(&data) }
     }
 
+    /// Reads the data directly, without a session (tests, previews).
+    func inspect<Result>(_ body: (BackendData) -> Result) -> Result {
+        withLock { body(data) }
+    }
+
     // MARK: - Latency
 
     func simulateLatency() async throws {
@@ -211,14 +218,15 @@ public final class InMemoryBackend: @unchecked Sendable {
         withLock { _ = sessions[clientId]?.authSubscribers.removeValue(forKey: subscriptionId) }
     }
 
-    /// Mirrors the three Realtime bindings: filters use the subscription's `userId`, visibility follows the RLS of
-    /// the client's current session user (the channel's token), evaluated after the commit. Signed out (anon
-    /// role, no policy), nothing is delivered.
+    /// Mirrors the Realtime bindings (v1: three; v3: five more): filters use the subscription's `userId` (and its group
+    /// ids for the comments), visibility follows the RLS of the client's current session user (the channel's token),
+    /// evaluated after the commit. Signed out (anon role, no policy), nothing is delivered.
     private func deliverLocked(_ transaction: Transaction) {
         guard !subscribers.isEmpty else { return }
         let activity = transaction.groupActivity
         let profileUpdates = transaction.profileUpdates
         for subscriber in subscribers.values {
+            defer { deliverSocialLocked(transaction, to: subscriber) }
             guard let viewer = sessions[subscriber.clientId]?.userId, data.accounts[viewer] != nil else { continue }
             // groups SELECT: member of the group.
             for groupId in activity
@@ -234,6 +242,48 @@ public final class InMemoryBackend: @unchecked Sendable {
             where row.userId == subscriber.userId && data.isMember(viewer, of: row.groupId) {
                 subscriber.continuation.yield(.assigned(taskId: row.taskId, groupId: row.groupId, assignedBy: row.assignedBy))
             }
+        }
+    }
+
+    /// The five v3 bindings (docs/CONTRACTS-V3.md §11), with the RLS of their tables: `task_nudges` (from or to the
+    /// viewer, in one of their groups), `turn_swaps`, `activity_reactions` and `task_comments` (members of the group).
+    private func deliverSocialLocked(_ transaction: Transaction, to subscriber: RealtimeSubscriber) {
+        guard let viewer = sessions[subscriber.clientId]?.userId, data.accounts[viewer] != nil else { return }
+        let me = subscriber.userId
+        for nudge in transaction.insertedNudges
+        where nudge.toUser == me && (nudge.fromUser == viewer || nudge.toUser == viewer) && data.isMember(viewer, of: nudge.groupId)
+            && data.nudges.contains(where: { $0.id == nudge.id }) {
+            subscriber.continuation.yield(
+                .nudged(nudgeId: nudge.id, taskId: nudge.taskId, groupId: nudge.groupId, fromUserId: nudge.fromUser)
+            )
+        }
+        for swapId in transaction.insertedSwaps {
+            guard let swap = data.swaps[swapId], swap.toUser == me, data.isMember(viewer, of: swap.groupId) else { continue }
+            subscriber.continuation.yield(
+                .turnSwapProposed(swapId: swap.id, taskId: swap.taskId, groupId: swap.groupId, fromUserId: swap.fromUser)
+            )
+        }
+        for swapId in transaction.updatedSwaps where !transaction.insertedSwaps.contains(swapId) {
+            guard let swap = data.swaps[swapId], swap.fromUser == me, data.isMember(viewer, of: swap.groupId) else { continue }
+            subscriber.continuation.yield(.turnSwapUpdated(
+                swapId: swap.id, taskId: swap.taskId, groupId: swap.groupId, toUserId: swap.toUser, status: swap.status,
+                isRepaid: swap.repaidAt != nil
+            ))
+        }
+        for reaction in transaction.insertedReactions
+        where reaction.targetUser == me && data.isMember(viewer, of: reaction.groupId) {
+            subscriber.continuation.yield(.reactionAdded(
+                activityId: reaction.activityId, groupId: reaction.groupId, userId: reaction.userId, emoji: reaction.emoji
+            ))
+        }
+        for commentId in transaction.insertedComments {
+            guard let comment = data.comments[commentId], subscriber.groupIds.contains(comment.groupId),
+                  data.isMember(viewer, of: comment.groupId)
+            else { continue }
+            subscriber.continuation.yield(.commentAdded(
+                commentId: comment.id, taskId: comment.taskId, groupId: comment.groupId, authorId: comment.authorId,
+                mentions: comment.mentions
+            ))
         }
     }
 

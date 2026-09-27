@@ -57,21 +57,26 @@ func utc(_ text: String, file: StaticString = #fileID, line: UInt = #line) throw
 }
 
 /// The comparable part of an activity event (`id` and `createdAt` are checked separately).
-struct EventShape: Equatable, CustomStringConvertible {
-    let kind: ActivityEvent.Kind
+struct EventShape: Hashable, CustomStringConvertible {
+    let kind: ActivityKind
     let actorId: UUID?
     let subjectId: UUID?
     let taskId: UUID?
     let taskTitle: String?
     let itemTitle: String?
+    /// v3 (`member_away`).
+    let startsOn: LocalDate?
+    let endsOn: LocalDate?
 
     init(
-        _ kind: ActivityEvent.Kind,
+        _ kind: ActivityKind,
         actor: UUID? = nil,
         subject: UUID? = nil,
         task: UUID? = nil,
         title: String? = nil,
-        item: String? = nil
+        item: String? = nil,
+        startsOn: LocalDate? = nil,
+        endsOn: LocalDate? = nil
     ) {
         self.kind = kind
         actorId = actor
@@ -79,12 +84,14 @@ struct EventShape: Equatable, CustomStringConvertible {
         taskId = task
         taskTitle = title
         itemTitle = item
+        self.startsOn = startsOn
+        self.endsOn = endsOn
     }
 
     init(_ event: ActivityEvent) {
         self.init(
             event.kind, actor: event.actorId, subject: event.subjectId, task: event.taskId, title: event.taskTitle,
-            item: event.itemTitle
+            item: event.itemTitle, startsOn: event.startsOn, endsOn: event.endsOn
         )
     }
 
@@ -94,6 +101,7 @@ struct EventShape: Equatable, CustomStringConvertible {
         if let taskId { text += " task=\(short(taskId))" }
         if let taskTitle { text += " «\(taskTitle)»" }
         if let itemTitle { text += " «\(itemTitle)»" }
+        if let startsOn, let endsOn { text += " \(startsOn)…\(endsOn)" }
         return text
     }
 }

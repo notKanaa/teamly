@@ -19,6 +19,16 @@ extension DemoData {
     /// - The activity feed holds the events of the last 3 days: the completion of the previous « Sortir les
     ///   poubelles » and Camille's turn, the creation of « Faire les courses » and its two checked items, and this
     ///   week's completions. Older events are not in the feed (as if it had started then).
+    ///
+    /// v3 content (docs/CONTRACTS-V3.md), for the v3 screenshots:
+    /// - Inès is away all next week (Monday to Sunday, Europe/Paris), announced 20 hours ago (`memberAway`).
+    /// - In « Projet Asso Sport », « Ranger le matériel » is a weekly task « à tour de rôle » (Lucas, Camille), Lucas's
+    ///   turn, due in 2 days at 19:00; Lucas proposed his turn to Camille 2 hours ago (a pending swap).
+    /// - « Bravo »: Camille and Lucas applaud Inès's « Arroser les plantes » (and Lucas adds 🔥); Inès and Lucas react
+    ///   to Camille's « Nettoyer le frigo » (💪, ❤️).
+    /// - « Faire les courses » has two comments that mention Camille: Lucas's, 6 hours ago, then Inès's, 3 hours ago.
+    /// - « Nettoyer le frigo », done by Camille this week, has one photo (a tiny generated JPEG), taken when she
+    ///   completed it.
     public enum Showcase {
         /// The rotation of « Sortir les poubelles », in turn order.
         public static let poubellesRotation = [DemoData.ines.id, DemoData.camille.id, DemoData.lucas.id]
@@ -45,6 +55,69 @@ extension DemoData {
         static func doneTaskId(_ index: Int) -> UUID {
             DemoData.fixedID(String(format: "d0000000-0000-4000-8000-%012d", 101 + index))
         }
+
+        // MARK: v3
+
+        /// Inès's absence: next week, Monday to Sunday (local dates of Europe/Paris), relative to `now`.
+        public static func inesAway(now: Date, calendar: Calendar = DemoData.calendar) -> ClosedRange<LocalDate> {
+            let nextMonday = WeeklyRecap.weekStart(
+                of: calendar.date(byAdding: .day, value: 7, to: WeeklyRecap.weekStart(of: now, calendar: calendar))
+                    ?? now.addingTimeInterval(7 * 86_400),
+                calendar: calendar
+            )
+            let from = LocalDate(nextMonday, calendar: calendar)
+            return from...from.adding(days: 6)
+        }
+
+        /// « Ranger le matériel » (« Projet Asso Sport »): weekly, « à tour de rôle » between Lucas and Camille, Lucas's
+        /// turn.
+        public static let materielTaskId = DemoData.fixedID("d0000000-0000-4000-8000-000000000201")
+        public static let materielTitle = "Ranger le matériel"
+        public static let materielRotation = [DemoData.lucas.id, DemoData.camille.id]
+        /// Lucas's pending proposal of his turn to Camille.
+        public static let pendingSwapId = DemoData.fixedID("f0000000-0000-4000-8000-000000000001")
+
+        /// The done task with a photo: Camille's « Nettoyer le frigo » of this week.
+        public static var photoTaskId: UUID { doneTaskId(3) }
+        public static let photoId = DemoData.fixedID("f1000000-0000-4000-8000-000000000001")
+        /// The photo's object id (its file name, `<id>.jpg`).
+        public static let photoObjectId = DemoData.fixedID("f2000000-0000-4000-8000-000000000001")
+
+        /// The comments of « Faire les courses », oldest first: author and body. Both mention Camille.
+        public static let coursesComments: [(id: UUID, author: DemoUser, body: String)] = [
+            (
+                DemoData.fixedID("f3000000-0000-4000-8000-000000000001"), DemoData.lucas,
+                "@Camille tu peux prendre du lait d’avoine\u{00A0}?"
+            ),
+            (
+                DemoData.fixedID("f3000000-0000-4000-8000-000000000002"), DemoData.ines,
+                "Et des céréales pour le petit-déj, merci @Camille\u{00A0}!"
+            ),
+        ]
+
+        /// The « Bravo » reactions: (title of the done task whose completion gets them, who reacts, emoji).
+        public static let reactions: [(taskTitle: String, user: DemoUser, emoji: ReactionEmoji)] = [
+            ("Arroser les plantes", DemoData.camille, .clap),
+            ("Arroser les plantes", DemoData.lucas, .clap),
+            ("Arroser les plantes", DemoData.lucas, .fire),
+            ("Nettoyer le frigo", DemoData.ines, .muscle),
+            ("Nettoyer le frigo", DemoData.lucas, .heart),
+        ]
+
+        /// A 48 × 36 JPEG (772 bytes) of a clean fridge with a check mark, generated once.
+        public static let photoJPEG: Data = Data(base64Encoded: [
+            "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8lJCIfIiEmKzcvJik0KSEiMEEx",
+            "NDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7",
+            "Ozs7Ozs7Ozs7Ozs7Ozv/wAARCAAkADADASIAAhEBAxEB/8QAGgAAAgMBAQAAAAAAAAAAAAAAAAUCBAYDB//EADQQAAEDAwID",
+            "BAgGAwAAAAAAAAECAwQABRESIQYTMRRBUVUVFiJWkZSjpCNhcYHR0oSywf/EABgBAAMBAQAAAAAAAAAAAAAAAAACAwEE/8QA",
+            "HxEAAgEDBQEAAAAAAAAAAAAAABEBAkFRAxIhIjHR/9oADAMBAAIRAxEAPwD1PFLZFxlGa7EttvM1xgJL/wCMlsI1bpG/XYHp",
+            "TXFZ+NebfaOJrx2+RyebyNHsKVnCN+gPiKoc6yWO1cQe7n3rdHauIPdz71urPrnw/wCYfRc/rR658P8AmH0XP61jnA22nJWT",
+            "c5zD7KbnajCafcDTbgfS5lZ6AgbjODvTXFILzxBa7s5a2IUrmuJuDSynlqTtuM7geIrRYrRVD4J6aVWbbie+/wCP/oac4pBF",
+            "fiw+I72mdIRFTISxoLjvLKxoIJScjoe8dKWw/kwaNC0OJ1IUlQBIyk53BwR+xBFZm8cVOGYzbrCES5K1AqWn2kY66R3Hbqe4",
+            "fn0SyoJhJdhWfiGIYEkDmJdloBByAfiDnbGQCDnbOhsyeHLLGShm4wVvYwt9TyNS89e/YbDb/u9S7TwkQmvV1Oq25n4S4m1l",
+            "mzlxKUrNyY1BJyAd84OBn4U100lvs6JcHLUzClMyXE3FpZQy4FkJAVk4HcPGn2KrYvcniuEmDEmae1RWX9GdPNbCsZ64z+lF",
+            "FYMcPQlp8rh/Lo/ij0JafK4fy6P4oooYKDrHt0GI4XI0OOwsjBU20lJI8MgVZxRRQB//2Q==",
+        ].joined()) ?? Data()
     }
 
     // MARK: - Seeding
@@ -157,27 +230,113 @@ extension DemoData {
             )]
         }
 
+        // v3: Inès's absence next week, announced 20 hours ago.
+        let away = Showcase.inesAway(now: now, calendar: calendar)
+        data.profiles[ines.id]?.awayFrom = away.lowerBound
+        data.profiles[ines.id]?.awayUntil = away.upperBound
+
+        // v3: the comments of « Faire les courses » (6 and 3 hours ago).
+        let commentTimes = [ago(hours: 6), ago(hours: 3)]
+        for (index, comment) in Showcase.coursesComments.enumerated() {
+            data.comments[comment.id] = CommentRecord(
+                id: comment.id, taskId: TaskIDs.faireCourses, groupId: lilas, authorId: comment.author.id,
+                body: comment.body, mentions: [camille.id], createdAt: commentTimes[index]
+            )
+        }
+
+        // v3: the photo of « Nettoyer le frigo », added when Camille completed it.
+        let photoTaskIndex = done.firstIndex { $0.title == "Nettoyer le frigo" } ?? 3
+        let photoAt = done[photoTaskIndex].at
+        let photoPath = TaskPhoto.newPath(groupId: lilas, taskId: Showcase.photoTaskId, objectId: Showcase.photoObjectId)
+        data.photoObjects[photoPath] = StoredObject(
+            path: photoPath, data: Showcase.photoJPEG, contentType: "image/jpeg", owner: camille.id, createdAt: photoAt
+        )
+        data.photos[Showcase.photoId] = PhotoRecord(
+            id: Showcase.photoId, taskId: Showcase.photoTaskId, groupId: lilas, path: photoPath, uploadedBy: camille.id,
+            createdAt: photoAt
+        )
+
         // The activity feed of the last 3 days, oldest first (ids increase with time).
-        var events: [(kind: ActivityEvent.Kind, actor: UUID?, subject: UUID?, task: UUID, taskTitle: String, item: String?, at: Date)] = [
-            (.taskCompleted, camille.id, nil, seriesId, "Sortir les poubelles", nil, spawnedAt),
-            (.turnStarted, nil, camille.id, TaskIDs.sortirPoubelles, "Sortir les poubelles", nil, spawnedAt),
-            (.taskCreated, lucas.id, nil, TaskIDs.faireCourses, "Faire les courses", nil, coursesCreatedAt),
+        struct Event {
+            var kind: ActivityKind
+            var actor: UUID?
+            var subject: UUID?
+            var task: UUID?
+            var taskTitle: String?
+            var item: String?
+            var at: Date
+            var startsOn: LocalDate?
+            var endsOn: LocalDate?
+        }
+        var events: [Event] = [
+            Event(kind: .taskCompleted, actor: camille.id, task: seriesId, taskTitle: "Sortir les poubelles", at: spawnedAt),
+            Event(kind: .turnStarted, subject: camille.id, task: TaskIDs.sortirPoubelles, taskTitle: "Sortir les poubelles", at: spawnedAt),
+            Event(kind: .taskCreated, actor: lucas.id, task: TaskIDs.faireCourses, taskTitle: "Faire les courses", at: coursesCreatedAt),
         ]
         for itemId in [Showcase.ChecklistIDs.lait, Showcase.ChecklistIDs.pates] {
             guard let item = data.checklistItems[itemId], let doneAt = item.doneAt else { continue }
-            events.append((.checklistItemDone, item.doneBy, nil, TaskIDs.faireCourses, "Faire les courses", item.title, doneAt))
+            events.append(Event(
+                kind: .checklistItemDone, actor: item.doneBy, task: TaskIDs.faireCourses, taskTitle: "Faire les courses",
+                item: item.title, at: doneAt
+            ))
         }
         for (index, task) in done.enumerated() where task.at >= weekStarts[0] {
-            events.append((.taskCompleted, task.user.id, nil, Showcase.doneTaskId(index), task.title, nil, task.at))
+            events.append(Event(kind: .taskCompleted, actor: task.user.id, task: Showcase.doneTaskId(index), taskTitle: task.title, at: task.at))
+            if index == photoTaskIndex {
+                events.append(Event(
+                    kind: .photoAdded, actor: camille.id, task: Showcase.photoTaskId, taskTitle: task.title, at: photoAt
+                ))
+            }
+        }
+        events.append(Event(
+            kind: .memberAway, actor: ines.id, subject: ines.id, at: ago(hours: 20), startsOn: away.lowerBound,
+            endsOn: away.upperBound
+        ))
+        for (index, comment) in Showcase.coursesComments.enumerated() {
+            events.append(Event(
+                kind: .commentAdded, actor: comment.author.id, task: TaskIDs.faireCourses, taskTitle: "Faire les courses",
+                item: InputValidation.commentExcerpt(comment.body), at: commentTimes[index]
+            ))
         }
         let ordered = events.enumerated().sorted { ($0.element.at, $0.offset) < ($1.element.at, $1.offset) }
         for (_, event) in ordered {
             data.lastActivityId += 1
             data.activity.append(ActivityRecord(
                 id: data.lastActivityId, groupId: lilas, kind: event.kind, actorId: event.actor, subjectId: event.subject,
-                taskId: event.task, taskTitle: event.taskTitle, itemTitle: event.item, createdAt: event.at
+                taskId: event.task, taskTitle: event.taskTitle, itemTitle: event.item, createdAt: event.at,
+                startsOn: event.startsOn, endsOn: event.endsOn
             ))
         }
+
+        // v3: the reactions to two completions (target_user = the event's actor), right after them.
+        for reaction in Showcase.reactions {
+            guard let event = data.activity.first(where: { $0.kind == .taskCompleted && $0.taskTitle == reaction.taskTitle })
+            else { continue }
+            data.reactions.append(ReactionRecord(
+                activityId: event.id, groupId: lilas, userId: reaction.user.id, targetUser: event.actorId,
+                emoji: reaction.emoji, createdAt: min(now, event.createdAt.addingTimeInterval(30 * 60))
+            ))
+        }
+
+        // v3: « Ranger le matériel » in « Projet Asso Sport », Lucas's turn, and his pending proposal to Camille.
+        let sport = sportGroupId
+        let materielCreatedAt = ago(hours: 6 * 24)
+        data.tasks[Showcase.materielTaskId] = TaskRecord(
+            id: Showcase.materielTaskId, groupId: sport, title: Showcase.materielTitle,
+            details: "Les ballons et les chasubles, dans le local du gymnase.", status: .todo, priority: .medium,
+            dueAt: wallClock(inDays: 2, hour: 19), createdBy: lucas.id, createdAt: materielCreatedAt,
+            updatedAt: materielCreatedAt, completedAt: nil,
+            recurrence: RecurrenceRule(frequency: .weekly, timeZoneId: "Europe/Paris"), seriesId: Showcase.materielTaskId,
+            rotation: Showcase.materielRotation, turnUserId: lucas.id
+        )
+        data.assignees[Showcase.materielTaskId] = [lucas.id: AssigneeRecord(
+            taskId: Showcase.materielTaskId, groupId: sport, userId: lucas.id, assignedBy: lucas.id,
+            assignedAt: materielCreatedAt
+        )]
+        data.swaps[Showcase.pendingSwapId] = SwapRecord(
+            id: Showcase.pendingSwapId, taskId: Showcase.materielTaskId, groupId: sport, seriesId: Showcase.materielTaskId,
+            fromUser: lucas.id, toUser: camille.id, status: .pending, createdAt: ago(hours: 2)
+        )
     }
 }
 

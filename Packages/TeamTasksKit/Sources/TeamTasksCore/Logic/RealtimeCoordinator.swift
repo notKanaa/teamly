@@ -11,6 +11,10 @@ import Foundation
 /// - `.membershipsChanged` → `bumpMemberships()` + `bumpMyTasks()`, then the group ids are fetched again.
 /// - `.assigned` → `bumpMyTasks()` and the signal is forwarded, in order, to `onAssigned`
 ///   (typically `AssignmentNotifier.handleRealtime`), without blocking the event loop.
+/// - v3 (docs/CONTRACTS-V3.md §11): `.nudged`, `.turnSwapProposed`, `.turnSwapUpdated`, `.reactionAdded` and
+///   `.commentAdded` → bump of their group (a swap is not always a group write on the server), plus « Mes tâches » for
+///   the swaps; each event is forwarded, in order, to `onSocialEvent` (the local notifications,
+///   `SocialNotificationText`), without blocking the event loop.
 ///
 /// Every fetch of the group ids (`refreshGroupIds()`) re-subscribes the channel when the ids changed. A failed
 /// fetch leaves the ids stale (`groupIdsAreStale`): it is retried on the next `.connected` and after
@@ -30,6 +34,8 @@ public final class RealtimeCoordinator {
     /// Returns the ids of the current user's groups (e.g. `GroupService.myGroups()`).
     public typealias GroupIdsProvider = @Sendable () async throws -> [UUID]
     public typealias AssignmentHandler = @Sendable (RealtimeAssignment) async -> Void
+    /// v3: receives the social events (`RealtimeEvent.socialGroupId` is not nil).
+    public typealias SocialEventHandler = @Sendable (RealtimeEvent) async -> Void
 
     public static let defaultDebounce: Duration = .milliseconds(300)
     public static let defaultRetryDelay: Duration = .seconds(5)
@@ -48,6 +54,7 @@ public final class RealtimeCoordinator {
     private let feed: ChangeFeed
     private let groupIdsProvider: GroupIdsProvider
     private let onAssigned: AssignmentHandler?
+    private let onSocialEvent: SocialEventHandler?
     private let debounce: Duration
     private let retryDelay: Duration
     private let sleep: @Sendable (Duration) async throws -> Void
@@ -57,6 +64,8 @@ public final class RealtimeCoordinator {
     private var runTask: Task<Void, Never>?
     private var handlerTask: Task<Void, Never>?
     private var handlerContinuation: AsyncStream<RealtimeAssignment>.Continuation?
+    private var socialTask: Task<Void, Never>?
+    private var socialContinuation: AsyncStream<RealtimeEvent>.Continuation?
     private var refreshTask: Task<Void, Never>?
     /// A refresh was requested while one was running: run another one when it ends.
     private var refreshRequested = false
@@ -89,6 +98,7 @@ public final class RealtimeCoordinator {
     ///     `.membershipsChanged`, on reconnection and while they are stale).
     ///   - clock: drives debouncing and retries (a test clock makes tests instant).
     ///   - onAssigned: receives every `.assigned` signal, in order.
+    ///   - onSocialEvent: v3, receives every social event (nudges, swaps, reactions, comments), in order.
     public init<C: Clock>(
         realtime: any RealtimeService,
         userId: UUID,
@@ -97,13 +107,15 @@ public final class RealtimeCoordinator {
         debounce: Duration = RealtimeCoordinator.defaultDebounce,
         retryDelay: Duration = RealtimeCoordinator.defaultRetryDelay,
         clock: C,
-        onAssigned: AssignmentHandler? = nil
+        onAssigned: AssignmentHandler? = nil,
+        onSocialEvent: SocialEventHandler? = nil
     ) where C.Duration == Duration {
         self.realtime = realtime
         self.userId = userId
         self.feed = feed
         groupIdsProvider = groupIds
         self.onAssigned = onAssigned
+        self.onSocialEvent = onSocialEvent
         self.debounce = max(debounce, .zero)
         self.retryDelay = max(retryDelay, .zero)
         sleep = { duration in try await clock.sleep(for: duration) }
@@ -117,7 +129,8 @@ public final class RealtimeCoordinator {
         groupIds: @escaping GroupIdsProvider,
         debounce: Duration = RealtimeCoordinator.defaultDebounce,
         retryDelay: Duration = RealtimeCoordinator.defaultRetryDelay,
-        onAssigned: AssignmentHandler? = nil
+        onAssigned: AssignmentHandler? = nil,
+        onSocialEvent: SocialEventHandler? = nil
     ) {
         self.init(
             realtime: realtime,
@@ -127,7 +140,8 @@ public final class RealtimeCoordinator {
             debounce: debounce,
             retryDelay: retryDelay,
             clock: ContinuousClock(),
-            onAssigned: onAssigned
+            onAssigned: onAssigned,
+            onSocialEvent: onSocialEvent
         )
     }
 
@@ -152,6 +166,15 @@ public final class RealtimeCoordinator {
                 }
             }
         }
+        if let onSocialEvent {
+            let (stream, continuation) = AsyncStream.makeStream(of: RealtimeEvent.self)
+            socialContinuation = continuation
+            socialTask = Task {
+                for await event in stream {
+                    await onSocialEvent(event)
+                }
+            }
+        }
         runSubscriptions(groupIds: initialGroupIds)
     }
 
@@ -173,6 +196,10 @@ public final class RealtimeCoordinator {
         handlerContinuation = nil
         handlerTask?.cancel()
         handlerTask = nil
+        socialContinuation?.finish()
+        socialContinuation = nil
+        socialTask?.cancel()
+        socialTask = nil
         cancelPendingBumps()
         subscribedGroupIds = []
         connectedOnCurrentSubscription = false
@@ -335,6 +362,13 @@ public final class RealtimeCoordinator {
         case let .assigned(taskId, groupId, assignedBy):
             scheduleBump(.myTasks)
             handlerContinuation?.yield(RealtimeAssignment(taskId: taskId, groupId: groupId, assignedBy: assignedBy))
+        case .nudged, .reactionAdded, .commentAdded:
+            if let groupId = event.socialGroupId { scheduleBump(.group(groupId)) }
+            socialContinuation?.yield(event)
+        case .turnSwapProposed, .turnSwapUpdated:
+            if let groupId = event.socialGroupId { scheduleBump(.group(groupId)) }
+            scheduleBump(.myTasks)
+            socialContinuation?.yield(event)
         }
         return true
     }
@@ -377,7 +411,7 @@ public final class RealtimeCoordinator {
     }
 
     private func updateLifetime() {
-        lifetime.replace(with: [runTask, handlerTask, refreshTask, groupIdsRetryTask].compactMap { $0 })
+        lifetime.replace(with: [runTask, handlerTask, socialTask, refreshTask, groupIdsRetryTask].compactMap { $0 })
     }
 
     private static func normalized(_ ids: [UUID]) -> [UUID] {

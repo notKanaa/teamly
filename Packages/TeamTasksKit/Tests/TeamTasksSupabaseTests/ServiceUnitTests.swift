@@ -232,7 +232,7 @@ import Testing
         #expect(profile == UserProfile(id: Seed.camille, displayName: "Camille M."))
         let sent = try #require(transport.sent.first)
         #expect(sent.method == "PATCH")
-        #expect(sent.target == "profiles?select=id,display_name,avatar_color,avatar_emoji&id=eq.11111111-1111-4111-8111-111111111111")
+        #expect(sent.target == "profiles?select=id,display_name,avatar_color,avatar_emoji,away_from,away_until&id=eq.11111111-1111-4111-8111-111111111111")
         #expect(sent.headers["prefer"] == "return=representation")
         #expect(sent.body == #"{"display_name":"Camille M."}"#)
         await #expect(throws: AppError.forbidden) { try await profiles.updateDisplayName("Camille") }

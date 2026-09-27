@@ -26,6 +26,16 @@ enum JSONValue: Sendable, Hashable, Encodable {
         value.map { .string(PostgresTimestamp.format($0)) } ?? .null
     }
 
+    /// v3: a SQL `date`, `"2026-10-12"`.
+    static func date(_ value: LocalDate) -> JSONValue {
+        .string(value.isoString)
+    }
+
+    /// v3: lowercase UUID strings in the order given (the mentions of a comment keep their order).
+    static func orderedUUIDs(_ values: [UUID]) -> JSONValue {
+        .array(values.map { JSONValue.uuid($0) })
+    }
+
     /// Sorted (by `uuidString`) array of lowercase UUID strings: deterministic request bodies.
     static func uuids(_ values: some Sequence<UUID>) -> JSONValue {
         .array(values.sorted { $0.uuidString < $1.uuidString }.map { JSONValue.uuid($0) })

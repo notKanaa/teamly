@@ -93,8 +93,9 @@ select tests.create_user('eve');
 select columns_are('public', 'groups',
   array['id', 'name', 'created_by', 'created_at', 'last_activity_at', 'color', 'emoji'], 'groups columns (v1 + v2)');
 select columns_are('public', 'profiles',
-  array['id', 'display_name', 'memberships_changed_at', 'created_at', 'updated_at', 'avatar_color', 'avatar_emoji', 'onboarded_at'],
-  'profiles columns (v1 + v2)');
+  array['id', 'display_name', 'memberships_changed_at', 'created_at', 'updated_at', 'avatar_color', 'avatar_emoji', 'onboarded_at',
+        'away_from', 'away_until'],
+  'profiles columns (v1 + v2 + v3)');
 select columns_are('public', 'tasks',
   array['id', 'group_id', 'title', 'details', 'status', 'priority', 'due_at', 'created_by', 'created_at', 'updated_at',
         'completed_at', 'repeat_freq', 'repeat_interval', 'repeat_weekdays', 'repeat_month_day', 'repeat_tz', 'series_id',
@@ -104,8 +105,9 @@ select columns_are('public', 'task_checklist_items',
   array['id', 'task_id', 'group_id', 'title', 'position', 'done', 'done_at', 'done_by', 'created_at'],
   'task_checklist_items columns');
 select columns_are('public', 'group_activity',
-  array['id', 'group_id', 'kind', 'actor_id', 'subject_id', 'task_id', 'task_title', 'item_title', 'created_at'],
-  'group_activity columns');
+  array['id', 'group_id', 'kind', 'actor_id', 'subject_id', 'task_id', 'task_title', 'item_title', 'created_at',
+        'starts_on', 'ends_on'],
+  'group_activity columns (v2 + v3)');
 select results_eq(
   $$ select a.attname::text collate "default", format_type(a.atttypid, a.atttypmod), a.attnotnull, pg_get_expr(d.adbin, d.adrelid) collate "default"
      from pg_attribute a left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum

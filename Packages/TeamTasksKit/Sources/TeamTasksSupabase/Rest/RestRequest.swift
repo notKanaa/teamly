@@ -69,7 +69,7 @@ struct RestRequest: Sendable, Hashable {
 }
 
 /// Builders of every PostgREST request the adapters make (docs/CONTRACTS.md §4.1, §4.3; docs/CONTRACTS-V2.md §5,
-/// §7–§10).
+/// §7–§10; docs/CONTRACTS-V3.md).
 enum RestQuery {
     /// Lowercase canonical form, as Postgres prints UUIDs.
     static func uuid(_ value: UUID) -> String {
@@ -89,8 +89,8 @@ enum RestQuery {
         ])
     }
 
-    /// The profile columns of the members list and of the `PATCH` results (v2: with the avatar).
-    static let profileSelect = "id,display_name,avatar_color,avatar_emoji"
+    /// The profile columns of the members list and of the `PATCH` results (v2: with the avatar; v3: the away dates).
+    static let profileSelect = "id,display_name,avatar_color,avatar_emoji,away_from,away_until"
 
     /// `myProfile` also reads the onboarding fields (docs/CONTRACTS-V2.md §9).
     static let myProfileSelect = "\(profileSelect),onboarded_at,created_at"
@@ -109,9 +109,11 @@ enum RestQuery {
         ])
     }
 
-    /// v2: every task read embeds the checklist (docs/CONTRACTS-V2.md §10).
+    /// v2: every task read embeds the checklist (docs/CONTRACTS-V2.md §10); v3: the comment count and the photos
+    /// (docs/CONTRACTS-V3.md §5, §6).
     static let taskSelect =
         "*,assignees:task_assignees(user_id),checklist:task_checklist_items(id,title,position,done,done_at,done_by)"
+            + ",comments:task_comments(count),photos:task_photos(id,path,uploaded_by,created_at)"
 
     /// Old done tasks: cutoff = `now − 30 × 86 400 s` (not calendar days), inclusive.
     static func oldDoneCutoff(now: Date) -> Date {
@@ -220,9 +222,14 @@ enum RestQuery {
     }
 
     /// v2: the group's activity feed, newest first, at most `Limits.activityFeedMax` events (docs/CONTRACTS-V2.md §7).
+    /// v3: with the away range of `member_away` and the reactions (docs/CONTRACTS-V3.md §4).
     static func activity(groupId: UUID) -> RestRequest {
         RestRequest(path: "group_activity", query: [
-            item("select", "id,kind,actor_id,subject_id,task_id,task_title,item_title,created_at"),
+            item(
+                "select",
+                "id,kind,actor_id,subject_id,task_id,task_title,item_title,starts_on,ends_on,created_at"
+                    + ",reactions:activity_reactions(user_id,emoji)"
+            ),
             item("group_id", "eq.\(uuid(groupId))"),
             item("order", "id.desc"),
             item("limit", String(Limits.activityFeedMax)),
@@ -235,6 +242,46 @@ enum RestQuery {
             item("select", "id,completed_by,completed_at"),
             item("group_id", "eq.\(uuid(groupId))"),
             item("status", "eq.done"),
+            item("completed_at", "gte.\(PostgresTimestamp.format(since))"),
+        ])
+    }
+
+    // MARK: - v3 reads (docs/CONTRACTS-V3.md)
+
+    /// Every swap of a task, oldest first (§3).
+    static func turnSwaps(taskId: UUID) -> RestRequest {
+        RestRequest(path: "turn_swaps", query: [
+            item("select", "*"),
+            item("task_id", "eq.\(uuid(taskId))"),
+            item("order", "created_at.asc"),
+        ])
+    }
+
+    /// The pending swaps proposed by or to `me`, oldest first (§3).
+    static func pendingTurnSwaps(me: UUID) -> RestRequest {
+        RestRequest(path: "turn_swaps", query: [
+            item("select", "*"),
+            item("status", "eq.pending"),
+            item("or", "(from_user.eq.\(uuid(me)),to_user.eq.\(uuid(me)))"),
+            item("order", "created_at.asc"),
+        ])
+    }
+
+    /// `task_comments?select=*&task_id=eq.<t>&order=created_at.asc` (§5).
+    static func comments(taskId: UUID) -> RestRequest {
+        RestRequest(path: "task_comments", query: [
+            item("select", "*"),
+            item("task_id", "eq.\(uuid(taskId))"),
+            item("order", "created_at.asc"),
+        ])
+    }
+
+    /// `tasks?select=id,group_id,completed_at&completed_by=eq.<me>&completed_at=gte.<since>` (§8), `since` inclusive,
+    /// with microseconds.
+    static func myCompletions(me: UUID, since: Date) -> RestRequest {
+        RestRequest(path: "tasks", query: [
+            item("select", "id,group_id,completed_at"),
+            item("completed_by", "eq.\(uuid(me))"),
             item("completed_at", "gte.\(PostgresTimestamp.format(since))"),
         ])
     }

@@ -2,9 +2,10 @@ import Foundation
 import Supabase
 import TeamTasksCore
 
-/// `RealtimeService` on Supabase Realtime V2 (docs/CONTRACTS.md §6).
+/// `RealtimeService` on Supabase Realtime V2 (docs/CONTRACTS.md §6, docs/CONTRACTS-V3.md §11).
 ///
-/// Every `events(userId:groupIds:)` call opens its own channel with the three bindings of §6 and emits
+/// Every `events(userId:groupIds:)` call opens its own channel with the three bindings of §6 (v3: and the five of
+/// CONTRACTS-V3 §11, on the same channel) and emits
 /// `.connected` on the `system` message that confirms the Postgres subscription (not on the join reply). If the
 /// subscription fails (a `system` error, a join that never succeeds, a channel closed by the server), the channel
 /// is dropped and a new one is subscribed after a backoff, which emits `.connected` again. Socket reconnections
@@ -27,7 +28,10 @@ struct SupabaseRealtimeService: RealtimeService {
     }
 }
 
-/// The three bindings of docs/CONTRACTS.md §6 for one user.
+/// The three bindings of docs/CONTRACTS.md §6 for one user, and the five of docs/CONTRACTS-V3.md §11.
+///
+/// The v3 tables must be in the server's publication: a channel whose binding names a table outside it fails as a
+/// whole, so this client needs the v3 migrations.
 struct RealtimeBindings: Sendable, Hashable {
     /// The server fails the whole channel at ~70 ids in one `in` filter.
     static let maxGroupIds = 60
@@ -57,6 +61,100 @@ struct RealtimeBindings: Sendable, Hashable {
     /// INSERT `public.task_assignees`, `user_id=eq.<me>`.
     var assigneesFilter: RealtimePostgresFilter {
         .eq("user_id", value: me)
+    }
+
+    // MARK: v3 (docs/CONTRACTS-V3.md §11)
+
+    /// INSERT `public.task_nudges`, `to_user=eq.<me>`.
+    var nudgesFilter: RealtimePostgresFilter {
+        .eq("to_user", value: me)
+    }
+
+    /// INSERT `public.turn_swaps`, `to_user=eq.<me>`.
+    var swapsToMeFilter: RealtimePostgresFilter {
+        .eq("to_user", value: me)
+    }
+
+    /// UPDATE `public.turn_swaps`, `from_user=eq.<me>`.
+    var swapsFromMeFilter: RealtimePostgresFilter {
+        .eq("from_user", value: me)
+    }
+
+    /// INSERT `public.activity_reactions`, `target_user=eq.<me>`.
+    var reactionsFilter: RealtimePostgresFilter {
+        .eq("target_user", value: me)
+    }
+
+    /// INSERT `public.task_comments`, `group_id=in.(…)`: the group ids of `groupsFilter` (the same 60-id limit).
+    var commentsFilter: RealtimePostgresFilter {
+        .in("group_id", values: groupIds)
+    }
+
+    /// `task_nudges` INSERT record → `.nudged`.
+    static func nudged(record: [String: AnyJSON]) -> RealtimeEvent? {
+        guard let id = uuid(record["id"]), let taskId = uuid(record["task_id"]), let groupId = uuid(record["group_id"]),
+              let from = uuid(record["from_user"])
+        else { return nil }
+        return .nudged(nudgeId: id, taskId: taskId, groupId: groupId, fromUserId: from)
+    }
+
+    /// `turn_swaps` INSERT record → `.turnSwapProposed`.
+    static func turnSwapProposed(record: [String: AnyJSON]) -> RealtimeEvent? {
+        guard let id = uuid(record["id"]), let taskId = uuid(record["task_id"]), let groupId = uuid(record["group_id"]),
+              let from = uuid(record["from_user"])
+        else { return nil }
+        return .turnSwapProposed(swapId: id, taskId: taskId, groupId: groupId, fromUserId: from)
+    }
+
+    /// `turn_swaps` UPDATE record → `.turnSwapUpdated`; nil for a status unknown to this client.
+    static func turnSwapUpdated(record: [String: AnyJSON]) -> RealtimeEvent? {
+        guard let id = uuid(record["id"]), let taskId = uuid(record["task_id"]), let groupId = uuid(record["group_id"]),
+              let to = uuid(record["to_user"]),
+              let status = record["status"]?.stringValue.flatMap(TurnSwap.Status.init(rawValue:))
+        else { return nil }
+        let repaid = record["repaid_at"].map { !$0.isNil } ?? false
+        return .turnSwapUpdated(swapId: id, taskId: taskId, groupId: groupId, toUserId: to, status: status, isRepaid: repaid)
+    }
+
+    /// `activity_reactions` INSERT record → `.reactionAdded`; nil for an emoji unknown to this client.
+    static func reactionAdded(record: [String: AnyJSON]) -> RealtimeEvent? {
+        guard let activityId = int64(record["activity_id"]), let groupId = uuid(record["group_id"]),
+              let userId = uuid(record["user_id"]),
+              let emoji = record["emoji"]?.stringValue.flatMap(ReactionEmoji.init(rawValue:))
+        else { return nil }
+        return .reactionAdded(activityId: activityId, groupId: groupId, userId: userId, emoji: emoji)
+    }
+
+    /// `task_comments` INSERT record → `.commentAdded` (`mentions` as a JSON array, or as a Postgres array literal).
+    static func commentAdded(record: [String: AnyJSON]) -> RealtimeEvent? {
+        guard let id = uuid(record["id"]), let taskId = uuid(record["task_id"]), let groupId = uuid(record["group_id"])
+        else { return nil }
+        return .commentAdded(
+            commentId: id, taskId: taskId, groupId: groupId, authorId: uuid(record["author_id"]),
+            mentions: uuids(record["mentions"])
+        )
+    }
+
+    private static func int64(_ value: AnyJSON?) -> Int64? {
+        switch value {
+        case let .integer(number)?: Int64(number)
+        case let .double(number)? where number == number.rounded(): Int64(exactly: number)
+        case let .string(text)?: Int64(text)
+        default: nil
+        }
+    }
+
+    private static func uuids(_ value: AnyJSON?) -> [UUID] {
+        switch value {
+        case let .array(items)?:
+            return items.compactMap { uuid($0) }
+        case let .string(text)?:
+            // `{a,b}`: the text form of a Postgres array.
+            let inner = text.trimmingCharacters(in: CharacterSet(charactersIn: "{}"))
+            return inner.split(separator: ",").compactMap { UUID(uuidString: String($0)) }
+        default:
+            return []
+        }
     }
 
     /// `groups` UPDATE record → `.groupActivity`.
@@ -173,6 +271,42 @@ private final class RealtimeChannelRunner: Sendable {
                 InsertAction.self, schema: "public", table: "task_assignees", filter: bindings.assigneesFilter
             ) { action in
                 if let event = RealtimeBindings.assigned(record: action.record) {
+                    continuation.yield(event)
+                }
+            },
+            // v3 (docs/CONTRACTS-V3.md §11).
+            channel.onPostgresChange(
+                InsertAction.self, schema: "public", table: "task_nudges", filter: bindings.nudgesFilter
+            ) { action in
+                if let event = RealtimeBindings.nudged(record: action.record) {
+                    continuation.yield(event)
+                }
+            },
+            channel.onPostgresChange(
+                InsertAction.self, schema: "public", table: "turn_swaps", filter: bindings.swapsToMeFilter
+            ) { action in
+                if let event = RealtimeBindings.turnSwapProposed(record: action.record) {
+                    continuation.yield(event)
+                }
+            },
+            channel.onPostgresChange(
+                UpdateAction.self, schema: "public", table: "turn_swaps", filter: bindings.swapsFromMeFilter
+            ) { action in
+                if let event = RealtimeBindings.turnSwapUpdated(record: action.record) {
+                    continuation.yield(event)
+                }
+            },
+            channel.onPostgresChange(
+                InsertAction.self, schema: "public", table: "activity_reactions", filter: bindings.reactionsFilter
+            ) { action in
+                if let event = RealtimeBindings.reactionAdded(record: action.record) {
+                    continuation.yield(event)
+                }
+            },
+            channel.onPostgresChange(
+                InsertAction.self, schema: "public", table: "task_comments", filter: bindings.commentsFilter
+            ) { action in
+                if let event = RealtimeBindings.commentAdded(record: action.record) {
                     continuation.yield(event)
                 }
             },

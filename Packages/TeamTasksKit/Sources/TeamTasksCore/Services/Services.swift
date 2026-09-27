@@ -1,8 +1,8 @@
 import Foundation
 
 // All service methods throw `AppError` (implementations must map backend errors with `BackendErrorMapper`).
-// Semantics are specified in docs/CONTRACTS.md and docs/CONTRACTS-V2.md; the mocks (TeamTasksMocks) and the
-// Supabase adapters (TeamTasksSupabase) must behave identically.
+// Semantics are specified in docs/CONTRACTS.md, docs/CONTRACTS-V2.md and docs/CONTRACTS-V3.md; the mocks
+// (TeamTasksMocks) and the Supabase adapters (TeamTasksSupabase) must behave identically.
 
 public protocol AuthService: Sendable {
     /// Emits the current state first (possibly `.unknown` until the stored session is restored), then every change.
@@ -34,6 +34,19 @@ public protocol ProfileService: Sendable {
     /// v2: marks the onboarding as done (`complete_onboarding()`): sets `onboardedAt` once; later calls change
     /// nothing.
     func completeOnboarding() async throws
+
+    // MARK: v3 « Mode absent » (docs/CONTRACTS-V3.md §2)
+
+    /// Sets the current user's absence (`set_away`), both days included; returns the profile (as `myProfile()` reads
+    /// it). `.invalidAway` unless `from <= until`, `until` is not before yesterday (the UTC date) and the range is at
+    /// most `Limits.awayRangeMaxDays` days, both ends counted. With `announce`, a `memberAway` event goes to each of the
+    /// user's groups. The pending rotating occurrences whose turn the user holds and whose local due date falls in the
+    /// range are handed over to the next member who is not away (`assigned_by` NULL: « C’est ton tour »). New dates
+    /// bump every group of the user, so co-members see the absence through the members read.
+    func setAway(from: LocalDate, until: LocalDate, announce: Bool) async throws -> UserProfile
+    /// Ends the absence (`clear_away`): both dates become nil; no event, and no turn moves back. Without an absence it
+    /// writes nothing (no signal).
+    func clearAway() async throws -> UserProfile
 }
 
 public protocol GroupService: Sendable {
@@ -68,6 +81,11 @@ public protocol GroupService: Sendable {
     /// v2: the group's activity feed, newest first, at most `Limits.activityFeedMax` events (older events are not
     /// read); events of an unknown kind are left out. Non-members read an empty list.
     func activity(groupId: UUID) async throws -> [ActivityEvent]
+    /// v3 « Bravo » (docs/CONTRACTS-V3.md §4): adds the current user's reaction `emoji` to the event, or removes it
+    /// when it is there. Returns true when added, false when removed. Any member of the event's group; otherwise (or
+    /// an unknown event) `.notFound`. Bumps the group; an added reaction notifies the event's actor
+    /// (`RealtimeEvent.reactionAdded`).
+    func toggleReaction(activityId: Int64, emoji: ReactionEmoji) async throws -> Bool
     /// Admins only.
     func inviteCode(groupId: UUID) async throws -> InviteCode
     /// Admins only. The previous code stops working.
@@ -130,6 +148,62 @@ public protocol TaskService: Sendable {
     /// v2: the group's done tasks completed at or after `since`, for the weekly recap (read them from
     /// `WeeklyRecap.readStart(now:calendar:)`), in no particular order. Non-members read an empty list.
     func completions(groupId: UUID, since: Date) async throws -> [TaskCompletion]
+
+    // MARK: v3 (docs/CONTRACTS-V3.md)
+
+    /// « Relancer » (§1): nudges the assignees of a task, the caller excepted; returns how many were nudged. Any member
+    /// of the task's group. Checks, in this order: the task (`.notFound`), not done (`.taskDone`), someone to nudge
+    /// (`.nudgeNoRecipient`), at most one nudge per task and caller in `Limits.nudgeCooldownHours` hours
+    /// (`.nudgeRateLimited`; a refused call writes nothing). Writes a `taskNudged` event per assignee nudged and bumps
+    /// the group; each of them gets `RealtimeEvent.nudged` (and an ntfy push when subscribed).
+    func nudge(taskId: UUID) async throws -> Int
+
+    /// « Échanger mon tour » (§3): the turn holder of a pending rotating occurrence proposes it to `userId`, a
+    /// current member listed in the rotation. Checks: the task (`.notFound`), the caller's turn (`.notYourTurn`),
+    /// the target (`.invalidRotation`: not a current member of the rotation, or the caller), no pending proposal on
+    /// the task (`.swapPending`). The target gets `RealtimeEvent.turnSwapProposed`.
+    func requestTurnSwap(taskId: UUID, to userId: UUID) async throws -> TurnSwap
+    /// Accepts or declines a pending swap proposed to the caller: unknown or invisible → `.notFound`; not the target
+    /// → `.forbidden`; not pending → `.swapNotPending`. Accepted, the turn and the only assignment of the occurrence go
+    /// to the caller (assigned by themselves) and a `turnSwapped` event is written. The author gets
+    /// `RealtimeEvent.turnSwapUpdated`. Every swap write (request, answer, cancellation) bumps the group; every status
+    /// change sets `respondedAt`. A pending swap is cancelled by the server as soon as it can no longer be accepted as
+    /// asked (the occurrence is done, loses its rotation or its turn holder, no longer lists the target, or either
+    /// person leaves the group).
+    func respondToTurnSwap(swapId: UUID, accept: Bool) async throws -> TurnSwap
+    /// Withdraws a pending swap: only its author (`.notFound` → `.forbidden` → `.swapNotPending`).
+    func cancelTurnSwap(swapId: UUID) async throws -> TurnSwap
+    /// Every swap of a task (the pending one included), oldest first. Non-members read an empty list.
+    func turnSwaps(taskId: UUID) async throws -> [TurnSwap]
+    /// The pending swaps proposed by or to the current user, in every group, oldest first.
+    func pendingTurnSwaps() async throws -> [TurnSwap]
+
+    /// Comments (§5): the task's comments, oldest first. Non-members read an empty list.
+    func comments(taskId: UUID) async throws -> [TaskComment]
+    /// Adds a comment, by any member: checks the task (`.notFound`), the body (`InputValidation.commentBody(_:)`,
+    /// `.invalidComment`), then the mentions (duplicates dropped, at most `Limits.mentionsMax`, members of the group:
+    /// `.invalidMentions`; mentioning oneself is allowed). Writes a `commentAdded` event and bumps the group; the members of the group get
+    /// `RealtimeEvent.commentAdded` (and the mentioned ones an ntfy push when subscribed).
+    func addComment(taskId: UUID, body: String, mentions: [UUID]) async throws -> TaskComment
+    /// Deletes a comment: its author or an admin (`.notFound` → `.forbidden`). Bumps the group.
+    func deleteComment(commentId: UUID) async throws
+
+    /// Photos (§6): uploads a JPEG (already resized to `Limits.photoLongestSide` pixels and encoded with
+    /// `Limits.photoJPEGQuality`) to `TaskPhoto.newPath(groupId:taskId:)` in the bucket `task-photos`, then attaches it
+    /// to the task. Checks: the task (`.notFound`), the bytes (`InputValidation.photo(_:)`, `.invalidPhoto`), the
+    /// rights of « change status » (`.forbidden`), at most `Limits.photosPerTaskMax` photos (`.photoLimit`). Writes
+    /// a `photoAdded` event and bumps the group. Returns the photo attached.
+    func uploadPhoto(taskId: UUID, jpegData: Data) async throws -> TaskPhoto
+    /// Deletes a photo: its uploader or an admin (`.notFound` → `.forbidden`), then its stored object. Bumps the
+    /// group.
+    func deletePhoto(_ photo: TaskPhoto) async throws
+    /// A URL showing the photo for `Limits.photoURLLifetime` seconds (a signed URL). The mocks return a `data:` URL
+    /// holding the bytes. Not a member of the photo's group, or no such object → `.notFound`.
+    func photoURL(_ photo: TaskPhoto) async throws -> URL
+
+    /// Personal stats (§8): the tasks the current user completed at or after `since` (inclusive), in the groups they
+    /// belong to, with `groupId`. Read them from `MyStats.readStart(now:calendar:)`.
+    func myCompletions(since: Date) async throws -> [TaskCompletion]
 }
 
 public protocol RealtimeService: Sendable {

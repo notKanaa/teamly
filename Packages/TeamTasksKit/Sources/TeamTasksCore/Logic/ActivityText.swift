@@ -26,12 +26,17 @@ public struct EmphasizedText: Sendable, Hashable {
     public var emphasized: [String] { runs.filter(\.isEmphasized).map(\.text) }
 }
 
-/// French wording of the activity feed (docs/CONTRACTS-V2.md §7). Pure.
+/// French wording of the activity feed (docs/CONTRACTS-V2.md §7, docs/CONTRACTS-V3.md §7). Pure.
 ///
 /// People are « Tu » for the current user, the short name given by `names` for a current member (see
 /// `MemberDirectory.shortNames`), and « Un ancien membre » for anyone else: someone who left, or a nil id (a deleted
 /// account). `member_left` has three cases: a member who left (« Lucas a quitté le groupe »), a member removed by
 /// someone (« Camille a retiré Lucas du groupe »), and a deleted account (« Un membre a supprimé son compte »).
+///
+/// v3 kinds: « Camille a relancé Lucas pour « … » » (« Camille t’a envoyé une relance pour « … » » when the current
+/// user was nudged), « Inès a annoncé une absence du 12 au 19 octobre », « Lucas a pris le tour de Camille pour « … » »
+/// (« Lucas a pris ton tour… »), « Camille a commenté « … » » (the excerpt is `detail(for:)`), « Lucas a ajouté une
+/// photo à « … » ». Every sentence is gender-neutral.
 public enum ActivityText {
     /// Someone the app does not know (any more), at the start of a sentence.
     public static let formerMember = "Un ancien membre"
@@ -71,7 +76,50 @@ public enum ActivityText {
             return sentence(member, "rejoint", " le groupe")
         case .memberLeft:
             return memberLeft(event, currentUserId: currentUserId, names: names)
+        case .taskNudged:
+            let nudged = Person(event.subjectId, me: currentUserId, names: names)
+            let rest = task.map { " pour \($0)" } ?? ""
+            if nudged.isMe {
+                return EmphasizedText([.init(actor.subjectForm, isEmphasized: true), .init(" t’a envoyé une relance\(rest)")])
+            }
+            return EmphasizedText([
+                .init(actor.subjectForm, isEmphasized: true),
+                .init(" \(actor.isMe ? "as" : "a") relancé "),
+                .init(nudged.objectForm, isEmphasized: true),
+                .init(rest),
+            ])
+        case .memberAway:
+            let member = Person(event.subjectId ?? event.actorId, me: currentUserId, names: names)
+            var range = ""
+            if let from = event.startsOn, let until = event.endsOn {
+                range = " " + AwayText.range(from: from, until: until)
+            }
+            return sentence(member, "annoncé une absence", range)
+        case .turnSwapped:
+            let giver = Person(event.subjectId, me: currentUserId, names: names)
+            let rest = task.map { " pour \($0)" } ?? ""
+            if giver.isMe {
+                return sentence(actor, "pris ton tour", rest)
+            }
+            let name = giver.objectForm
+            return EmphasizedText([
+                .init(actor.subjectForm, isEmphasized: true),
+                .init(" \(actor.isMe ? "as" : "a") pris le tour " + FrenchText.dePrefix(before: name)),
+                .init(name, isEmphasized: true),
+                .init(rest),
+            ])
+        case .commentAdded:
+            return sentence(actor, "commenté", " " + (task ?? "une tâche"))
+        case .photoAdded:
+            return sentence(actor, "ajouté une photo", task.map { " à \($0)" } ?? "")
         }
+    }
+
+    /// v3: the secondary line of an event: the excerpt of a comment (« « Il reste du lait ? » », the first 80
+    /// characters, guillemets included); nil for the other kinds.
+    public static func detail(for event: ActivityEvent) -> String? {
+        guard event.kind == .commentAdded, let excerpt = event.itemTitle, !excerpt.isEmpty else { return nil }
+        return FrenchText.quoted(excerpt)
     }
 
     /// Title of a day of the feed: « Aujourd’hui », « Hier », then « Lundi 21 septembre » (with the year when it is

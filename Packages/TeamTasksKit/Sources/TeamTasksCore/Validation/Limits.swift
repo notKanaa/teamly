@@ -33,4 +33,29 @@ public enum Limits {
     /// truncates longer results without error (docs/CONTRACTS.md §5 pitfall 6). The reads of the groups overview ask
     /// for pages of this size (docs/CONTRACTS-V2.md §10).
     public static let readRowsMax = 1000
+
+    // MARK: - v3 (docs/CONTRACTS-V3.md)
+
+    /// §1: one nudge per task and caller in this many hours.
+    public static let nudgeCooldownHours = 20
+    /// §2: the longest absence, in days, both ends counted (`until - from <= 365`).
+    public static let awayRangeMaxDays = 366
+    /// §5: code points of a comment (after trimming; at least 1).
+    public static let commentBodyMax = 1000
+    /// §5: members mentioned in one comment.
+    public static let mentionsMax = 20
+    /// §5: code points of a comment copied into its `comment_added` event (`item_title`).
+    public static let commentExcerptMax = 80
+    /// §6: photos of one task.
+    public static let photosPerTaskMax = 5
+    /// §6: bytes of one photo (the bucket's `file_size_limit`, 5 MB).
+    public static let photoBytesMax = 5 * 1024 * 1024
+    /// §6: the client resizes a photo to this many pixels on its longest side before the upload…
+    public static let photoLongestSide = 1600
+    /// … and encodes it as JPEG with this quality.
+    public static let photoJPEGQuality = 0.7
+    /// §6: seconds of validity of a photo's signed URL.
+    public static let photoURLLifetime = 3600
+    /// §8: weeks read for the personal stats (the current week and the 11 before it).
+    public static let statsWeeksRead = 12
 }

@@ -189,6 +189,11 @@ extension GroupOverview {
 
 extension ActivityEvent.Kind {
     /// SF Symbols name of the event, drawn when no person is shown.
+    public var systemImage: String { activityKind.systemImage }
+}
+
+extension ActivityKind {
+    /// SF Symbols name of the event, drawn when no person is shown.
     public var systemImage: String {
         switch self {
         case .taskCreated: "plus.circle"
@@ -197,6 +202,11 @@ extension ActivityEvent.Kind {
         case .checklistItemDone: "checklist.checked"
         case .memberJoined: "person.badge.plus"
         case .memberLeft: "person.badge.minus"
+        case .taskNudged: "bell.badge"
+        case .memberAway: "airplane"
+        case .turnSwapped: "arrow.left.arrow.right"
+        case .commentAdded: "text.bubble"
+        case .photoAdded: "camera"
         }
     }
 }

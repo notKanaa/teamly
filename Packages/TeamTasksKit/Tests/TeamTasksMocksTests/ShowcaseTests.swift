@@ -99,13 +99,14 @@ import Testing
     }
 
     /// The feed of the last 3 days, newest first: the previous « Sortir les poubelles » completed then Camille's turn,
-    /// « Faire les courses » created then two items checked, and this week's completions.
+    /// « Faire les courses » created then two items checked, and this week's completions; v3: Inès's absence, the two
+    /// comments and the photo.
     @Test(arguments: ShowcaseTests.seedTimes)
     func activityFeedOfTheLastThreeDays(now: Date) async throws {
         let services = Self.showcase(at: now).services
         let feed = try await services.groups.activity(groupId: Self.lilas)
         let threeDaysAgo = now.addingTimeInterval(-3 * 86_400)
-        #expect((10...11).contains(feed.count))
+        #expect((14...15).contains(feed.count))
         #expect(feed.map(\.id) == feed.map(\.id).sorted(by: >), "newest first")
         for (newer, older) in zip(feed, feed.dropFirst()) {
             #expect(newer.createdAt >= older.createdAt)
@@ -147,15 +148,120 @@ import Testing
                 kept.turnUserId = nil
                 kept.seriesId = nil
                 kept.checklist = []
+                kept.commentCount = 0
+                kept.photos = []
                 #expect(kept == task, "\(task.title)")
             }
             let beforeGroups = try await populated.groups.myGroups()
             let afterGroups = try await showcase.groups.myGroups()
             #expect(afterGroups == beforeGroups)
-            #expect(try await showcase.groups.members(groupId: groupId) == populated.groups.members(groupId: groupId))
+            let members = try await showcase.groups.members(groupId: groupId).map { member in
+                var copy = member
+                copy.user.awayFrom = nil
+                copy.user.awayUntil = nil
+                return copy
+            }
+            #expect(try await members == populated.groups.members(groupId: groupId))
         }
         #expect(try await showcase.profiles.myProfile() == populated.profiles.myProfile())
         let events = try await showcase.tasks.assignments(since: .distantPast)
         #expect(events == (try await populated.tasks.assignments(since: .distantPast)), "no new assignment by others for Camille")
+    }
+
+    // MARK: - v3 (docs/CONTRACTS-V3.md)
+
+    /// Inès is away all next week, Monday to Sunday, announced in the feed; the badge reads « Absent·e du … ».
+    @Test(arguments: ShowcaseTests.seedTimes)
+    func inesIsAwayNextWeek(now: Date) async throws {
+        let services = Self.showcase(at: now).services
+        let ines = try #require(try await services.groups.members(groupId: Self.lilas).first { $0.user.id == DemoData.ines.id })
+        let range = DemoData.Showcase.inesAway(now: now)
+        #expect(ines.user.awayRange == range)
+        #expect(range.lowerBound.isoWeekday == 1 && range.upperBound.isoWeekday == 7)
+        let today = LocalDate(now, calendar: Self.calendar)
+        #expect(range.lowerBound > today && today.days(to: range.lowerBound) <= 7)
+        let badge = try #require(AwayText.badge(for: ines.user, today: today))
+        #expect(badge.hasPrefix("Absent\u{00B7}e du "))
+        let away = try await services.groups.activity(groupId: Self.lilas).filter { $0.kind == .memberAway }
+        #expect(away.count == 1)
+        #expect(away.first?.actorId == DemoData.ines.id && away.first?.subjectId == DemoData.ines.id)
+        #expect(away.first?.startsOn == range.lowerBound && away.first?.endsOn == range.upperBound)
+        // Nothing to hand over: none of Inès's turns falls next week.
+        let tasks = try await services.tasks.tasks(groupId: Self.lilas, includeOldDone: false)
+        #expect(!tasks.contains { $0.turnUserId == DemoData.ines.id && $0.status != .done })
+    }
+
+    /// Lucas proposed his turn of « Ranger le matériel » to Camille; she can accept it.
+    @Test func pendingSwapProposedToCamille() async throws {
+        let now = Self.paris(9, 23, 10)
+        let environment = Self.showcase(at: now)
+        let services = environment.services
+        let pending = try await services.tasks.pendingTurnSwaps()
+        #expect(pending.map(\.id) == [DemoData.Showcase.pendingSwapId])
+        let swap = try #require(pending.first)
+        #expect(swap.fromUserId == DemoData.lucas.id && swap.toUserId == DemoData.camille.id && swap.isPending)
+        #expect(swap.groupId == DemoData.sportGroupId && swap.taskId == DemoData.Showcase.materielTaskId)
+        let task = try await services.tasks.task(id: swap.taskId)
+        #expect(task.title == DemoData.Showcase.materielTitle)
+        #expect(task.turnUserId == DemoData.lucas.id && task.assigneeIds == [DemoData.lucas.id])
+        #expect(task.rotation == DemoData.Showcase.materielRotation && task.seriesId == task.id)
+        #expect(try #require(task.dueAt) > now)
+        #expect(TaskPermissions.canRespond(to: swap, userId: DemoData.camille.id))
+        let accepted = try await services.tasks.respondToTurnSwap(swapId: swap.id, accept: true)
+        #expect(accepted.status == .accepted)
+        #expect(try await services.tasks.task(id: task.id).turnUserId == DemoData.camille.id)
+    }
+
+    /// Reactions on two completions of this week, targeting their actors.
+    @Test(arguments: ShowcaseTests.seedTimes)
+    func reactionsOnTwoEvents(now: Date) async throws {
+        let services = Self.showcase(at: now).services
+        let feed = try await services.groups.activity(groupId: Self.lilas)
+        let reacted = feed.filter { !$0.reactions.isEmpty }
+        #expect(reacted.count == 2)
+        let plantes = try #require(reacted.first { $0.taskTitle == "Arroser les plantes" })
+        #expect(plantes.actorId == DemoData.ines.id)
+        #expect(plantes.reactionSummaries(currentUserId: DemoData.camille.id).map(\.text) == ["\u{1F44F} 2", "\u{1F525} 1"])
+        #expect(plantes.reactionSummaries(currentUserId: DemoData.camille.id).first?.includesMe == true)
+        let frigo = try #require(reacted.first { $0.taskTitle == "Nettoyer le frigo" })
+        #expect(frigo.actorId == DemoData.camille.id)
+        #expect(Set(frigo.reactions.map(\.emoji)) == [.muscle, .heart])
+        // Camille can take her 👏 back.
+        #expect(try await !services.groups.toggleReaction(activityId: plantes.id, emoji: .clap))
+    }
+
+    /// Two comments mentioning Camille on « Faire les courses », oldest first, with their events.
+    @Test func coursesComments() async throws {
+        let now = Self.paris(9, 23, 10)
+        let services = Self.showcase(at: now).services
+        let comments = try await services.tasks.comments(taskId: DemoData.TaskIDs.faireCourses)
+        #expect(comments.map(\.id) == DemoData.Showcase.coursesComments.map(\.id))
+        #expect(comments.map(\.authorId) == [DemoData.lucas.id, DemoData.ines.id])
+        #expect(comments.allSatisfy { $0.mentions == [DemoData.camille.id] && $0.createdAt < now })
+        #expect(try await services.tasks.task(id: DemoData.TaskIDs.faireCourses).commentCount == 2)
+        let events = try await services.groups.activity(groupId: Self.lilas).filter { $0.kind == .commentAdded }
+        #expect(events.map(\.actorId) == [DemoData.ines.id, DemoData.lucas.id])
+        #expect(events.map(\.createdAt) == comments.reversed().map(\.createdAt))
+        #expect(events.allSatisfy { $0.taskId == DemoData.TaskIDs.faireCourses })
+    }
+
+    /// One photo on « Nettoyer le frigo » (done by Camille this week), shown through a `data:` URL.
+    @Test(arguments: ShowcaseTests.seedTimes)
+    func photoOnADoneTask(now: Date) async throws {
+        let environment = Self.showcase(at: now)
+        let services = environment.services
+        let task = try await services.tasks.task(id: DemoData.Showcase.photoTaskId)
+        #expect(task.status == .done && task.title == "Nettoyer le frigo")
+        let photo = try #require(task.photos.first)
+        #expect(task.photos.count == 1)
+        #expect(photo.id == DemoData.Showcase.photoId && photo.uploadedBy == DemoData.camille.id)
+        #expect(InputValidation.isPhotoPath(photo.path, groupId: Self.lilas, taskId: task.id))
+        #expect(photo.createdAt == task.completedAt)
+        #expect(InputValidation.isJPEG(DemoData.Showcase.photoJPEG) && DemoData.Showcase.photoJPEG.count == 772)
+        #expect(environment.backend.photoObjectData(path: photo.path) == DemoData.Showcase.photoJPEG)
+        let url = try await services.tasks.photoURL(photo)
+        #expect(url.absoluteString == "data:image/jpeg;base64,\(DemoData.Showcase.photoJPEG.base64EncodedString())")
+        let events = try await services.groups.activity(groupId: Self.lilas).filter { $0.kind == .photoAdded }
+        #expect(events.map(\.taskId) == [task.id])
     }
 }

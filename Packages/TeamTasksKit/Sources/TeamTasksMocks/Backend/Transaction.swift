@@ -3,7 +3,8 @@ import TeamTasksCore
 
 /// One write "transaction" on a copy of the data. It also records the change signals of
 /// docs/CONTRACTS.md §6 (at most one bump per group per transaction), applied by `finish()`, and mirrors the server
-/// triggers of docs/CONTRACTS-V2.md (activity feed, spawn of the next occurrence, turn handover).
+/// triggers of docs/CONTRACTS-V2.md (activity feed, spawn of the next occurrence, turn handover) and
+/// docs/CONTRACTS-V3.md (absence skip, swap repayment and automatic cancellation, the rows published to Realtime).
 struct Transaction {
     var data: BackendData
     /// Like Postgres `now()`: one timestamp for the whole transaction.
@@ -21,6 +22,16 @@ struct Transaction {
     private(set) var updatedProfiles: Set<UUID> = []
     /// New `task_assignees` rows (Realtime INSERT).
     private(set) var insertedAssignments: [AssigneeRecord] = []
+    /// v3: new `task_nudges` rows (Realtime INSERT).
+    private(set) var insertedNudges: [NudgeRecord] = []
+    /// v3: new `turn_swaps` rows (Realtime INSERT).
+    private(set) var insertedSwaps: [UUID] = []
+    /// v3: updated `turn_swaps` rows, in order, each once (Realtime UPDATE).
+    private(set) var updatedSwaps: [UUID] = []
+    /// v3: new `activity_reactions` rows (Realtime INSERT).
+    private(set) var insertedReactions: [ReactionRecord] = []
+    /// v3: new `task_comments` rows (Realtime INSERT).
+    private(set) var insertedComments: [UUID] = []
     /// Groups that lost a member (safety-net heal trigger).
     private var groupsThatLostMembers: Set<UUID> = []
 
@@ -58,9 +69,11 @@ struct Transaction {
         bumpedGroups.union(touchedGroups).filter { data.groups[$0] != nil }.sortedByUUIDString()
     }
 
-    /// Runs the safety-net heal and applies the signal bumps. Called once, before commit.
+    /// Runs the safety-net heal, cancels the swaps that no longer hold (v3) and applies the signal bumps. Called once,
+    /// before commit.
     mutating func finish() {
         healGroupsWithoutAdmin()
+        cancelStaleSwaps()
         // Local copy: reading `self.now` inside `data[…]?.x = …` overlaps the modify access to `self`
         // (rejected by the Darwin compiler's static exclusivity check).
         let now = now
@@ -97,18 +110,25 @@ struct Transaction {
     /// `private.log_activity`: skipped for a group that no longer exists (being deleted); first deletes the group's
     /// events older than `Limits.activityRetentionDays` days (one exactly that old is kept); an actor or subject
     /// whose profile no longer exists is stored as NULL. Writing an event does not bump the group.
+    /// v3: the reactions of a deleted event go with it (`on delete cascade`).
     mutating func logActivity(
         groupId: UUID,
-        kind: ActivityEvent.Kind,
+        kind: ActivityKind,
         actorId: UUID? = nil,
         subjectId: UUID? = nil,
         taskId: UUID? = nil,
         taskTitle: String? = nil,
-        itemTitle: String? = nil
+        itemTitle: String? = nil,
+        startsOn: LocalDate? = nil,
+        endsOn: LocalDate? = nil
     ) {
         guard data.groups[groupId] != nil else { return }
         let cutoff = now.addingTimeInterval(-TimeInterval(Limits.activityRetentionDays) * 86_400)
-        data.activity.removeAll { $0.groupId == groupId && $0.createdAt < cutoff }
+        let expired = Set(data.activity.filter { $0.groupId == groupId && $0.createdAt < cutoff }.map(\.id))
+        if !expired.isEmpty {
+            data.activity.removeAll { expired.contains($0.id) }
+            data.reactions.removeAll { expired.contains($0.activityId) }
+        }
         data.lastActivityId += 1
         let profiles = data.profiles
         data.activity.append(ActivityRecord(
@@ -120,7 +140,9 @@ struct Transaction {
             taskId: taskId,
             taskTitle: taskTitle,
             itemTitle: itemTitle,
-            createdAt: now
+            createdAt: now,
+            startsOn: startsOn,
+            endsOn: endsOn
         ))
     }
 
@@ -170,8 +192,9 @@ struct Transaction {
     /// task of the group whose turn holder was `departed` (or whose turn is NULL while it lists `departed`) is handed
     /// over at once, in task id order:
     /// - at least 2 members of the rotation left: the next member cyclically after `departed`'s position takes the
-    ///   turn, becomes the only assignee (`assigned_by` NULL, existing row kept) and `turn_started` is written; the
-    ///   stored rotation keeps `departed` until the next spawn;
+    ///   turn (v3: skipping the members away on the occurrence's local due date), becomes the only assignee
+    ///   (`assigned_by` NULL, existing row kept) and `turn_started` is written; the stored rotation keeps `departed`
+    ///   until the next spawn;
     /// - fewer: the rotation and the turn are dropped (the rule stays) and the remaining member, if any, becomes an
     ///   assignee (`assigned_by` NULL); no `turn_started`.
     private mutating func handOverTurns(in groupId: UUID, departed: UUID) {
@@ -182,7 +205,11 @@ struct Transaction {
         }
         for task in pending.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
             let data = data
-            let handover = RotationHandover(after: task.rotation, turnUserId: departed) { data.isMember($0, of: groupId) }
+            let day = data.localDueDate(of: task)
+            let handover = RotationHandover(
+                after: task.rotation, turnUserId: departed, isMember: { data.isMember($0, of: groupId) },
+                isAway: { data.isAway($0, on: day) }
+            )
             if let turn = handover.turnUserId {
                 self.data.tasks[task.id]?.turnUserId = turn
                 for userId in data.assigneeIds(of: task.id) where userId != turn {
@@ -206,9 +233,15 @@ struct Transaction {
         }
     }
 
-    /// Deletes a group and cascades to its invite, members, tasks, assignees, checklist items and activity feed. No
-    /// event is written for a group being deleted, and nothing is handed over.
+    /// Deletes a group and cascades to its invite, members, tasks, assignees, checklist items and activity feed (v3:
+    /// nudges, swaps, reactions, comments and photo rows; the stored objects are left behind). No event is written for
+    /// a group being deleted, and nothing is handed over.
     mutating func deleteGroup(_ groupId: UUID) {
+        data.nudges.removeAll { $0.groupId == groupId }
+        data.swaps = data.swaps.filter { $0.value.groupId != groupId }
+        data.reactions.removeAll { $0.groupId == groupId }
+        data.comments = data.comments.filter { $0.value.groupId != groupId }
+        data.photos = data.photos.filter { $0.value.groupId != groupId }
         for userId in (data.members[groupId] ?? [:]).keys {
             membershipsChanged(userId)
         }
@@ -273,11 +306,16 @@ struct Transaction {
         return item
     }
 
-    /// Deletes a task with its assignees and checklist items (FK cascades). Its activity events stay (no FK).
+    /// Deletes a task with its assignees and checklist items (FK cascades); v3: with its nudges, swaps, comments and
+    /// photo rows (the stored objects are left behind). Its activity events stay (no FK).
     mutating func deleteTask(_ task: TaskRecord) {
         data.tasks[task.id] = nil
         data.assignees[task.id] = nil
         data.checklistItems = data.checklistItems.filter { $0.value.taskId != task.id }
+        data.nudges.removeAll { $0.taskId == task.id }
+        data.swaps = data.swaps.filter { $0.value.taskId != task.id }
+        data.comments = data.comments.filter { $0.value.taskId != task.id }
+        data.photos = data.photos.filter { $0.value.taskId != task.id }
         bump(task.groupId)
     }
 
@@ -286,25 +324,32 @@ struct Transaction {
     /// - due date: `NextDueCalculator` with this transaction's `now` (the completion time);
     /// - copied: group, title, details, priority, the rule (`monthDay` as is), the series creator, the series id;
     ///   status todo; the checklist, unchecked, with the same positions;
-    /// - rotation: `RotationHandover` after the turn holder; its assignee has `assigned_by` NULL, or the completer when
-    ///   the completer takes the turn; without rotation, the same assignees, each a continuation (`assigned_by` =
-    ///   the assignee);
+    /// - rotation: `RotationHandover` after the turn holder, skipping the members away on the new due date (v3); then
+    ///   the repayment of a swap (`repaySwap`); its assignee has `assigned_by` NULL, or the completer when the completer
+    ///   takes the turn; without rotation, the same assignees, each a continuation (`assigned_by` = the assignee);
     /// - `turn_started` when the new occurrence has a turn holder. No `task_created`, no write quota.
     mutating func spawnNextOccurrence(of task: TaskRecord) -> UUID? {
         guard let rule = task.recurrence, let dueAt = task.dueAt,
               let due = NextDueCalculator.nextDueDate(after: dueAt, rule: rule, now: now)
         else { return nil }
         let data = data
+        let seriesId = task.seriesId ?? task.id
+        let day = rule.timeZone.map { LocalDate(due, timeZone: $0) }
         var rotation: [UUID] = []
         var turn: UUID?
         var assignee: UUID?
         if !task.rotation.isEmpty {
-            let handover = RotationHandover(after: task.rotation, turnUserId: task.turnUserId) {
-                data.isMember($0, of: task.groupId)
-            }
+            let handover = RotationHandover(
+                after: task.rotation, turnUserId: task.turnUserId, isMember: { data.isMember($0, of: task.groupId) },
+                isAway: { data.isAway($0, on: day) }
+            )
             rotation = handover.rotation
             turn = handover.turnUserId
             assignee = handover.assigneeId
+            if let next = turn, let repaid = repaySwap(seriesId: seriesId, nextTurn: next, rotation: rotation, groupId: task.groupId, day: day) {
+                turn = repaid
+                assignee = repaid
+            }
         }
         let next = TaskRecord(
             id: UUID(),
@@ -319,7 +364,7 @@ struct Transaction {
             updatedAt: now,
             completedAt: nil,
             recurrence: rule,
-            seriesId: task.seriesId ?? task.id,
+            seriesId: seriesId,
             nextOccurrenceId: nil,
             rotation: rotation,
             turnUserId: turn,
@@ -346,6 +391,111 @@ struct Transaction {
         return next.id
     }
 
+    // MARK: Turn swaps (v3, docs/CONTRACTS-V3.md §3)
+
+    /// The repayment at a spawn: the oldest (`created_at`, then id) accepted swap of the series taken by `nextTurn`,
+    /// not repaid yet, whose author is still a member listed in the new rotation (a swap whose author left never blocks
+    /// the others). When that author is not away on the new due date, the turn goes back to them and the swap gets
+    /// `repaid_at = now()` (a Realtime UPDATE for its author); otherwise nothing is repaid this time. Returns the
+    /// author, or nil when nothing is repaid.
+    private mutating func repaySwap(seriesId: UUID, nextTurn: UUID, rotation: [UUID], groupId: UUID, day: LocalDate?) -> UUID? {
+        let data = data
+        guard let swap = data.swaps.values
+            .filter({ swap in
+                swap.seriesId == seriesId && swap.status == .accepted && swap.toUser == nextTurn && swap.repaidAt == nil
+                    && data.isMember(swap.fromUser, of: groupId) && rotation.contains(swap.fromUser)
+            })
+            .min(by: SwapRecord.olderFirst)
+        else { return nil }
+        let author = swap.fromUser
+        guard !data.isAway(author, on: day) else { return nil }
+        let now = now // local copy: see finish()
+        self.data.swaps[swap.id]?.repaidAt = now
+        bump(groupId)
+        swapUpdated(swap.id)
+        return author
+    }
+
+    mutating func swapInserted(_ swapId: UUID) {
+        insertedSwaps.append(swapId)
+    }
+
+    mutating func swapUpdated(_ swapId: UUID) {
+        if !updatedSwaps.contains(swapId) { updatedSwaps.append(swapId) }
+    }
+
+    /// Automatic cancellation: a pending swap that can no longer be accepted as asked becomes `cancelled`, with
+    /// `responded_at`: its occurrence is done, lost its rotation, has another turn holder than the author, or no longer
+    /// lists the target; or the author or the target is no longer a member of the group. Deleted occurrences and
+    /// deleted accounts take their swaps with them (no UPDATE). The group bumps.
+    private mutating func cancelStaleSwaps() {
+        let now = now
+        for swap in data.swaps.values where swap.status == .pending {
+            guard let task = data.tasks[swap.taskId] else { continue }
+            let holds = task.status != .done && !task.rotation.isEmpty && task.turnUserId == swap.fromUser
+                && task.rotation.contains(swap.toUser)
+                && data.isMember(swap.fromUser, of: swap.groupId) && data.isMember(swap.toUser, of: swap.groupId)
+            guard !holds else { continue }
+            data.swaps[swap.id]?.status = .cancelled
+            data.swaps[swap.id]?.respondedAt = now
+            bumpedGroups.insert(swap.groupId)
+            swapUpdated(swap.id)
+        }
+    }
+
+    // MARK: Social rows (v3)
+
+    mutating func insertNudge(_ nudge: NudgeRecord) {
+        data.nudges.append(nudge)
+        insertedNudges.append(nudge)
+    }
+
+    mutating func insertReaction(_ reaction: ReactionRecord) {
+        data.reactions.append(reaction)
+        insertedReactions.append(reaction)
+    }
+
+    mutating func insertComment(_ comment: CommentRecord) {
+        data.comments[comment.id] = comment
+        insertedComments.append(comment.id)
+    }
+
+    // MARK: Mode absent (v3, docs/CONTRACTS-V3.md §2)
+
+    /// The handover of `set_away`: every pending occurrence of a rotating task whose turn `userId` holds and whose local
+    /// due date is in `from…until` goes to the next member after them (`RotationHandover`, absence skip included),
+    /// assigned by nobody, with a `turn_started` event. An occurrence whose rotation has fewer than 2 members is left
+    /// alone. In due date order, then task id order.
+    mutating func handOverTurnsOfAbsence(of userId: UUID, from: LocalDate, until: LocalDate) {
+        let pending = data.tasks.values.filter { task in
+            guard task.status != .done, !task.rotation.isEmpty, task.turnUserId == userId,
+                  let day = data.localDueDate(of: task)
+            else { return false }
+            return from <= day && day <= until
+        }
+        let ordered = pending.sorted { lhs, rhs in
+            (lhs.dueAt ?? .distantPast, lhs.id.uuidString) < (rhs.dueAt ?? .distantPast, rhs.id.uuidString)
+        }
+        for task in ordered {
+            let data = data
+            let day = data.localDueDate(of: task)
+            let handover = RotationHandover(
+                after: task.rotation, turnUserId: userId, isMember: { data.isMember($0, of: task.groupId) },
+                isAway: { data.isAway($0, on: day) }
+            )
+            guard let turn = handover.turnUserId, turn != userId else { continue }
+            self.data.tasks[task.id]?.turnUserId = turn
+            for assigneeId in data.assigneeIds(of: task.id) where assigneeId != turn {
+                self.data.assignees[task.id]?[assigneeId] = nil
+            }
+            if self.data.assignees[task.id]?[turn] == nil {
+                insertAssignee(taskId: task.id, groupId: task.groupId, userId: turn, assignedBy: nil)
+            }
+            bump(task.groupId)
+            logActivity(groupId: task.groupId, kind: .turnStarted, subjectId: turn, taskId: task.id, taskTitle: task.title)
+        }
+    }
+
     // MARK: Accounts
 
     /// `delete_my_account()` (docs/CONTRACTS.md §2), then the cascade of deleting the auth user.
@@ -365,6 +515,20 @@ struct Transaction {
         // with no actor nor subject (their profile no longer exists), then the turn handovers.
         data.profiles[userId] = nil
         data.accounts[userId] = nil
+        // v3 cascades of the profile: nudges and swaps from or to the user, their reactions; `target_user`,
+        // `author_id` and `uploaded_by` become NULL.
+        data.nudges.removeAll { $0.fromUser == userId || $0.toUser == userId }
+        data.swaps = data.swaps.filter { $0.value.fromUser != userId && $0.value.toUser != userId }
+        data.reactions.removeAll { $0.userId == userId }
+        for index in data.reactions.indices where data.reactions[index].targetUser == userId {
+            data.reactions[index].targetUser = nil
+        }
+        for (commentId, comment) in data.comments where comment.authorId == userId {
+            data.comments[commentId]?.authorId = nil
+        }
+        for (photoId, photo) in data.photos where photo.uploadedBy == userId {
+            data.photos[photoId]?.uploadedBy = nil
+        }
         for groupId in data.groupIds(of: userId) {
             deleteMembership(groupId: groupId, userId: userId)
         }
