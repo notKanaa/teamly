@@ -26,10 +26,14 @@ This is the API of the v2 design system (« Moderne & coloré », `docs/DESIGN-V
 | `FloatingAddButton.swift` | `FloatingAddButton`, `.floatingAddButton(_:identifier:systemImage:action:)` |
 | `Podium.swift` | `PodiumView` |
 | `NavigationBarAppearance.swift` | the rounded navigation titles (applied once by `AppDelegate`) |
+| `CardSwipeActions.swift` | `CardSwipeAction`, `.cardSwipeActions(leading:trailing:cornerRadius:)` (v3) |
+| `Confetti.swift` | `ConfettiBurst`, `CelebrateAction` (`\.celebrate`), `CelebrationCenter` (v3) |
 | `DesignGallery.swift` | `DesignGalleryView`: every component with sample data (UI tests only, see §10) |
 
 The avatar editor is also reusable: `AvatarEditorContent`, `AvatarPreview` and `AvatarEditorSheet`, in
-`Features/Settings/AvatarEditorSheet.swift`.
+`Features/Settings/AvatarEditorSheet.swift`. The v3 « Réglages » blocks (`SettingsSection`, `SettingsDivider`,
+`SettingsRowLabel`, `SettingsQuickTile`, `SettingsStatTile`, `SettingsBadge`) are in
+`Features/Settings/SettingsComponents.swift`.
 
 ## 1. Tokens
 
@@ -325,7 +329,8 @@ StatusControl(status: TaskStatus, tint: Color = Theme.accent, isBusy: Bool = fal
     (`GroupDetailViewModel` and `MyTasksViewModel` save it in the background, and a second tap during the save is
     sent right after it), so a status change never makes the control busy.
   - `isBusy` shows a spinner and disables the control: a deletion in progress (`GroupDetailViewModel.deletingTaskIds`).
-  - It gives a success haptic when a task becomes « terminée ».
+  - It gives a success haptic when a task becomes « terminée », unless « Vibrations » is off (`\.hapticsEnabled`,
+    Réglages › Apparence).
   - Accessibility: « Statut : À faire », hint « Passer à « En cours » », identifier `AccessibilityID.Tasks.statusButton`
     (a task card gives its own: `AccessibilityID.Tasks.rowStatusButton(row.title)`).
 
@@ -576,6 +581,45 @@ Card {
     PodiumView(entries: model.podiumStageOrder)
 }
 ```
+
+### Swipe actions on cards (v3)
+
+```swift
+CardSwipeAction(_ title: String, systemImage: String, tint: Color, identifier: String, action: @escaping () -> Void)
+view.cardSwipeActions(leading: [CardSwipeAction] = [], trailing: [CardSwipeAction] = [],
+                      cornerRadius: CGFloat = Theme.Radius.row)
+```
+
+`.swipeActions` only works in a `List`; the lists of the app are lazy stacks of cards. This modifier gives a card of a
+scroll view the same shortcuts:
+- a horizontal drag moves the card and reveals the `leading` actions (swipe right) or the `trailing` ones (swipe left),
+  84 pt buttons with a symbol and a title, white on `tint`, behind the card with its corners; a vertical drag scrolls;
+- a tap on an action closes the card and runs it; a tap on the open card closes it;
+- the buttons exist only while the card is moved (hidden ones are not in the accessibility tree);
+- every action is also a VoiceOver action of the card; Reduce Motion drops the spring.
+
+Put the card's identifier on it before the modifier. No action on either side: the card does not move.
+
+```swift
+NavigationLink(value: AppRoute.task(groupId: row.task.groupId, taskId: row.id)) { TaskRowCard(row: row) { … } }
+    .buttonStyle(.pressable)
+    .accessibilityIdentifier(AccessibilityID.Tasks.row(row.title))
+    .cardSwipeActions(leading: [CardSwipeAction("Terminer", systemImage: "checkmark", tint: ColorKey.green.fill,
+                                                identifier: AccessibilityID.Shortcuts.taskToggleDone(row.title)) { … }])
+```
+
+The UI tests reveal an action with `EquipeApp.swipeCard(_:_:towards:until:)`.
+
+### Confetti (v3)
+
+```swift
+ConfettiBurst(trigger: Int)                 // a new burst each time `trigger` changes
+@Environment(\.celebrate) var celebrate    // CelebrateAction: call celebrate() when the user completes a task
+```
+
+The app draws one `ConfettiBurst` over everything (`TeamTasksApp`) and sets `\.celebrate`, which checks « Confettis »
+(Réglages › Apparence). Nothing is drawn with Reduce Motion. The default `\.celebrate` does nothing (the gallery,
+previews). The group screen, « Mes tâches » and the task screen call it when a status becomes « Terminée ».
 
 ## 8. Shell
 

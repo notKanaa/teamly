@@ -125,8 +125,7 @@ final class FlowTests: XCTestCase {
     @MainActor
     func testSignOut() {
         let ui = EquipeApp.launch(.populated, for: self)
-        ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
-        ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the loaded settings")
+        ui.openSettings()
 
         ui.tap(ui.buttons(AccessibilityID.Settings.signOut), "« Se déconnecter »", timeout: UITestTimeout.short)
         ui.confirm("Se déconnecter", identifier: AccessibilityID.Settings.confirmSignOut, openedFrom: AccessibilityID.Settings.signOut)
@@ -148,13 +147,12 @@ final class FlowTests: XCTestCase {
         ui.waitForContent(ui.elements(AccessibilityID.Groups.emptyJoinButton), "« Rejoindre avec un code »")
     }
 
-    /// Réglages → the avatar row → « Ton avatar »: an emoji, « Enregistrer »; the sheet closes.
+    /// Réglages → the avatar of the profile card → « Mon profil »: an emoji, « Enregistrer »; the sheet closes.
     @MainActor
     func testEditAvatarFromSettings() {
         let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
-        ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
-        // The row opens the editor once the profile is loaded (with the display name field).
-        ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the loaded settings")
+        // The avatar opens the editor once the profile is loaded (with the name of the profile card).
+        ui.openSettings()
 
         let save = ui.buttons(AccessibilityID.Settings.avatarSaveButton, orLabel: "Enregistrer")
         ui.tap(ui.buttons(AccessibilityID.Settings.avatarButton), "the avatar row", until: .shows(save))
