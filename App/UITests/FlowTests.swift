@@ -45,10 +45,15 @@ final class FlowTests: XCTestCase {
             expecting: UITestDemo.unknownInviteCodeDisplayed
         )
         let joinButton = ui.buttons(AccessibilityID.Groups.saveButton)
-        if !ui.waitUntilEnabled(joinButton, timeout: UITestTimeout.short) {
-            // The field re-formats its text after each key and may miss the last one while showing all 8 (a CI run:
-            // « ZZZZ-ZZZZ » shown, « Rejoindre » disabled): typing the last letter again hands it over.
-            ui.app.typeText(XCUIKeyboardKey.delete.rawValue + String(UITestDemo.unknownInviteCode.suffix(1)))
+        var retypes = 0
+        while !ui.waitUntilEnabled(joinButton, timeout: UITestTimeout.short), retypes < 3 {
+            retypes += 1
+            // The field re-formats its text after each key and may miss the last one while showing all 8 (CI runs:
+            // « ZZZZ-ZZZZ » shown, « Rejoindre » disabled, even after deleting and typing the last letter in one go):
+            // the last letter deleted, then typed again, each key once the field shows the previous one.
+            ui.app.typeText(XCUIKeyboardKey.delete.rawValue)
+            ui.waitForText(String(UITestDemo.unknownInviteCodeDisplayed.dropLast()), of: codeField)
+            ui.app.typeText(String(UITestDemo.unknownInviteCode.suffix(1)))
             ui.waitForText(UITestDemo.unknownInviteCodeDisplayed, of: codeField)
         }
         ui.tapWhenEnabled(joinButton, "« Rejoindre » of the sheet", until: .shows(ui.app.alerts))
