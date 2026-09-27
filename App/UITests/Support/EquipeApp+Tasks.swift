@@ -52,6 +52,8 @@ extension EquipeApp {
     /// Brings the switch `identifier` on screen and turns it on, until `outcome` shows (3 tries at most). A SwiftUI
     /// `Toggle` spans its row, which may be taller than the screen at accessibility text sizes: the tap goes to the
     /// switch itself (the row's inner switch, or its trailing side at mid-height), once that point is on screen.
+    /// Once the switch is on, a missing `outcome` may be a row of the form not built yet, below the screen (at AX5 the
+    /// rotation's second member was: the switch read « 1 », only the first member existed): one drag down builds it.
     func turnOn(
         _ identifier: String,
         _ description: String,
@@ -73,6 +75,12 @@ extension EquipeApp {
             }
             if outcome.firstMatch.waitForExistence(timeout: UITestTimeout.short) {
                 return
+            }
+            if (try? toggle.snapshot())?.value as? String == "1" {
+                scroll(.towardsBottom)
+                if outcome.firstMatch.waitForExistence(timeout: UITestTimeout.short) {
+                    return
+                }
             }
         }
         XCTFail("Turning \(description) on had no effect: \(outcome.debugDescription)", file: file, line: line)
