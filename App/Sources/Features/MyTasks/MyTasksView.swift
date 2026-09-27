@@ -137,14 +137,37 @@ private struct MyTasksList: View {
             if model.isEmpty {
                 emptyCard
             }
-            ForEach(model.sections) { section in
-                sectionTitle(section)
-                ForEach(section.rows) { row in
+            // One `ForEach` for the titles, the cards and « n tâches terminées aujourd’hui »: a card keeps its identity
+            // when its task changes section (done: into « terminées aujourd’hui » or « Terminées »). A card moved from a
+            // `ForEach` to another under the same id could stay drawn as it was, like on the group screen.
+            ForEach(lines) { line in
+                switch line {
+                case let .title(section):
+                    sectionTitle(section)
+                case let .task(row):
                     taskRow(row)
+                case let .doneToday(text):
+                    doneTodayButton(text)
                 }
             }
-            doneToday
         }
+    }
+
+    /// The sections (title, then cards), then « n tâches terminées aujourd’hui » and, unfolded, today's done tasks (not
+    /// while « Terminées » is shown: they are in that section).
+    private var lines: [MyTasksLine] {
+        var lines: [MyTasksLine] = []
+        for section in model.sections {
+            lines.append(.title(section))
+            lines += section.rows.map(MyTasksLine.task)
+        }
+        if let text = model.doneTodayText, !model.includeDone {
+            lines.append(.doneToday(text))
+            if showsDoneToday {
+                lines += model.doneTodayRows.map(MyTasksLine.task)
+            }
+        }
+        return lines
     }
 
     private func sectionTitle(_ section: MyTasksSection) -> some View {
@@ -168,9 +191,11 @@ private struct MyTasksList: View {
         return "\(section.title), \(count)"
     }
 
+    /// A task card: the task on tap, the status cycle on its ring (the new status shows at once), the status on a long
+    /// press.
     private func taskRow(_ row: TaskRow) -> some View {
         NavigationLink(value: AppRoute.task(groupId: row.task.groupId, taskId: row.id)) {
-            TaskRowCard(row: row, isBusy: model.busyTaskIds.contains(row.id)) {
+            TaskRowCard(row: row) {
                 setStatus(row.status.next, for: row)
             }
         }
@@ -193,51 +218,41 @@ private struct MyTasksList: View {
 
     // MARK: - Done today
 
-    /// « 2 tâches terminées aujourd’hui », folded; unfolded, today's done tasks follow it (not while « Terminées » is
-    /// shown: they are in that section).
-    @ViewBuilder
-    private var doneToday: some View {
-        if let text = model.doneTodayText, !model.includeDone {
-            Button {
-                withAnimation(reduceMotion ? nil : .snappy) {
-                    showsDoneToday.toggle()
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "checkmark.circle")
-                        .font(Font.body.weight(.bold))
-                        .accessibilityHidden(true)
-                    Text(text)
-                        .font(Font.subheadline.weight(.bold))
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: "chevron.right")
-                        .font(Font.footnote.weight(.bold))
-                        .rotationEffect(.degrees(showsDoneToday ? 90 : 0))
-                        .accessibilityHidden(true)
-                }
-                .foregroundStyle(SoftTone.done.foreground)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .frame(minHeight: 48)
-                .background(
-                    SoftTone.done.background,
-                    in: RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous))
+    /// « 2 tâches terminées aujourd’hui »: unfolds today's done tasks under it (`lines`), or folds them.
+    private func doneTodayButton(_ text: String) -> some View {
+        Button {
+            withAnimation(reduceMotion ? nil : .snappy) {
+                showsDoneToday.toggle()
             }
-            .buttonStyle(.pressable)
-            .padding(.top, 8)
-            .accessibilityValue(showsDoneToday ? "Affichées" : "Masquées")
-            .accessibilityHint(showsDoneToday ? "Masque ces tâches." : "Affiche ces tâches.")
-            .accessibilityIdentifier(AccessibilityID.MyTasks.doneTodayButton)
-
-            if showsDoneToday {
-                ForEach(model.doneTodayRows) { row in
-                    taskRow(row)
-                }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle")
+                    .font(Font.body.weight(.bold))
+                    .accessibilityHidden(true)
+                Text(text)
+                    .font(Font.subheadline.weight(.bold))
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(Font.footnote.weight(.bold))
+                    .rotationEffect(.degrees(showsDoneToday ? 90 : 0))
+                    .accessibilityHidden(true)
             }
+            .foregroundStyle(SoftTone.done.foreground)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(minHeight: 48)
+            .background(
+                SoftTone.done.background,
+                in: RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.field, style: .continuous))
         }
+        .buttonStyle(.pressable)
+        .padding(.top, 8)
+        .accessibilityValue(showsDoneToday ? "Affichées" : "Masquées")
+        .accessibilityHint(showsDoneToday ? "Masque ces tâches." : "Affiche ces tâches.")
+        .accessibilityIdentifier(AccessibilityID.MyTasks.doneTodayButton)
     }
 
     // MARK: - Empty
@@ -273,6 +288,27 @@ private struct MyTasksList: View {
     private func setStatus(_ status: TaskStatus, for row: TaskRow) {
         Task {
             await model.setStatus(status, for: row.task)
+        }
+    }
+}
+
+/// A line of « Mes tâches »: a section's title, a task card, or « n tâches terminées aujourd’hui ».
+private enum MyTasksLine: Identifiable {
+    case title(MyTasksSection)
+    case task(TaskRow)
+    case doneToday(String)
+
+    enum ID: Hashable {
+        case title(DueBucket)
+        case task(UUID)
+        case doneToday
+    }
+
+    var id: ID {
+        switch self {
+        case let .title(section): .title(section.bucket)
+        case let .task(row): .task(row.id)
+        case .doneToday: .doneToday
         }
     }
 }

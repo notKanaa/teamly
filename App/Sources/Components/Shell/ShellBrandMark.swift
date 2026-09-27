@@ -36,7 +36,7 @@ struct ShellBrandMark: View {
 
 /// Brand mark, app name and a subtitle, centered (top of the authentication screens).
 struct ShellBrandHeader: View {
-    var title = "Équipe"
+    var title = "Teamly"
     var subtitle: String?
 
     var body: some View {

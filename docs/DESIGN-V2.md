@@ -139,7 +139,10 @@ All data comes from the v2 view models (`D:\mobileApp\_wt\V2-CORE-API.md` and th
    - A hero in the group fill, with rounded bottom corners 32 and white text:
      - top row: back, « Inviter » (a white capsule with text in the group's soft-text color), « … »;
      - identity row: a 64 pt tile on white with the emoji, the name in rounded heavy 26, AvatarStack and `membersSummary`.
-   - Below the hero, the SegmentedPill Tâches / Activité.
+   - Below the hero, the SegmentedPill Tâches / Activité. Switching folds the hero into its compact form of « Activité »
+     with one spring (and unfolds it back): the colored part shrinks up to the pinned bar, the tile shrinks into the
+     bar's row, the name moves up next to it, the members fold away, and the pill and the content follow the hero's
+     bottom. With Reduce Motion it is a quick crossfade.
    - Tâches:
      - « À qui le tour ? » horizontal cards: turn holder, next person, due date;
      - filter chips with counts (selected = `textPrimary` fill, white text);

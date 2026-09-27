@@ -1,6 +1,6 @@
 import Foundation
 
-/// A color of the « Équipe » palette, for groups and avatars (docs/CONTRACTS-V2.md §1).
+/// A color of the « Teamly » palette, for groups and avatars (docs/CONTRACTS-V2.md §1).
 ///
 /// Stored as its raw value (SQL `text` with a check constraint), exact case: `Coral` and `""` are refused
 /// (`invalid_color`). Where a color is optional, nil means « automatic »: see `automatic(for:)`. The hex values are

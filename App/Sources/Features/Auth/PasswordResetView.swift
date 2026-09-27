@@ -212,7 +212,7 @@ struct PasswordResetView: View {
 
     private var doneStep: some View {
         // The app opens right after this step; the spinner covers the transition.
-        ProgressView("Ouverture d’Équipe…")
+        ProgressView("Ouverture de Teamly…")
             .tint(Theme.accent)
             .padding(.top, 8)
             .accessibilityIdentifier(AccessibilityID.Auth.resetDone)

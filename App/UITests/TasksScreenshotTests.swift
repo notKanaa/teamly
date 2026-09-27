@@ -48,8 +48,11 @@ final class TasksScreenshotTests: XCTestCase {
         ui.reveal(ui.elements(AccessibilityID.Tasks.assigneesButton), "« Assigner à »")
         ui.capture("nouvelle-tache-assigner-ax")
 
+        // The first member of the order shows right under the switch; at AX5 the next ones are only built once
+        // scrolled near (the form is lazy): `reveal` brings Inès.
+        let first = ui.elements(AccessibilityID.Tasks.rotationMember(UITestDemo.camilleName))
+        ui.turnOn(AccessibilityID.Tasks.rotationToggle, "« À tour de rôle »", until: first)
         let ines = ui.elements(AccessibilityID.Tasks.rotationMember(UITestDemo.inesName))
-        ui.turnOn(AccessibilityID.Tasks.rotationToggle, "« À tour de rôle »", until: ines)
         ui.reveal(ines, "Inès in the rotation")
         ui.capture("nouvelle-tache-rotation-ax")
     }

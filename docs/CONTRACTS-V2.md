@@ -403,6 +403,7 @@ faire »), and its tasks done at or after `doneSince` (X). Two requests, sent to
 - **Continuations:** `assigned_by = me`, so they are already excluded by the v1 read.
 
 **ntfy push:**
+- **Title:** « Teamly », the app's new name (migration `20260926000100_teamly_push_title.sql`; it was « Équipe », CONTRACTS.md §7). The deep link keeps the `equipe://` scheme.
 - **Rotation turn:** the message becomes « C’est ton tour dans « <group name> » ».
   - Exact string: `C’est ton tour dans « <group name> »`: U+2019 apostrophe, and the two spaces inside the guillemets are no-break spaces (U+00A0). The v1 message keeps its plain spaces.
   - Condition: `assigned_by` NULL on a task that has a rotation, i.e. a turn handed out by a spawn or by a handover (§6). The same deep link as v1, to the occurrence.

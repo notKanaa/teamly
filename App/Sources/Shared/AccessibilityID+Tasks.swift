@@ -14,6 +14,10 @@ extension AccessibilityID.Tasks {
     /// A task row (NavigationLink) in a task list, by task title.
     static func row(_ title: String) -> String { "tasks.row.\(title)" }
 
+    /// The status button of a task row (its label: « Statut : En cours »), by task title. Not `row(_:)` + a suffix:
+    /// `EquipeApp.taskTitle(startingWith:)` reads titles from the identifiers that start with `row("")`.
+    static func rowStatusButton(_ title: String) -> String { "tasks.rowStatus.\(title)" }
+
     // Task detail, v2: the info card and the checklist.
     /// « Se répète » (its label holds the rule and the next dates).
     static let recurrenceInfo = "tasks.detail.recurrence"

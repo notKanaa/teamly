@@ -13,7 +13,7 @@ struct ShellSplashView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Chargement d’Équipe")
+        .accessibilityLabel("Chargement de Teamly")
         .accessibilityIdentifier(AccessibilityID.Shell.splash)
     }
 }

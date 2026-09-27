@@ -72,8 +72,11 @@ public final class GroupDetailViewModel: ErrorPresenting {
     public private(set) var loadState: LoadState = .idle
     /// The group was deleted or the user is no longer a member: dismiss the screen.
     public private(set) var isGone = false
-    /// Tasks with a status change or a deletion in progress.
+    /// Tasks with a status change being saved or a deletion in progress. A status change shows at once (the rows
+    /// already have the new status): only a deletion blocks its card (`deletingTaskIds`).
     public private(set) var busyTaskIds: Set<UUID> = []
+    /// Tasks being deleted: their card shows a spinner and takes no status change.
+    public private(set) var deletingTaskIds: Set<UUID> = []
     public private(set) var isUpdatingGroup = false
     /// Date used for « En retard » and the due texts (refreshed at every load).
     public private(set) var referenceDate: Date
@@ -89,6 +92,8 @@ public final class GroupDetailViewModel: ErrorPresenting {
 
     public let session: SessionModel
     private let runner = LoadRunner()
+    /// The status changes in progress, and the local writes that a fetch started before them must not undo.
+    private let changes = TaskListChanges()
     private var loadedKey: RefreshKey?
     private var fetchingKey: RefreshKey?
     private let initialName: String?
@@ -129,6 +134,7 @@ public final class GroupDetailViewModel: ErrorPresenting {
         fetchingKey = key
         defer { fetchingKey = nil }
         if loadState != .loaded { loadState = .loading }
+        let writesMark = changes.mark
         let groupService = session.services.groups
         let taskService = session.services.tasks
         let groupId = groupId
@@ -145,7 +151,8 @@ public final class GroupDetailViewModel: ErrorPresenting {
             group = summary.group
             myRole = summary.myRole
             self.members = members
-            self.tasks = tasks
+            // A status shown at once, or saved while this fetch was reading, is kept (the next reload reads it).
+            self.tasks = changes.merge(tasks, local: self.tasks, since: writesMark)
             referenceDate = session.platform.now()
             loadedKey = key
             loadState = .loaded
@@ -327,27 +334,47 @@ public final class GroupDetailViewModel: ErrorPresenting {
 
     // MARK: - Task actions
 
-    /// Changes a task's status (admin, creator or assignee).
+    /// Changes a task's status (admin, creator or assignee). The row shows the new status at once, in its place (a
+    /// done task goes under « Terminées »), and the call returns once it is saved; on failure the row gets its saved
+    /// status back and `error` says why. A change asked while the same task is being saved shows at once too and is
+    /// sent right after that save (the last one asked wins); that call returns true at once.
     @discardableResult
     public func setStatus(_ status: TaskStatus, for task: TaskItem) async -> Bool {
         guard canChangeStatus(task) else {
             present(AppError.forbidden)
             return false
         }
-        guard !busyTaskIds.contains(task.id) else { return false }
+        let taskId = task.id
+        guard !deletingTaskIds.contains(taskId) else { return false }
         error = nil
-        busyTaskIds.insert(task.id)
-        defer { busyTaskIds.remove(task.id) }
+        let shown = tasks.first { $0.id == taskId } ?? task
+        replace(shown.settingStatus(status, by: session.userId, at: session.platform.now()))
+        guard changes.beginStatus(status, for: taskId) else { return true }
+        busyTaskIds.insert(taskId)
+        defer {
+            changes.endStatus(for: taskId)
+            busyTaskIds.remove(taskId)
+        }
+        // The last saved version, put back if a save fails.
+        var saved = shown
+        var didSave = false
+        var sending = status
         do {
-            let updated = try await session.services.tasks.setStatus(taskId: task.id, status: status)
-            replace(updated)
-            session.feed.bump(groupId: groupId)
-            session.feed.bumpMyTasks()
-            return true
+            while true {
+                saved = try await session.services.tasks.setStatus(taskId: taskId, status: sending)
+                didSave = true
+                guard let next = changes.nextStatus(for: taskId), next != saved.status else { break }
+                sending = next
+            }
         } catch {
-            handleTaskFailure(error, taskId: task.id)
+            updateIfShown(saved)
+            if didSave { bumpFeeds() }
+            handleTaskFailure(error, taskId: taskId)
             return false
         }
+        updateIfShown(saved)
+        bumpFeeds()
+        return true
     }
 
     /// Deletes a task (admin or creator).
@@ -360,12 +387,16 @@ public final class GroupDetailViewModel: ErrorPresenting {
         guard !busyTaskIds.contains(task.id) else { return false }
         error = nil
         busyTaskIds.insert(task.id)
-        defer { busyTaskIds.remove(task.id) }
+        deletingTaskIds.insert(task.id)
+        defer {
+            busyTaskIds.remove(task.id)
+            deletingTaskIds.remove(task.id)
+        }
         do {
             try await session.services.tasks.delete(taskId: task.id)
             tasks.removeAll { $0.id == task.id }
-            session.feed.bump(groupId: groupId)
-            session.feed.bumpMyTasks()
+            changes.record(task.id)
+            bumpFeeds()
             return true
         } catch {
             handleTaskFailure(error, taskId: task.id)
@@ -377,6 +408,7 @@ public final class GroupDetailViewModel: ErrorPresenting {
     public func apply(_ task: TaskItem) {
         guard task.groupId == groupId else { return }
         replace(task)
+        changes.record(task.id)
     }
 
     private func replace(_ task: TaskItem) {
@@ -387,10 +419,22 @@ public final class GroupDetailViewModel: ErrorPresenting {
         }
     }
 
+    /// Replaces the task when the list still has it (a save may end after the task left the list).
+    private func updateIfShown(_ task: TaskItem) {
+        guard let index = tasks.firstIndex(where: { $0.id == task.id }) else { return }
+        tasks[index] = task
+    }
+
+    private func bumpFeeds() {
+        session.feed.bump(groupId: groupId)
+        session.feed.bumpMyTasks()
+    }
+
     private func handleTaskFailure(_ error: any Error, taskId: UUID) {
         guard let appError = present(error) else { return }
         if appError == .notFound {
             tasks.removeAll { $0.id == taskId }
+            changes.record(taskId)
             session.feed.bump(groupId: groupId)
         }
     }

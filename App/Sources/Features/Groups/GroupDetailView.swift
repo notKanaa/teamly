@@ -9,6 +9,10 @@ import TeamTasksCore
 /// - « Activité » (`GroupActivityContent`): the week's recap and the feed; the hero is then compact (tile and name in
 ///   the pinned bar).
 ///
+/// The switch folds the hero with one spring: its colored part shrinks to the bar, the tile shrinks and slides into
+/// the bar's row, the name moves up to it, the members fold away, and the content (starting with the switch) follows
+/// the hero's bottom. With Reduce Motion it is a quick crossfade.
+///
 /// « … » holds the sort, the old done tasks, « Membres », the invite code, and for admins « Apparence » (the color and
 /// emoji sheet), « Renommer » and « Supprimer ». The navigation bar is hidden (the edge swipe still goes back:
 /// `GroupsSwipeBackEnabler`). Leaves the group's screens when the group is gone (deleted, left, removed).
@@ -26,6 +30,8 @@ struct GroupDetailView: View {
     @State private var taskPendingDeletion: TaskItem?
     /// The hero's identity has scrolled away: the pinned bar shows the group's name.
     @State private var isHeroCollapsed = false
+    /// The tile and the name fly between the hero's identity and the compact bar.
+    @Namespace private var heroNamespace
     @Environment(AppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -162,10 +168,7 @@ struct GroupDetailView: View {
     private func loadedScreen(_ appearance: AvatarAppearance) -> some View {
         ScrollView {
             VStack(spacing: 0) {
-                if model.tab == .tasks {
-                    heroIdentity(appearance)
-                        .transition(.opacity)
-                }
+                heroIdentity(appearance)
                 VStack(alignment: .leading, spacing: 18) {
                     tabPill
                     switch model.tab {
@@ -198,7 +201,6 @@ struct GroupDetailView: View {
         .safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
             addButton
         }
-        .animation(reduceMotion ? nil : .snappy, value: model.tab)
     }
 
     // MARK: - Hero
@@ -219,25 +221,29 @@ struct GroupDetailView: View {
                 }
                 .accessibilityIdentifier(AccessibilityID.Groups.backButton)
                 if showsInlineTitle || showsTitleLine {
-                    GroupTile(appearance, size: 40, style: .onColor)
+                    GroupTile(appearance, size: Self.compactTileSize, style: .onColor)
+                        .matchedGeometryEffect(id: barMatch(.tile), in: heroNamespace, properties: .position)
+                        .transition(barTransition(.tile))
                 }
                 if showsInlineTitle {
-                    heroTitle(appearance, font: .rounded(.title3))
+                    // On « Tâches » the name is already read in the hero's identity.
+                    barTitle(appearance, isAccessible: isActivity)
                         .lineLimit(isActivity ? 2 : 1)
-                        // On « Tâches » the name is already read in the hero's identity.
-                        .accessibilityHidden(!isActivity)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(barTransition(.title))
                 } else {
                     Spacer(minLength: 0)
                     if model.canSeeInviteCode && !isActivity {
                         inviteButton(appearance)
+                            .transition(.opacity)
                     }
                 }
                 optionsMenu
             }
             if showsTitleLine {
-                heroTitle(appearance, font: .rounded(.title3))
+                barTitle(appearance, isAccessible: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(barTransition(.title))
             }
         }
         .padding(.horizontal, Theme.Spacing.page)
@@ -254,33 +260,141 @@ struct GroupDetailView: View {
             .fill(appearance.color.fill)
             .ignoresSafeArea(edges: .top)
         }
-        .animation(reduceMotion ? nil : .snappy, value: showsInlineTitle)
+        .animation(heroAnimation, value: showsInlineTitle)
+    }
+
+    /// The name in the bar (title3), which the identity's name (title2) flies to on « Activité ».
+    private func barTitle(_ appearance: AvatarAppearance, isAccessible: Bool) -> some View {
+        heroTitle(appearance, font: .rounded(.title3))
+            .accessibilityHidden(!isAccessible)
+            .matchedGeometryEffect(
+                id: barMatch(.title), in: heroNamespace, properties: .position, anchor: .leading
+            )
     }
 
     /// The white tile, the name and the members (a link to « Membres »), on the group's fill with rounded bottom
     /// corners. Its color reaches far above, so that pulling the content down never shows the ground.
+    ///
+    /// On « Activité » it folds to nothing, with the switch's spring: its colored bottom rises to the bar, which is then
+    /// the compact hero; the tile and the name fly into the bar's row (`HeroMatch`), and the members fade, cut at the
+    /// rising edge. « Tâches » unfolds it the same way back.
     private func heroIdentity(_ appearance: AvatarAppearance) -> some View {
+        let isCompact = model.tab == .activity
         let layout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 14))
         return layout {
-            GroupTile(appearance, size: 64, style: .onColor)
+            if !isCompact {
+                GroupTile(appearance, size: Self.identityTileSize, style: .onColor)
+                    .matchedGeometryEffect(id: identityMatch(.tile), in: heroNamespace, properties: .position)
+                    .transition(identityTransition(.tile))
+            }
             VStack(alignment: .leading, spacing: 6) {
-                heroTitle(appearance, font: .rounded(.title2))
-                membersLink(appearance)
+                if !isCompact {
+                    heroTitle(appearance, font: .rounded(.title2))
+                        .matchedGeometryEffect(
+                            id: identityMatch(.title), in: heroNamespace, properties: .position, anchor: .leading
+                        )
+                        .transition(identityTransition(.title))
+                    membersLink(appearance)
+                        .transition(.opacity)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, Theme.Spacing.page)
-        .padding(.top, 4)
-        .padding(.bottom, 22)
+        .padding(.top, isCompact ? 0 : 4)
+        .padding(.bottom, isCompact ? 0 : 22)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // What folds away is cut at the rising bottom edge; above it nothing is cut (the tile and the name fly up).
+        .mask(alignment: .top) {
+            Rectangle()
+                .padding(.top, -Self.heroColorReach)
+        }
         .background(alignment: .bottom) {
             UnevenRoundedRectangle(bottomLeadingRadius: 32, bottomTrailingRadius: 32, style: .continuous)
                 .fill(appearance.color.fill)
-                .padding(.top, -600)
+                .padding(.top, -Self.heroColorReach)
         }
-        .modifier(GroupHeroVisibilityTracker(isCollapsed: $isHeroCollapsed))
+        .modifier(GroupHeroVisibilityTracker(isCollapsed: heroCollapsedBinding))
+    }
+
+    // MARK: - Hero motion
+
+    /// The switch between the large hero (« Tâches ») and the compact one (« Activité »): one spring for the whole
+    /// hero and the content under it; a quick crossfade with Reduce Motion (nothing flies then).
+    private var heroAnimation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.15) : .spring(duration: 0.45, bounce: 0.12)
+    }
+
+    /// The tile: 64 pt in the identity, 40 pt in the bar. While it flies, each copy scales to the other one's size, so
+    /// that the two look like one tile shrinking (or growing) on its way.
+    private static let identityTileSize: CGFloat = 64
+    private static let compactTileSize: CGFloat = 40
+    /// The name: title2 in the identity, title3 in the bar (22 and 20 pt at the default size).
+    private static let compactTitleScale: CGFloat = 20.0 / 22.0
+    /// How far above the hero its color reaches (pulling the content down never shows the ground).
+    private static let heroColorReach: CGFloat = 600
+
+    /// A part of the hero that moves between the identity (« Tâches ») and the compact bar (« Activité »).
+    private enum HeroPart: Hashable {
+        case tile
+        case title
+    }
+
+    /// The matched-geometry id of a copy of a part. `flight` is shared by the identity's copy and the bar's copy, so
+    /// that the part flies from one to the other when the hero folds or unfolds; otherwise each copy has its own.
+    private enum HeroMatch: Hashable {
+        case flight(HeroPart)
+        case identity(HeroPart)
+        case bar(HeroPart)
+    }
+
+    /// The identity's copies fly only while the identity is on screen (not scrolled away) and motion is allowed.
+    private func identityMatch(_ part: HeroPart) -> HeroMatch {
+        !reduceMotion && !isHeroCollapsed ? .flight(part) : .identity(part)
+    }
+
+    /// The bar's copies fly only on « Activité »: on « Tâches » the bar shows them once the identity scrolled away,
+    /// while the identity's copies are still there (off screen).
+    private func barMatch(_ part: HeroPart) -> HeroMatch {
+        !reduceMotion && model.tab == .activity ? .flight(part) : .bar(part)
+    }
+
+    /// The identity's copies scale to the bar's size as they leave (and from it as they come back).
+    private func identityTransition(_ part: HeroPart) -> AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        switch part {
+        case .tile:
+            return .scale(scale: Self.compactTileSize / Self.identityTileSize)
+        case .title:
+            return .scale(scale: Self.compactTitleScale, anchor: .leading).combined(with: .opacity)
+        }
+    }
+
+    /// The bar's copies scale from the identity's size as they come (and to it as they leave); on « Tâches » (the
+    /// identity scrolled away) they only fade.
+    private func barTransition(_ part: HeroPart) -> AnyTransition {
+        guard !reduceMotion, model.tab == .activity else { return .opacity }
+        switch part {
+        case .tile:
+            return .scale(scale: Self.identityTileSize / Self.compactTileSize)
+        case .title:
+            return .scale(scale: 1 / Self.compactTitleScale, anchor: .leading).combined(with: .opacity)
+        }
+    }
+
+    /// Whether the identity scrolled away (iOS 18). Folded on « Activité », the identity says nothing about the scroll
+    /// of « Tâches »: its reports are ignored there.
+    private var heroCollapsedBinding: Binding<Bool> {
+        Binding(
+            get: { isHeroCollapsed },
+            set: { isCollapsed in
+                if model.tab == .tasks {
+                    isHeroCollapsed = isCollapsed
+                }
+            }
+        )
     }
 
     /// The group's name, white on its fill. Its value says the group's look (« 🏠, corail »).
@@ -427,14 +541,26 @@ struct GroupDetailView: View {
         .accessibilityIdentifier(AccessibilityID.Groups.detailMenu)
     }
 
+    /// « Tâches » / « Activité »: the change folds or unfolds the hero, in one animation with the content.
     private var tabPill: some View {
         SegmentedPill(
             GroupDetailViewModel.Tab.allCases,
-            selection: $model.tab,
+            selection: animatedTab,
             identifier: { AccessibilityID.Groups.tab($0.rawValue) }
         ) { tab in
             tab.label
         }
+    }
+
+    private var animatedTab: Binding<GroupDetailViewModel.Tab> {
+        Binding(
+            get: { model.tab },
+            set: { tab in
+                withAnimation(heroAnimation) {
+                    model.tab = tab
+                }
+            }
+        )
     }
 
     // MARK: - Tâches
@@ -452,19 +578,19 @@ struct GroupDetailView: View {
         if rows.isEmpty {
             emptyTasks
         } else {
-            // What is left to do first; the done tasks after it, under « Terminées », each part in the chosen order.
-            let openRows = rows.filter { !$0.isDone }
-            let doneRows = rows.filter(\.isDone)
+            // One `ForEach` for the cards and the « Terminées » title: a card keeps its identity when its task becomes
+            // done and moves under the title. (With a `ForEach` for each part, the card moved from one to the other
+            // under the same id, and the lazy stack kept showing the old card, spinner included, until the screen was
+            // left.)
             LazyVStack(alignment: .leading, spacing: 10) {
-                ForEach(openRows) { row in
-                    taskCard(row, tint: appearance.color.accent)
-                }
-                if !openRows.isEmpty && !doneRows.isEmpty {
-                    SectionTitle(TaskStatusFilter.done.label)
-                        .padding(.top, 10)
-                }
-                ForEach(doneRows) { row in
-                    taskCard(row, tint: appearance.color.accent)
+                ForEach(GroupTaskLine.lines(rows)) { line in
+                    switch line {
+                    case let .task(row):
+                        taskCard(row, tint: appearance.color.accent)
+                    case .doneTitle:
+                        SectionTitle(TaskStatusFilter.done.label)
+                            .padding(.top, 10)
+                    }
                 }
             }
         }
@@ -517,10 +643,11 @@ struct GroupDetailView: View {
         .accessibilityIdentifier(AccessibilityID.Tasks.filterPicker)
     }
 
-    /// A task card: the task on tap, the status cycle on its ring, the actions on a long press.
+    /// A task card: the task on tap, the status cycle on its ring (the new status shows at once), the actions on a
+    /// long press. Only a deletion in progress makes it busy.
     private func taskCard(_ row: TaskRow, tint: Color) -> some View {
         NavigationLink(value: AppRoute.task(groupId: model.groupId, taskId: row.id)) {
-            TaskRowCard(row: row, tint: tint, isBusy: model.busyTaskIds.contains(row.id)) {
+            TaskRowCard(row: row, tint: tint, isBusy: model.deletingTaskIds.contains(row.id)) {
                 Task { await model.setStatus(row.status.next, for: row.task) }
             }
         }
@@ -688,6 +815,37 @@ private struct GroupHeroVisibilityTracker: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// A line of the group's task list: a card, or the « Terminées » title before the done cards. What is left to do
+/// comes first, then the done tasks, each part in the chosen order.
+private enum GroupTaskLine: Identifiable {
+    case task(TaskRow)
+    case doneTitle
+
+    enum ID: Hashable {
+        case task(UUID)
+        case doneTitle
+    }
+
+    var id: ID {
+        switch self {
+        case let .task(row): .task(row.id)
+        case .doneTitle: .doneTitle
+        }
+    }
+
+    /// The open rows, then « Terminées » (when both parts have rows) and the done rows.
+    static func lines(_ rows: [TaskRow]) -> [GroupTaskLine] {
+        let openRows = rows.filter { !$0.isDone }
+        let doneRows = rows.filter(\.isDone)
+        var lines = openRows.map(GroupTaskLine.task)
+        if !openRows.isEmpty && !doneRows.isEmpty {
+            lines.append(.doneTitle)
+        }
+        lines += doneRows.map(GroupTaskLine.task)
+        return lines
     }
 }
 

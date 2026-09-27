@@ -96,11 +96,14 @@ public final class MyTasksViewModel: ErrorPresenting {
     /// Assignments after this date are « Nouveau » (nil: never looked, every assignment by someone else is new).
     public private(set) var lastSeenAt: Date?
     public private(set) var referenceDate: Date
+    /// Tasks whose status change is being saved (their cards already show the new status).
     public private(set) var busyTaskIds: Set<UUID> = []
     public var error: ErrorState?
 
     public let session: SessionModel
     private let runner = LoadRunner()
+    /// The status changes in progress, and the local writes that a fetch started before them must not undo.
+    private let changes = TaskListChanges()
     private var loadedKey: RefreshKey?
     private var fetchingKey: RefreshKey?
     private var hasReadLastSeen = false
@@ -142,9 +145,10 @@ public final class MyTasksViewModel: ErrorPresenting {
             lastSeenAt = session.platform.store.value(Date.self, forKey: Self.lastSeenKey(userId: session.userId))
         }
         if loadState != .loaded { loadState = .loading }
-        let loaded: [TaskItem]
+        let writesMark = changes.mark
+        let fetched: [TaskItem]
         do {
-            loaded = try await session.services.tasks.myTasks(doneSince: doneSince(includeDone: key.includeDone))
+            fetched = try await session.services.tasks.myTasks(doneSince: doneSince(includeDone: key.includeDone))
         } catch {
             guard let state = ErrorState(from: error) else {
                 if loadState == .loading { loadState = .idle }
@@ -157,6 +161,8 @@ public final class MyTasksViewModel: ErrorPresenting {
             }
             return
         }
+        // A status shown at once, or saved while this fetch was reading, is kept (the next reload reads it).
+        let loaded = changes.merge(fetched, local: allTasks, since: writesMark)
         tasks = key.includeDone ? loaded : loaded.filter { $0.status != .done }
         doneTasks = loaded.filter { $0.status == .done }
         referenceDate = session.platform.now()
@@ -286,31 +292,68 @@ public final class MyTasksViewModel: ErrorPresenting {
     }
 
     /// Changes the status of one of my tasks (assignees may always do it), also from the « terminées aujourd’hui »
-    /// list.
+    /// list. The card shows the new status at once, in its place (a task done here joins « terminées aujourd’hui »,
+    /// one reopened there goes back to its section), and the call returns once it is saved; on failure the card gets
+    /// its saved status back and `error` says why. A change asked while the same task is being saved shows at once
+    /// too and is sent right after that save (the last one asked wins); that call returns true at once.
     @discardableResult
     public func setStatus(_ status: TaskStatus, for task: TaskItem) async -> Bool {
-        guard !busyTaskIds.contains(task.id) else { return false }
+        let taskId = task.id
         error = nil
-        busyTaskIds.insert(task.id)
-        defer { busyTaskIds.remove(task.id) }
+        let shown = allTasks.first { $0.id == taskId } ?? task
+        show(shown.settingStatus(status, by: session.userId, at: session.platform.now()))
+        guard changes.beginStatus(status, for: taskId) else { return true }
+        busyTaskIds.insert(taskId)
+        defer {
+            changes.endStatus(for: taskId)
+            busyTaskIds.remove(taskId)
+        }
+        // The last saved version, put back if a save fails.
+        var saved = shown
+        var didSave = false
+        var sending = status
         do {
-            let updated = try await session.services.tasks.setStatus(taskId: task.id, status: status)
-            if let index = tasks.firstIndex(where: { $0.id == task.id }) {
-                tasks[index] = Self.merge(updated, into: tasks[index])
+            while true {
+                let updated = try await session.services.tasks.setStatus(taskId: taskId, status: sending)
+                saved = Self.merge(updated, into: shown)
+                didSave = true
+                guard let next = changes.nextStatus(for: taskId), next != saved.status else { break }
+                sending = next
             }
-            if let index = doneTasks.firstIndex(where: { $0.id == task.id }) {
-                doneTasks[index] = Self.merge(updated, into: doneTasks[index])
-            }
-            session.feed.bump(groupId: task.groupId)
-            session.feed.bumpMyTasks()
-            return true
         } catch {
             if present(error) == .notFound {
-                tasks.removeAll { $0.id == task.id }
-                doneTasks.removeAll { $0.id == task.id }
+                tasks.removeAll { $0.id == taskId }
+                doneTasks.removeAll { $0.id == taskId }
+                changes.record(taskId)
+                session.feed.bumpMyTasks()
+            } else {
+                show(saved)
+            }
+            if didSave {
+                session.feed.bump(groupId: task.groupId)
                 session.feed.bumpMyTasks()
             }
             return false
+        }
+        show(saved)
+        session.feed.bump(groupId: task.groupId)
+        session.feed.bumpMyTasks()
+        return true
+    }
+
+    /// Puts a version of one of my tasks in the lists that hold it. A task reopened from the done ones joins `tasks`
+    /// (its section shows it again).
+    private func show(_ task: TaskItem) {
+        var isInTasks = false
+        if let index = tasks.firstIndex(where: { $0.id == task.id }) {
+            tasks[index] = task
+            isInTasks = true
+        }
+        if let index = doneTasks.firstIndex(where: { $0.id == task.id }) {
+            doneTasks[index] = task
+            if !isInTasks && task.status != .done {
+                tasks.append(task)
+            }
         }
     }
 

@@ -67,6 +67,7 @@ enum AccessibilityID {
         static let detailsField = "tasks.detailsField"
         static let saveButton = "tasks.save"
         static let filterPicker = "tasks.filter"
+        /// A lone status control (the gallery); a task card's has `rowStatusButton(title)`.
         static let statusButton = "tasks.status"
     }
 

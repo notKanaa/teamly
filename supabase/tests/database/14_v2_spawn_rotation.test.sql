@@ -260,7 +260,7 @@ select is((select count(*)::int from tests.pushes()), 1, 'one ntfy push: the new
 select is((select body from tests.pushes()),
   jsonb_build_object(
     'topic', 'equipe-bbbbbbbbbbbbbbbbbbbbbbbb',
-    'title', 'Équipe',
+    'title', 'Teamly',
     'message', E'C’est ton tour dans « G »',
     'click', 'equipe://task/' || tests.id('G') || '/' || tests.id('R2')),
   'rotation turn push: « C’est ton tour dans « G » », deep link to the new occurrence');

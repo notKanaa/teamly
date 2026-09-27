@@ -23,7 +23,7 @@ struct ShellConfigurationMissingView: View {
                         .foregroundStyle(Theme.textPrimary)
                         .multilineTextAlignment(.center)
                         .accessibilityAddTraits(.isHeader)
-                    Text("Cette version d’Équipe a été compilée sans l’adresse de ton projet Supabase\u{00A0}: elle ne peut pas se connecter.")
+                    Text("Cette version de Teamly a été compilée sans l’adresse de ton projet Supabase\u{00A0}: elle ne peut pas se connecter.")
                         .font(.callout)
                         .foregroundStyle(Theme.textSecondary)
                         .multilineTextAlignment(.center)

@@ -23,12 +23,12 @@ public final class SettingsViewModel: ErrorPresenting {
     public static let pushInstructionSteps = [
         "Installe l’application gratuite «\u{00A0}ntfy\u{00A0}» depuis l’App Store.",
         "Dans ntfy, touche «\u{00A0}+\u{00A0}» puis abonne-toi au sujet ci-dessous (serveur ntfy.sh).",
-        "Une notification te prévient quand une tâche t’est assignée, même quand Équipe est fermée.",
+        "Une notification te prévient quand une tâche t’est assignée, même quand l’app Teamly est fermée.",
     ]
     public static let pushPrivacyNote =
         "Garde ce sujet secret\u{00A0}: toute personne qui le connaît peut voir quand une tâche t’est assignée (le titre de la tâche n’est jamais envoyé)."
     public static let pushDisabledExplanation =
-        "Reçois une notification quand une tâche t’est assignée, même quand Équipe est fermée, grâce à l’application gratuite ntfy."
+        "Reçois une notification quand une tâche t’est assignée, même quand l’app Teamly est fermée, grâce à l’application gratuite ntfy."
 
     // MARK: Profile
 
@@ -315,7 +315,7 @@ public final class SettingsViewModel: ErrorPresenting {
     /// Shown when refused: the permission can only be changed in the system settings.
     public var notificationHint: String? {
         switch notificationStatus {
-        case .denied: "Pour recevoir les rappels et les nouvelles tâches, autorise les notifications d’Équipe dans l’app Réglages de l’iPhone."
+        case .denied: "Pour recevoir les rappels et les nouvelles tâches, autorise les notifications de Teamly dans l’app Réglages de l’iPhone."
         case .notDetermined: "Autorise les notifications pour recevoir les rappels d’échéance et les nouvelles tâches."
         case .authorized, nil: nil
         }

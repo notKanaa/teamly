@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Équipe",
+    "name": "Teamly",
     "slug": "equipe",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,8 +19,8 @@
     "web": {
       "output": "single",
       "favicon": "./assets/images/favicon.png",
-      "name": "Équipe",
-      "shortName": "Équipe",
+      "name": "Teamly",
+      "shortName": "Teamly",
       "lang": "fr",
       "themeColor": "#4B3BE6",
       "backgroundColor": "#F4F3F8"

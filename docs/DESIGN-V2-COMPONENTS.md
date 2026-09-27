@@ -312,7 +312,7 @@ ScrollView(.horizontal, showsIndicators: false) {
 ```swift
 StatusGlyph(_ status: TaskStatus, tint: Color = Theme.accent, size: CGFloat = 24)   // decorative
 StatusControl(status: TaskStatus, tint: Color = Theme.accent, isBusy: Bool = false, isEnabled: Bool = true,
-              action: @escaping () -> Void)
+              identifier: String = AccessibilityID.Tasks.statusButton, action: @escaping () -> Void)
 ```
 
 - The glyph:
@@ -321,9 +321,13 @@ StatusControl(status: TaskStatus, tint: Color = Theme.accent, isBusy: Bool = fal
   - « terminée »: a green disc with a check.
 - The control is a borderless button with a target of 44 pt or more, growing with Dynamic Type. It keeps its own tap
   inside a `NavigationLink`.
-  - `isBusy` shows a spinner. The action asks for the next status: call `row.status.next` yourself.
+  - The action asks for the next status: call `row.status.next` yourself. The lists show a new status at once
+    (`GroupDetailViewModel` and `MyTasksViewModel` save it in the background, and a second tap during the save is
+    sent right after it), so a status change never makes the control busy.
+  - `isBusy` shows a spinner and disables the control: a deletion in progress (`GroupDetailViewModel.deletingTaskIds`).
   - It gives a success haptic when a task becomes « terminée ».
-  - Accessibility: « Statut : À faire », hint « Passer à « En cours » », identifier `AccessibilityID.Tasks.statusButton`.
+  - Accessibility: « Statut : À faire », hint « Passer à « En cours » », identifier `AccessibilityID.Tasks.statusButton`
+    (a task card gives its own: `AccessibilityID.Tasks.rowStatusButton(row.title)`).
 
 ### `TaskRowCard`
 
@@ -349,7 +353,7 @@ dashed circle when nobody is assigned. At accessibility text sizes the avatars m
 
 **VoiceOver:** the card is one element. Its label starts with the title and the status (« Payer le loyer, En cours,
 priorité haute, en retard, échéance hier à 18:00, assignée à Inès Dubois »), and it has a « Passer à « … » » action.
-The status control stays a separate element.
+The status control stays a separate element, with the identifier `AccessibilityID.Tasks.rowStatusButton(row.title)`.
 
 Wrap it in the screen's `NavigationLink`, and put the row identifier on the link:
 
@@ -357,7 +361,7 @@ Wrap it in the screen's `NavigationLink`, and put the row identifier on the link
 LazyVStack(spacing: 10) {
     ForEach(section.rows) { row in
         NavigationLink(value: AppRoute.task(groupId: row.task.groupId, taskId: row.id)) {
-            TaskRowCard(row: row, tint: model.appearance.color.accent, isBusy: model.busyTaskIds.contains(row.id)) {
+            TaskRowCard(row: row, tint: model.appearance.color.accent, isBusy: model.deletingTaskIds.contains(row.id)) {
                 setStatus(row.status.next, for: row)
             }
         }
@@ -366,6 +370,11 @@ LazyVStack(spacing: 10) {
     }
 }
 ```
+
+A list that splits its cards into parts (open and done, due-date sections) keeps them all in **one** `ForEach`, the
+titles included, with ids that stay the same when a task changes part (`GroupTaskLine`, `MyTasksLine`). In a lazy stack,
+a card that moved from one `ForEach` to another under the same id could stay drawn as it was (the spinner that never
+stopped on the group screen).
 
 Inside a `List`, clear the row chrome instead:
 `.listRowBackground(Color.clear)`, `.listRowSeparator(.hidden)` and
