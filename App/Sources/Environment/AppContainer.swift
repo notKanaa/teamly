@@ -18,14 +18,18 @@ final class AppContainer {
     static let shared = AppContainer()
 
     let launch: Launch
+    /// The per-device settings of « Réglages » (theme, effects, quiet hours, icon), in the launch's store.
+    let preferences: DevicePreferences
 
     private init() {
         switch AppEnvironment.resolve() {
         case let .success(environment):
             let appModel = AppModel(services: environment.services, platform: environment.platform)
             launch = .ready(appModel, environment)
+            preferences = DevicePreferences(store: environment.platform.store)
         case let .failure(issue):
             launch = .misconfigured(issue)
+            preferences = DevicePreferences(store: UserDefaultsKeyValueStore())
         }
     }
 

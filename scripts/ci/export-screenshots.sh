@@ -24,6 +24,8 @@ if [ ! -d "$RESULT" ]; then
 fi
 # The v2 groups screens (App/UITests/GroupsScreenshotTests.swift).
 EXPECTED+=(02-groupes-sombre 15-groupe-vitrine 16-groupe-activite 16-groupe-activite-sombre 17-groupe-apparence)
+# The v3 « Réglages » (App/UITests/SettingsTests.swift).
+EXPECTED+=(21-reglages-apparence 22-heures-calmes)
 rm -rf "$RAW"
 mkdir -p "$OUT" "$RAW"
 xcrun xcresulttool export attachments --path "$RESULT" --output-path "$RAW" || { echo "export failed"; exit 0; }

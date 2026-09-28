@@ -18,10 +18,20 @@ struct TeamTasksApp: App {
 }
 
 /// Configured app, or the « Configuration manquante » screen.
+///
+/// v3 (docs/CONTRACTS-V3.md §9): the theme chosen in Réglages › Apparence applies to the whole app, the haptics follow
+/// « Vibrations », and the confetti of a completed task are drawn over everything.
 private struct AppLaunchView: View {
     let container: AppContainer
 
+    @State private var celebrations = CelebrationCenter()
+
+    init(container: AppContainer) {
+        self.container = container
+    }
+
     var body: some View {
+        let preferences = container.preferences
         switch container.launch {
         case let .ready(appModel, environment):
             Group {
@@ -33,11 +43,26 @@ private struct AppLaunchView: View {
                 }
             }
             .environment(\.isUITesting, environment.isMock)
-            // UI tests only (`-uiTestColorScheme dark`): the design checks in dark mode.
-            .preferredColorScheme(environment.isMock ? AppEnvironment.forcedColorScheme() : nil)
+            .environment(preferences)
+            .environment(\.hapticsEnabled, preferences.isHapticsEnabled)
+            .environment(\.celebrate, CelebrateAction { [celebrations] in
+                if preferences.isConfettiEnabled {
+                    celebrations.celebrate()
+                }
+            })
+            .overlay {
+                ConfettiBurst(trigger: celebrations.burst)
+                    .ignoresSafeArea()
+            }
+            // UI tests only (`-uiTestColorScheme dark`): the design checks in dark mode; otherwise the chosen theme.
+            .preferredColorScheme(forcedColorScheme(isMock: environment.isMock) ?? preferences.colorScheme)
         case let .misconfigured(issue):
             ShellConfigurationMissingView(issue: issue)
         }
+    }
+
+    private func forcedColorScheme(isMock: Bool) -> ColorScheme? {
+        isMock ? AppEnvironment.forcedColorScheme() : nil
     }
 }
 

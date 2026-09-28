@@ -5,7 +5,9 @@ import TeamTasksCore
 /// the user in every group as `TaskRowCard`s (with their group's chip) in due-date sections (En retard in red,
 /// Aujourd’hui, Cette semaine, Plus tard, Sans échéance, and Terminées — the last 30 days — when shown), and
 /// « 2 tâches terminées aujourd’hui », which unfolds today's done tasks. A tap pushes `AppRoute.task(groupId:taskId:)`;
-/// the round button of a card and its context menu change the status.
+/// the round button of a card and its context menu change the status. v3 shortcuts, also VoiceOver actions: swipe
+/// right « Terminer » / « Rouvrir »; swipe left « Reporter » (the due date one day later, when the user may edit the
+/// task) and « Supprimer » (when they may delete it, confirmed). The rights come from the user's role in each group.
 ///
 /// No `NavigationStack` inside: the tab container provides it, bound to `Router.myTasksPath`, with
 /// `.navigationDestination(for: AppRoute.self)` showing `TaskDetailView` for `.task` routes.
@@ -43,8 +45,15 @@ struct MyTasksView: View {
 private struct MyTasksList: View {
     @Bindable var model: MyTasksViewModel
     @State private var showsDoneToday = false
+    /// The user's role in each of their groups: the rights of the swipe actions.
+    @State private var roles: [UUID: MemberRole] = [:]
+    /// The task whose « Supprimer » waits for its confirmation.
+    @State private var pendingDeletion: TaskItem?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(AppModel.self) private var appModel: AppModel?
+    /// Confetti when the user completes a task (Réglages › Apparence).
+    @Environment(\.celebrate) private var celebrate
 
     /// Under the « Terminées » title: `MyTasksViewModel` reads the tasks done in the last 30 days.
     private static let doneSectionNote = "30 derniers jours"
@@ -92,6 +101,22 @@ private struct MyTasksList: View {
         }
         .onChange(of: model.tasks + model.doneTasks, initial: true) { _, shown in
             MyTasksHandoff.remember(shown, of: model.session)
+        }
+        .task(id: model.session.feed.membershipsRevision) {
+            await loadRoles()
+        }
+        .alert(
+            "Supprimer cette tâche\u{00A0}?",
+            isPresented: isConfirmingDeletion,
+            presenting: pendingDeletion
+        ) { task in
+            Button("Supprimer", role: .destructive) {
+                delete(task)
+            }
+            .accessibilityIdentifier(AccessibilityID.Shortcuts.taskDeleteConfirm)
+            Button("Annuler", role: .cancel) {}
+        } message: { task in
+            Text("«\u{00A0}\(task.title)\u{00A0}» sera supprimée pour tous les membres du groupe.")
         }
         .shellErrorAlert(model)
     }
@@ -201,7 +226,7 @@ private struct MyTasksList: View {
     }
 
     /// A task card: the task on tap, the status cycle on its ring (the new status shows at once), the status on a long
-    /// press.
+    /// press, the swipe actions.
     private func taskRow(_ row: TaskRow) -> some View {
         NavigationLink(value: AppRoute.task(groupId: row.task.groupId, taskId: row.id)) {
             TaskRowCard(row: row) {
@@ -209,6 +234,8 @@ private struct MyTasksList: View {
             }
         }
         .buttonStyle(.pressable)
+        .accessibilityIdentifier(AccessibilityID.Tasks.row(row.title))
+        .cardSwipeActions(leading: statusSwipeActions(row), trailing: trailingSwipeActions(row))
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: Theme.Radius.row, style: .continuous))
         .contextMenu {
             if row.canChangeStatus {
@@ -222,7 +249,6 @@ private struct MyTasksList: View {
                 }
             }
         }
-        .accessibilityIdentifier(AccessibilityID.Tasks.row(row.title))
     }
 
     // MARK: - Done today
@@ -294,9 +320,110 @@ private struct MyTasksList: View {
 
     // MARK: - Actions
 
+    /// Shows the new status at once (the model saves it); confetti when the task gets done.
     private func setStatus(_ status: TaskStatus, for row: TaskRow) {
+        guard status != row.status else { return }
+        if status == .done {
+            celebrate()
+        }
         Task {
             await model.setStatus(status, for: row.task)
+        }
+    }
+
+    // MARK: - Swipe actions
+
+    /// Swipe right: « Terminer », or « Rouvrir » a done task.
+    private func statusSwipeActions(_ row: TaskRow) -> [CardSwipeAction] {
+        guard row.canChangeStatus else { return [] }
+        let identifier = AccessibilityID.Shortcuts.taskToggleDone(row.title)
+        if row.isDone {
+            return [CardSwipeAction("Rouvrir", systemImage: "arrow.uturn.backward", tint: ColorKey.indigo.fill, identifier: identifier) {
+                setStatus(.todo, for: row)
+            }]
+        }
+        return [CardSwipeAction("Terminer", systemImage: "checkmark", tint: ColorKey.green.fill, identifier: identifier) {
+            setStatus(.done, for: row)
+        }]
+    }
+
+    /// Swipe left: « Reporter » (an open task with a due date, when the user may edit it), then « Supprimer » (when
+    /// they may delete it).
+    private func trailingSwipeActions(_ row: TaskRow) -> [CardSwipeAction] {
+        let role = roles[row.task.groupId]
+        let userId = model.session.userId
+        var actions: [CardSwipeAction] = []
+        if !row.isDone, row.task.dueAt != nil, TaskPermissions.canEdit(row.task, userId: userId, role: role) {
+            actions.append(CardSwipeAction(
+                "Reporter",
+                systemImage: "calendar.badge.plus",
+                tint: ColorKey.orange.fill,
+                identifier: AccessibilityID.Shortcuts.taskPostpone(row.title)
+            ) {
+                postpone(row.task)
+            })
+        }
+        if TaskPermissions.canDelete(row.task, userId: userId, role: role) {
+            actions.append(CardSwipeAction(
+                "Supprimer",
+                systemImage: "trash.fill",
+                tint: SoftTone.danger.fill,
+                identifier: AccessibilityID.Shortcuts.taskDelete(row.title)
+            ) {
+                pendingDeletion = row.task
+            })
+        }
+        return actions
+    }
+
+    private var isConfirmingDeletion: Binding<Bool> {
+        Binding(
+            get: { pendingDeletion != nil },
+            set: { isShown in
+                if !isShown {
+                    pendingDeletion = nil
+                }
+            }
+        )
+    }
+
+    /// The user's role in each group (`myGroups`), read again when the memberships change.
+    private func loadRoles() async {
+        guard let groups = try? await model.session.services.groups.myGroups() else { return }
+        roles = Dictionary(groups.map { ($0.id, $0.myRole) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// « Reporter »: the due date one day later (the task as saved, so that nothing else changes).
+    private func postpone(_ task: TaskItem) {
+        let session = model.session
+        let calendar = session.platform.calendar
+        Task {
+            do {
+                let current = try await session.services.tasks.task(id: task.id)
+                guard let dueAt = current.dueAt else { return }
+                var draft = TaskDraft(task: current)
+                draft.dueAt = calendar.date(byAdding: .day, value: 1, to: dueAt) ?? dueAt.addingTimeInterval(86_400)
+                _ = try await session.services.tasks.update(taskId: task.id, draft: draft)
+                session.feed.bump(groupId: task.groupId)
+                session.feed.bumpMyTasks()
+            } catch {
+                model.error = ErrorState(from: error)
+            }
+        }
+    }
+
+    /// « Supprimer », confirmed: the task leaves every list.
+    private func delete(_ task: TaskItem) {
+        let session = model.session
+        Task {
+            do {
+                try await session.services.tasks.delete(taskId: task.id)
+                appModel?.router.removeRoutes(forTask: task.id)
+                session.feed.bump(groupId: task.groupId)
+                session.feed.bumpMyTasks()
+            } catch {
+                model.error = ErrorState(from: error)
+            }
         }
     }
 }

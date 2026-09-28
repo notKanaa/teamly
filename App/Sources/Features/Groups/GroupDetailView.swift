@@ -5,7 +5,8 @@ import TeamTasksCore
 /// « … » — stays pinned while the rest scrolls under it; below it the white tile, the name and the members (they open
 /// « Membres »). Then the « Tâches » / « Activité » switch:
 /// - « Tâches »: « À qui le tour ? » (the rotating tasks), the filter chips with their counts, the task cards (tap:
-///   the task; long press: its status, « Modifier », « Supprimer »), and the floating « + » (the task editor);
+///   the task; long press: its status, « Modifier », « Supprimer »; v3: swipe right « Terminer » / « Rouvrir », swipe
+///   left « Supprimer », also VoiceOver actions), and the floating « + » (the task editor);
 /// - « Activité » (`GroupActivityContent`): the week's recap and the feed; the hero is then compact (tile and name in
 ///   the pinned bar).
 ///
@@ -36,6 +37,8 @@ struct GroupDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Confetti when the user completes a task (Réglages › Apparence).
+    @Environment(\.celebrate) private var celebrate
 
     init(groupId: UUID, session: SessionModel) {
         self.session = session
@@ -653,19 +656,57 @@ struct GroupDetailView: View {
     }
 
     /// A task card: the task on tap, the status cycle on its ring (the new status shows at once), the actions on a
-    /// long press. Only a deletion in progress makes it busy.
+    /// long press, « Terminer » / « Rouvrir » on a swipe right and « Supprimer » on a swipe left. Only a deletion in
+    /// progress makes it busy.
     private func taskCard(_ row: TaskRow, tint: Color) -> some View {
         NavigationLink(value: AppRoute.task(groupId: model.groupId, taskId: row.id)) {
             TaskRowCard(row: row, tint: tint, isBusy: model.deletingTaskIds.contains(row.id)) {
-                Task { await model.setStatus(row.status.next, for: row.task) }
+                setStatus(row.status.next, for: row)
             }
         }
         .buttonStyle(.pressable)
         // Same identifier as the cards of « Mes tâches ».
         .accessibilityIdentifier(AccessibilityID.Tasks.row(row.title))
+        .cardSwipeActions(leading: statusSwipeActions(row), trailing: deleteSwipeActions(row))
         .contextMenu {
             taskActions(row)
         }
+    }
+
+    /// Swipe right: « Terminer », or « Rouvrir » a done task (when the user may change its status).
+    private func statusSwipeActions(_ row: TaskRow) -> [CardSwipeAction] {
+        guard row.canChangeStatus, !model.deletingTaskIds.contains(row.id) else { return [] }
+        let identifier = AccessibilityID.Shortcuts.taskToggleDone(row.title)
+        if row.isDone {
+            return [CardSwipeAction("Rouvrir", systemImage: "arrow.uturn.backward", tint: ColorKey.indigo.fill, identifier: identifier) {
+                setStatus(.todo, for: row)
+            }]
+        }
+        return [CardSwipeAction("Terminer", systemImage: "checkmark", tint: ColorKey.green.fill, identifier: identifier) {
+            setStatus(.done, for: row)
+        }]
+    }
+
+    /// Swipe left: « Supprimer » (admins and the creator), confirmed.
+    private func deleteSwipeActions(_ row: TaskRow) -> [CardSwipeAction] {
+        guard row.canDelete, !model.deletingTaskIds.contains(row.id) else { return [] }
+        return [CardSwipeAction(
+            "Supprimer",
+            systemImage: "trash.fill",
+            tint: SoftTone.danger.fill,
+            identifier: AccessibilityID.Shortcuts.taskDelete(row.title)
+        ) {
+            requestDeletion(of: row.task)
+        }]
+    }
+
+    /// Shows the new status at once (the model saves it); confetti when the task gets done.
+    private func setStatus(_ status: TaskStatus, for row: TaskRow) {
+        guard status != row.status else { return }
+        if status == .done && row.canChangeStatus {
+            celebrate()
+        }
+        Task { await model.setStatus(status, for: row.task) }
     }
 
     @ViewBuilder
@@ -674,7 +715,7 @@ struct GroupDetailView: View {
             Section("Statut") {
                 ForEach(TaskStatus.allCases, id: \.self) { status in
                     Button {
-                        Task { await model.setStatus(status, for: row.task) }
+                        setStatus(status, for: row)
                     } label: {
                         Label(status.label, systemImage: status.systemImage)
                     }

@@ -116,17 +116,22 @@ final class ScreenshotTests: XCTestCase {
         ui.capture("08-membres")
     }
 
+    /// v3 « Réglages » (the SettingsMain mockup) on the showcase: the profile card with its figures and the quick tiles,
+    /// then, scrolled, « Mes groupes », « Compte », « Teamly » and « Supprimer mon compte ».
     @MainActor
     func test09Settings() {
-        let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
-        ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
-        // Only shown once the profile is loaded.
-        ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the display name field")
-        ui.waitForContent(ui.elements(AccessibilityID.Settings.email), "the e-mail row")
+        let ui = EquipeApp.launch(.showcase, notifications: "authorized", for: self)
+        ui.openSettings()
+        ui.waitForContent(ui.elements(AccessibilityID.Settings.email), "the e-mail")
+        // Polish: the figures once read (Camille is in the two demo groups).
+        _ = ui.waitUntilEnabled(ui.elements(AccessibilityID.Settings.stat("groups"), labelContaining: "2 groupes"))
+        ui.waitForContent(ui.buttons(AccessibilityID.Settings.quietHoursTile), "« Heures calmes »")
         ui.capture("09-reglages")
 
-        // The « Compte » section is under the tab bar at the top of the form: scrolled into view for its own capture.
+        // « Compte » and what follows are under the tab bar: scrolled into view for their own capture, down to the
+        // footer (« Supprimer mon compte » above the tab bar).
         ui.reveal(ui.buttons(AccessibilityID.Settings.deleteAccount), "« Supprimer mon compte »")
+        ui.reveal(ui.elements(AccessibilityID.Settings.version), "the footer")
         ui.capture("10-reglages-compte")
     }
 
@@ -238,8 +243,7 @@ final class DesignCheckTests: XCTestCase {
         ui.capture("dark-onboarding-notifications")
         ui.tap(ui.buttons(AccessibilityID.Onboarding.laterButton), "« Plus tard »", until: .shows(ui.app.tabBars))
 
-        ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
-        ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the display name field")
+        ui.openSettings()
         ui.capture("dark-reglages")
 
         let cancel = ui.buttons(AccessibilityID.Settings.avatarCancelButton, orLabel: "Annuler")

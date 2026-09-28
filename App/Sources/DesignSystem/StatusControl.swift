@@ -61,6 +61,8 @@ struct StatusControl: View {
 
     @ScaledMetric(relativeTo: .headline) private var glyphSize: CGFloat = 24
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// « Vibrations » of Réglages › Apparence.
+    @Environment(\.hapticsEnabled) private var hapticsEnabled
 
     init(
         status: TaskStatus,
@@ -97,7 +99,7 @@ struct StatusControl: View {
         .disabled(!isEnabled || isBusy)
         .animation(reduceMotion ? nil : .snappy, value: status)
         .sensoryFeedback(.success, trigger: status) { _, newStatus in
-            newStatus == .done
+            hapticsEnabled && newStatus == .done
         }
         .accessibilityLabel("Statut\u{00A0}: \(status.label)")
         .accessibilityHint(isEnabled ? "Passer à «\u{00A0}\(status.next.label)\u{00A0}»" : "")
