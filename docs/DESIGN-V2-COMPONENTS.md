@@ -21,6 +21,8 @@ This is the API of the v2 design system (« Moderne & coloré », `docs/DESIGN-V
 | `FlowLayout.swift` | `FlowLayout` |
 | `SegmentedPill.swift` | `SegmentedPill`, `SegmentTone` |
 | `Buttons.swift` | `PrimaryButtonStyle` (`.primary`), `PrimaryButton`, `SecondaryButtonStyle` (`.secondary`), `PressableButtonStyle` (`.pressable`), `CircleIconButton` |
+| `SoftButton.swift` | `SoftButtonStyle` (`.soft(_:)`), v3 (see §11) |
+| `Toast.swift` | `ToastView`, `.toast(_:)`, `InlineToast`, v3 (see §11) |
 | `Progress.swift` | `ProgressRing`, `ProgressBar`, `StepProgress` |
 | `Pickers.swift` | `SwatchGrid`, `EmojiGrid`, `PickerSection` |
 | `FloatingAddButton.swift` | `FloatingAddButton`, `.floatingAddButton(_:identifier:systemImage:action:)` |
@@ -610,3 +612,53 @@ Card {
   published under `debug/` on the screenshots branch (`…DesignCheckTests_testComponentGallery--galerie-2-haut-sombre.png`).
 - **Dark mode and large text.** `EquipeApp.launch(_:appearance:)` takes `.dark` (the app reads `-uiTestColorScheme`) or
   `.largestText` (AX5). Capture your screens that way too, in `DesignCheckTests`, and look at them.
+
+## 11. v3 social components
+
+These serve the six v3 features (docs/CONTRACTS-V3.md): « Relancer », « Mode absent », « Échanger mon tour »,
+« Bravo », the comments and the photos.
+
+### Toasts
+
+```swift
+ToastView(notice: ToastNotice)                    // the capsule itself
+view.toast(_ notice: Binding<ToastNotice?>)       // over the bottom of the view, then back to nil
+InlineToast(notice: Binding<ToastNotice?>)        // in the flow of a list (« Mes tâches »)
+```
+
+- **Look:** a capsule in `textPrimary`, so dark in light mode and light in dark mode. It has a green symbol, the
+  message in bold, and is at least 44 pt tall.
+- **Timing:** it stays 3.5 s (10 s in the UI tests, which capture it). A tap clears it, and VoiceOver announces the
+  message.
+- **Models:** the view models put their confirmation in a `toast: ToastNotice?` property (`ToastNotice` is in the core,
+  each one distinct). Examples: « Relance envoyée à Inès », « Tu prends le tour de Lucas », « Photo ajoutée ».
+- **UI tests:** its identifier is `AccessibilityID.Social.toast`, and its label is the message.
+
+### `SoftButtonStyle`
+
+```swift
+.buttonStyle(.soft(SoftTone.danger))                        // « Relancer Inès »
+.buttonStyle(SoftButtonStyle(tone: .neutral, isFullWidth: false))
+```
+
+A full-width button, at least 44 pt tall with radius 14. Its text and symbol are bold, in the tone's foreground on its
+background, and it is dimmed while disabled. A `Menu` takes it too: add `.menuStyle(.button)` (« Proposer mon tour
+à… »).
+
+### The feature views
+
+| File | Views |
+|---|---|
+| `Features/Social/TurnSwapRequestCard.swift` | `TurnSwapRequestCard` (« Accepter » / « Refuser »), `TurnSwapRequestsList` (« Mes tâches », the group screen) |
+| `Features/Tasks/TaskDetailSocial.swift` | the task screen's `TaskDetailSocialActions`, `TaskDetailPhotosSection`, `TaskDetailCommentsSection`, `TaskCommentBubble`, `TaskPhotoPromptCard` |
+| `Features/Tasks/TaskPhotoViews.swift` | `TaskPhotoImage` (signed URL, then an in-memory cache by photo id), `TaskPhotoViewer`, `.taskPhotoPicking(isChoosing:model:)`, `TaskPhotoEncoder` |
+| `Features/Groups/GroupActivityView.swift` | `ActivityReactionChips` (« 👏 2 », the user's on the soft accent) |
+| `Features/Members/AwayModeSheet.swift` | `AwayModeSheet`, standalone: it can open from Réglages as well as from « Membres » |
+
+- **Away badges:** « Absent·e jusqu’au 12 oct. » is a `Chip` with the `airplane` symbol, in `ColorKey.blue.tone`.
+- **Feed:** each v3 kind has its badge glyph and color (`ActivityKind.feedBadgeSymbol`, `feedBadgeFill`, `feedTone`):
+  - a nudge is red;
+  - an absence is blue;
+  - a swap is teal;
+  - a comment is violet;
+  - a photo is green.

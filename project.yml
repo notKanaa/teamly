@@ -60,6 +60,9 @@ targets:
         SupabaseHost: $(SUPABASE_HOST)
         SupabasePublishableKey: $(SUPABASE_PUBLISHABLE_KEY)
         ITSAppUsesNonExemptEncryption: false
+        # v3 « Photo preuve »: the camera (UIImagePickerController). The photo library goes through PhotosPicker, which
+        # asks for no permission.
+        NSCameraUsageDescription: "Teamly utilise l’appareil photo pour ajouter une photo preuve à une tâche."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)

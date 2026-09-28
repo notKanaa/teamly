@@ -27,6 +27,8 @@ final class TasksScreenshotTests: XCTestCase {
         ui.openMyTasks()
         ui.waitForContent(ui.elements(AccessibilityID.MyTasks.daySummary), "« Ta journée »")
 
+        // v3: Lucas's proposal (a tall card at this size) comes before the sections: more drags to reach the task.
+        ui.reveal(ui.elements(AccessibilityID.Tasks.row(UITestDemo.faireCourses)), "« \(UITestDemo.faireCourses) »", maxScrolls: 12)
         ui.openTask(UITestDemo.faireCourses)
         ui.reveal(ui.elements(AccessibilityID.Tasks.checklistProgress), "« 2 sur 4 »")
         ui.capture("tache-checklist-ax")

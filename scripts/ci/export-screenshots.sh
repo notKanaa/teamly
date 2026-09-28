@@ -15,6 +15,8 @@ EXPECTED=(01-connexion 02-groupes 03-creer-groupe 04-code-invitation 05-nouvelle
 
 # v2 task screens (App/UITests/TasksFlowTests.swift and TasksScreenshotTests.swift).
 EXPECTED+=(07-mes-taches-sombre 18-mes-taches-vitrine 19-tache-checklist 20-nouvelle-tache-repetition)
+# v3 social features (App/UITests/SocialFlowTests.swift).
+EXPECTED+=(23-relancer 24-mode-absent 25-echange-tour 26-activite-reactions 27-commentaires 28-photo-preuve)
 
 if [ ! -d "$RESULT" ]; then
   echo "No result bundle at $RESULT — nothing to export."

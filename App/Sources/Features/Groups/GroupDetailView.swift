@@ -52,6 +52,9 @@ struct GroupDetailView: View {
             .task(id: model.refreshKey) {
                 await model.load()
             }
+            .task(id: model.swapRequests.refreshKey) {
+                await model.swapRequests.load()
+            }
             .onChange(of: model.isGone, initial: true) { _, isGone in
                 if isGone {
                     appModel.router.removeRoutes(forGroup: model.groupId)
@@ -120,6 +123,8 @@ struct GroupDetailView: View {
                 Text("«\u{00A0}\(task.title)\u{00A0}» sera supprimée pour tous les membres du groupe.")
             }
             .shellErrorAlert(model)
+            // v3: « Relance envoyée à Inès ».
+            .toast($model.toast)
     }
 
     // MARK: - Screen
@@ -567,6 +572,10 @@ struct GroupDetailView: View {
 
     @ViewBuilder
     private func tasksContent(_ appearance: AvatarAppearance) -> some View {
+        // v3: the turns proposed to the user in this group, « Accepter » / « Refuser ».
+        if model.swapRequests.hasContent {
+            TurnSwapRequestsList(model: model.swapRequests)
+        }
         let turnCards = model.turnCards
         if !turnCards.isEmpty {
             turnSection(turnCards, tone: appearance.color.tone)
@@ -686,6 +695,16 @@ struct GroupDetailView: View {
             } label: {
                 Label("Supprimer", systemImage: "trash")
             }
+        }
+        // v3: « Relancer Inès » on an overdue task assigned to someone else.
+        if model.canNudge(row.task) {
+            Button {
+                Task { await model.nudge(row.task) }
+            } label: {
+                Label(model.nudgeTitle(for: row.task), systemImage: "bell.badge")
+            }
+            .disabled(model.nudgingTaskIds.contains(row.id))
+            .accessibilityIdentifier(AccessibilityID.Social.nudgeMenuItem(row.title))
         }
     }
 

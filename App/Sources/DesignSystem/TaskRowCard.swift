@@ -6,7 +6,7 @@ import TeamTasksCore
 /// - in the middle, the title (headline, struck through when done) with « Nouveau » when `row.isNew`, then a line of
 ///   chips that wraps: the group (« Mes tâches »: `row.groupAppearance` and `row.groupShortName`), the due date (red
 ///   and bold when overdue), « Ton tour » (or « À tour de rôle », or the repetition), the checklist « 2/5 », « En
-///   cours », and the priority when it is not « Moyenne »;
+///   cours », the priority when it is not « Moyenne », and (v3) the number of comments;
 /// - trailing, on the group screen (`row.assigneesText != nil`): the assignees (`row.assignees`) or the dashed circle
 ///   of « Personne ». At accessibility text sizes they move under the chips.
 ///
@@ -160,6 +160,10 @@ struct TaskRowCard: View {
         if row.priority != .medium {
             Chip(row.priority.label, systemImage: "flag.fill", tone: row.priority.tone)
         }
+        // v3: the comments of the task (« 2 » with a bubble).
+        if row.task.commentCount > 0 {
+            Chip("\(row.task.commentCount)", systemImage: "text.bubble", tone: .ink(Theme.textSecondary), style: .plain)
+        }
     }
 
     @ViewBuilder private var assignees: some View {
@@ -203,6 +207,9 @@ struct TaskRowCard: View {
             parts.append(
                 assigneesText == MemberDirectory.unassignedText ? assigneesText.lowercased() : "assignée à \(assigneesText)"
             )
+        }
+        if row.task.commentCount > 0 {
+            parts.append(CommentText.countText(row.task.commentCount))
         }
         return parts.joined(separator: ", ")
     }

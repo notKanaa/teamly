@@ -7,6 +7,8 @@ import TeamTasksCore
 /// - the info card: Échéance, Se répète (the rule and the next dates), À tour de rôle (the turn order, the current
 ///   turn ringed), Priorité, Assignée à; then who created the task and when;
 /// - the Checklist card (`TaskDetailChecklistRows`), the notes, and « Supprimer la tâche ».
+/// - v3 (TaskDetailSocial.swift): « Relancer », « Échanger mon tour » and « Ajouter une photo ? » under the header, the
+///   photos after the checklist, the comments after the notes; the confirmations as toasts.
 ///
 /// « Modifier » (sheet) and « Supprimer la tâche » for admins and the creator. Leaves the stack by itself when the task
 /// disappears (deleted here or elsewhere, or no longer visible).
@@ -21,6 +23,9 @@ struct TaskDetailView: View {
     @State private var hasLeft = false
     @State private var renamedItem: ChecklistItem?
     @State private var renamedTitle = ""
+    /// v3: « Ajouter une photo » asked (camera or library), and the photo shown in full screen.
+    @State private var isChoosingPhoto = false
+    @State private var viewedPhoto: TaskPhoto?
 
     /// - Parameter task: the task from the list, when known (shown before the first load completes). Without it, the
     ///   task « Mes tâches » showed, if any (it carries the group's name, color and emoji).
@@ -78,6 +83,12 @@ struct TaskDetailView: View {
                     model.apply(saved)
                 }
             }
+            // v3: the confirmations, « Ajouter une photo » and the photo viewer.
+            .toast($model.toast)
+            .taskPhotoPicking(isChoosing: $isChoosingPhoto, model: model)
+            .fullScreenCover(item: $viewedPhoto) { photo in
+                TaskPhotoViewer(photo: photo, model: model)
+            }
     }
 
     // MARK: - Content
@@ -109,6 +120,9 @@ struct TaskDetailView: View {
                 reloadSection(message)
             }
             headerSection(task)
+            TaskDetailSocialActions(model: model) {
+                isChoosingPhoto = true
+            }
             infoSection(task)
             if model.canManageChecklist || !model.checklist.isEmpty {
                 Section {
@@ -119,7 +133,13 @@ struct TaskDetailView: View {
                 }
                 .listRowBackground(Theme.card)
             }
+            TaskDetailPhotosSection(model: model) {
+                isChoosingPhoto = true
+            } onOpen: { photo in
+                viewedPhoto = photo
+            }
             notesSection
+            TaskDetailCommentsSection(model: model)
             if model.canDelete {
                 Section {
                     Button(role: .destructive) {
@@ -347,6 +367,7 @@ struct TaskDetailView: View {
         guard !hasLeft else { return }
         hasLeft = true
         editorItem = nil
+        viewedPhoto = nil
         if let router = appModel?.router, isOnPath(of: router) {
             router.removeRoutes(forTask: model.taskId)
         } else {

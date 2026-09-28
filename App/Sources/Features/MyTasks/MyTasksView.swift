@@ -76,8 +76,13 @@ private struct MyTasksList: View {
         .task(id: model.refreshKey) {
             await model.load()
         }
+        // v3: the turns proposed to the user.
+        .task(id: model.swapRequests.refreshKey) {
+            await model.swapRequests.load()
+        }
         .refreshable {
             await model.reload()
+            await model.swapRequests.reload()
         }
         .onDisappear {
             // Only what was actually shown counts as seen.
@@ -134,6 +139,10 @@ private struct MyTasksList: View {
         case .loaded:
             MyTasksDayCard(summary: model.daySummary)
                 .padding(.bottom, 6)
+            if model.swapRequests.hasContent {
+                TurnSwapRequestsList(model: model.swapRequests)
+                    .padding(.bottom, 6)
+            }
             if model.isEmpty {
                 emptyCard
             }

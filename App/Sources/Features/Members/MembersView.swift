@@ -5,7 +5,8 @@ import TeamTasksCore
 /// admins the invite code (share, regenerate) and the member actions (« Nommer admin » / « Retirer le rôle d’admin »,
 /// « Retirer du groupe »: the « … » of a row, its long press and its swipe); « Quitter le groupe » for everyone.
 /// Cards on the grouped background, each action led by an icon tile, like « Réglages ». Leaves the group's screens
-/// when the group is gone.
+/// when the group is gone. v3: the away badge of each member (« Absent·e jusqu’au 12 oct. ») and the user's own
+/// « Mode absent » (`AwayModeSheet`, until Réglages has an entry for it).
 struct MembersView: View {
     let session: SessionModel
 
@@ -16,6 +17,9 @@ struct MembersView: View {
     @State private var isConfirmingSelfDemotion = false
     @State private var isConfirmingLeave = false
     @State private var isConfirmingRegeneration = false
+    /// v3: the « Mode absent » sheet, and its confirmation.
+    @State private var awayMode: AwayModeSheetItem?
+    @State private var toast: ToastNotice?
     @Environment(AppModel.self) private var appModel
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -31,6 +35,7 @@ struct MembersView: View {
                     inviteSection
                 }
                 membersSection
+                awaySection
                 leaveSection
             }
         }
@@ -101,6 +106,42 @@ struct MembersView: View {
             Text("L’ancien code ne fonctionnera plus. Les membres actuels restent dans le groupe.")
         }
         .shellErrorAlert(model)
+        .sheet(item: $awayMode) { item in
+            AwayModeSheet(model: item.model) { message in
+                toast = ToastNotice(message, systemImage: "airplane")
+            }
+        }
+        .toast($toast)
+    }
+
+    // MARK: - Mode absent (v3)
+
+    /// The user's « Mode absent » (until Réglages has it): the current absence, or what it does.
+    private var awaySection: some View {
+        Section {
+            Button {
+                awayMode = AwayModeSheetItem(model: model.makeAwayModeModel())
+            } label: {
+                HStack(spacing: 8) {
+                    rowLabel(AwayModeViewModel.title, systemImage: "airplane", tone: ColorKey.blue.tone)
+                    Spacer(minLength: 8)
+                    if let away = model.myAwayText {
+                        Text(away)
+                            .font(Font.footnote.weight(.semibold))
+                            .foregroundStyle(ColorKey.blue.accent)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(Font.footnote.weight(.bold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .accessibilityHidden(true)
+                }
+            }
+            .accessibilityIdentifier(AccessibilityID.Social.awayModeButton)
+        } footer: {
+            Text("Pendant ton absence, tes tours passent à la personne suivante.")
+        }
+        .listRowBackground(Theme.card)
     }
 
     // MARK: - Sections
@@ -195,6 +236,11 @@ struct MembersView: View {
                         .font(.footnote)
                         .foregroundStyle(Theme.textSecondary)
                         .lineLimit(isLarge ? nil : 2)
+                    // v3: « Absent·e jusqu’au 12 oct. ».
+                    if let away = model.awayText(of: member) {
+                        Chip(away, systemImage: "airplane", tone: ColorKey.blue.tone)
+                            .accessibilityIdentifier(AccessibilityID.Social.awayBadge(member.user.displayName))
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if isBusy {

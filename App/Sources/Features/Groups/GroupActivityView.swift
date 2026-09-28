@@ -3,7 +3,9 @@ import TeamTasksCore
 
 /// The « Activité » tab of a group (docs/DESIGN-V2.md §7.5): the week's recap (`GroupRecapCard`: « Cette semaine », its
 /// range, the total done, the podium, the streak), then « Fil d’activité », the events by day. An event about a task
-/// the group screen knows opens it.
+/// the group screen knows opens it. v3: the v3 kinds (nudges, absences, swaps, comments with their excerpt, photos) and
+/// the « Bravo » chips under each event (a tap toggles the user's reaction; a long press offers the 5 emojis, also as
+/// VoiceOver actions).
 ///
 /// Loads when shown and reloads on the group's change signal (`.task(id: model.refreshKey)`); the group screen owns
 /// the pull to refresh and leaves when the model `isGone`.
@@ -76,12 +78,57 @@ struct GroupActivityContent: View {
                         .frame(height: 1)
                         .accessibilityHidden(true)
                 }
-                feedRow(row)
+                feedEntry(row)
             }
         }
         .padding(.horizontal, Theme.Spacing.cardPadding)
         .padding(.vertical, 4)
         .cardSurface()
+    }
+
+    /// v3: an event with its « Bravo » chips under it; a long press offers the 5 reactions.
+    private func feedEntry(_ row: ActivityFeedRow) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            feedRow(row)
+                .accessibilityActions {
+                    if model.canReact {
+                        ForEach(ReactionEmoji.allCases) { emoji in
+                            Button(reactionTitle(emoji, on: row)) {
+                                toggle(emoji, on: row)
+                            }
+                        }
+                    }
+                }
+            if !row.reactions.isEmpty {
+                ActivityReactionChips(row: row, canReact: model.canReact) { emoji in
+                    toggle(emoji, on: row)
+                }
+                .padding(.leading, 50)
+                .padding(.bottom, 10)
+                .padding(.top, -4)
+            }
+        }
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contextMenu {
+            if model.canReact {
+                ForEach(ReactionEmoji.allCases) { emoji in
+                    Button {
+                        toggle(emoji, on: row)
+                    } label: {
+                        Text(reactionTitle(emoji, on: row))
+                    }
+                }
+            }
+        }
+    }
+
+    /// « 👏 Bravo », « 👏 Retirer Bravo » when the user already reacted so.
+    private func reactionTitle(_ emoji: ReactionEmoji, on row: ActivityFeedRow) -> String {
+        model.hasReacted(emoji, to: row.id) ? "\(emoji.rawValue) Retirer «\u{00A0}\(emoji.label)\u{00A0}»" : "\(emoji.rawValue) \(emoji.label)"
+    }
+
+    private func toggle(_ emoji: ReactionEmoji, on row: ActivityFeedRow) {
+        Task { await model.toggleReaction(emoji, on: row.id) }
     }
 
     @ViewBuilder private func feedRow(_ row: ActivityFeedRow) -> some View {
@@ -92,6 +139,62 @@ struct GroupActivityContent: View {
             .buttonStyle(.plain)
         } else {
             GroupActivityRow(row: row)
+        }
+    }
+}
+
+/// v3 « Bravo » (docs/CONTRACTS-V3.md §4): the reactions of an event as chips (« 👏 2 »), the user's own on the soft
+/// accent; a tap adds or removes the user's reaction. Each chip is a 44 pt button whose value says the count
+/// (« 2 réactions, dont la tienne »).
+struct ActivityReactionChips: View {
+    let row: ActivityFeedRow
+    let canReact: Bool
+    let onToggle: (ReactionEmoji) -> Void
+
+    init(row: ActivityFeedRow, canReact: Bool, onToggle: @escaping (ReactionEmoji) -> Void) {
+        self.row = row
+        self.canReact = canReact
+        self.onToggle = onToggle
+    }
+
+    var body: some View {
+        FlowLayout(spacing: 6, lineSpacing: 0) {
+            ForEach(row.reactions) { summary in
+                Button {
+                    onToggle(summary.emoji)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(summary.emoji.rawValue)
+                        Text("\(summary.count)")
+                            .font(Font.footnote.weight(.heavy))
+                            .monospacedDigit()
+                    }
+                    .foregroundStyle(summary.includesMe ? Theme.accentSoftText : Theme.textPrimary)
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 30)
+                    .background(
+                        summary.includesMe ? Theme.accentSoft : Theme.background,
+                        in: Capsule()
+                    )
+                    .overlay {
+                        if summary.includesMe {
+                            Capsule()
+                                .strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1)
+                        }
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.pressable)
+                .disabled(!canReact)
+                .accessibilityLabel("\(summary.emoji.rawValue) \(summary.emoji.label)")
+                .accessibilityValue(summary.accessibilityValue)
+                .accessibilityHint(summary.includesMe ? "Retire ta réaction" : "Ajoute ta réaction")
+                .accessibilityAddTraits(summary.includesMe ? .isSelected : [])
+                .accessibilityIdentifier(
+                    AccessibilityID.Social.reactionChip(row.event.taskTitle ?? "\(row.id)", summary.emoji.label)
+                )
+            }
         }
     }
 }
@@ -224,15 +327,31 @@ struct GroupActivityRow: View {
         .padding(.vertical, 12)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(row.text.plainText), \(row.timeText)")
+        .accessibilityLabel(accessibilityText)
     }
 
+    /// The sentence, then (v3) the excerpt of a comment.
     private var sentence: some View {
-        Text(GroupActivityText.attributed(row.text))
-            .font(.subheadline)
-            .foregroundStyle(Theme.textPrimary)
-            .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(GroupActivityText.attributed(row.text))
+                .font(.subheadline)
+                .foregroundStyle(Theme.textPrimary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+            if let detail = row.detail {
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// VoiceOver: the sentence, the excerpt, the time.
+    private var accessibilityText: String {
+        [row.text.plainText, row.detail, row.timeText].compactMap { $0 }.joined(separator: ", ")
     }
 
     private var time: some View {
@@ -246,11 +365,11 @@ struct GroupActivityRow: View {
         if let person = row.person {
             AvatarView(person.appearance, size: 38)
                 .overlay(alignment: .bottomTrailing) {
-                    Image(systemName: row.kind.feedBadgeSymbol)
+                    Image(systemName: row.activityKind.feedBadgeSymbol)
                         .font(.system(size: 9, weight: .heavy))
                         .foregroundStyle(Theme.onFill)
                         .frame(width: 20, height: 20)
-                        .background(row.kind.feedBadgeFill, in: Circle())
+                        .background(row.activityKind.feedBadgeFill, in: Circle())
                         .background {
                             Circle()
                                 .fill(Theme.card)
@@ -262,7 +381,7 @@ struct GroupActivityRow: View {
                 .padding(.trailing, 5)
                 .padding(.bottom, 5)
         } else {
-            IconTile(systemImage: row.systemImage, tone: row.kind.feedTone, size: 38)
+            IconTile(systemImage: row.systemImage, tone: row.activityKind.feedTone, size: 38)
         }
     }
 }
@@ -283,7 +402,9 @@ enum GroupActivityText {
     }
 }
 
-extension ActivityEvent.Kind {
+/// The v2 and v3 kinds of the feed (docs/CONTRACTS-V3.md §7): a relaunch is red, an absence blue, a swap teal, a
+/// comment violet, a photo green.
+extension ActivityKind {
     /// The glyph of the event's badge on a member's avatar.
     var feedBadgeSymbol: String {
         switch self {
@@ -293,6 +414,11 @@ extension ActivityEvent.Kind {
         case .checklistItemDone: "checklist"
         case .memberJoined: "person.fill.badge.plus"
         case .memberLeft: "person.fill.badge.minus"
+        case .taskNudged: "bell.fill"
+        case .memberAway: "airplane"
+        case .turnSwapped: "arrow.left.arrow.right"
+        case .commentAdded: "text.bubble.fill"
+        case .photoAdded: "camera.fill"
         }
     }
 
@@ -305,6 +431,11 @@ extension ActivityEvent.Kind {
         case .checklistItemDone: ColorKey.teal.fill
         case .memberJoined: ColorKey.blue.fill
         case .memberLeft: SoftTone.neutral.fill
+        case .taskNudged: SoftTone.danger.fill
+        case .memberAway: ColorKey.blue.fill
+        case .turnSwapped: ColorKey.teal.fill
+        case .commentAdded: ColorKey.violet.fill
+        case .photoAdded: ColorKey.green.fill
         }
     }
 
@@ -317,6 +448,11 @@ extension ActivityEvent.Kind {
         case .checklistItemDone: ColorKey.teal.tone
         case .memberJoined: ColorKey.blue.tone
         case .memberLeft: SoftTone.neutral
+        case .taskNudged: SoftTone.danger
+        case .memberAway: ColorKey.blue.tone
+        case .turnSwapped: ColorKey.teal.tone
+        case .commentAdded: ColorKey.violet.tone
+        case .photoAdded: ColorKey.green.tone
         }
     }
 }

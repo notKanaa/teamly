@@ -43,6 +43,10 @@ struct GroupTurnCardView: View {
                         .foregroundStyle(Theme.textSecondary)
                 }
             }
+            // v3: whose turn it is, or who comes next, is away.
+            if let away = card.currentAwayText ?? card.nextAwayText {
+                Chip(awayChipText(away), systemImage: "airplane", tone: ColorKey.blue.tone)
+            }
         }
         .padding(14)
         .frame(width: min(width, 320), alignment: .leading)
@@ -53,7 +57,15 @@ struct GroupTurnCardView: View {
         .accessibilityLabel(accessibilityText)
     }
 
-    /// The avatar and the name of whose turn it is.
+    /// « Inès : Absent·e du 12 au 19 oct. » (the person named when it is who comes next).
+    private func awayChipText(_ away: String) -> String {
+        if card.currentAwayText == nil, let next = card.next {
+            return "\(next.isMe ? "Toi" : next.shortName)\u{00A0}: \(away)"
+        }
+        return away
+    }
+
+    /// The avatar and the name of whose turn it is; a small plane on the avatar when they are away.
     @ViewBuilder private var turnHolder: some View {
         if let current = card.current {
             HStack(spacing: 8) {
@@ -63,6 +75,22 @@ struct GroupTurnCardView: View {
                     ring: card.isMyTurn ? Theme.card : nil,
                     highlight: card.isMyTurn ? Theme.accent : nil
                 )
+                .overlay(alignment: .bottomTrailing) {
+                    if card.currentAwayText != nil {
+                        Image(systemName: "airplane")
+                            .font(.system(size: 8, weight: .heavy))
+                            .foregroundStyle(Theme.onFill)
+                            .frame(width: 16, height: 16)
+                            .background(ColorKey.blue.fill, in: Circle())
+                            .background {
+                                Circle()
+                                    .fill(Theme.card)
+                                    .padding(-1.5)
+                            }
+                            .offset(x: 4, y: 4)
+                            .accessibilityHidden(true)
+                    }
+                }
                 .padding(card.isMyTurn ? 2 * AvatarView.ringWidth : 0)
                 Text(current.isMe ? MemberDirectory.meName : current.shortName)
                     .font(Font.subheadline.weight(.heavy))
@@ -94,8 +122,14 @@ struct GroupTurnCardView: View {
         } else {
             parts.append("personne n’a le tour")
         }
+        if let away = card.currentAwayText {
+            parts.append(away)
+        }
         if let next = card.nextText {
             parts.append(next)
+        }
+        if let away = card.nextAwayText {
+            parts.append(away)
         }
         return parts.joined(separator: ", ")
     }
