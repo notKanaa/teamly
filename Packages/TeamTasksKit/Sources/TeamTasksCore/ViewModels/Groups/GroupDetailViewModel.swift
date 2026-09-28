@@ -11,13 +11,27 @@ public struct TurnCard: Sendable, Hashable, Identifiable {
     public var current: PersonBadge?
     /// Who takes the next turn (`RotationHandover` over the current members); nil when nobody else is left.
     public var next: PersonBadge?
+    /// v3: the away badge of whose turn it is (« Absent·e jusqu’au 12 oct. »), nil when they are not away.
+    public var currentAwayText: String?
+    /// v3: the away badge of who comes next.
+    public var nextAwayText: String?
 
-    public init(task: TaskItem, dueText: String?, isOverdue: Bool, current: PersonBadge?, next: PersonBadge?) {
+    public init(
+        task: TaskItem,
+        dueText: String?,
+        isOverdue: Bool,
+        current: PersonBadge?,
+        next: PersonBadge?,
+        currentAwayText: String? = nil,
+        nextAwayText: String? = nil
+    ) {
         self.task = task
         self.dueText = dueText
         self.isOverdue = isOverdue
         self.current = current
         self.next = next
+        self.currentAwayText = currentAwayText
+        self.nextAwayText = nextAwayText
     }
 
     public var id: UUID { task.id }
@@ -88,6 +102,12 @@ public final class GroupDetailViewModel: ErrorPresenting {
     public var tab = Tab.tasks
     /// v2: the « Activité » tab (loads itself when shown).
     public let activity: GroupActivityViewModel
+    /// v3: the turns proposed to the user in this group (« Accepter » / « Refuser », above « À qui le tour ? »).
+    public let swapRequests: TurnSwapRequestsViewModel
+    /// v3: tasks being nudged from their card.
+    public internal(set) var nudgingTaskIds: Set<UUID> = []
+    /// v3: the confirmation to show for a few seconds (« Relance envoyée à Inès »).
+    public var toast: ToastNotice?
     public var error: ErrorState?
 
     public let session: SessionModel
@@ -107,6 +127,7 @@ public final class GroupDetailViewModel: ErrorPresenting {
         myRole = group?.myRole
         referenceDate = session.platform.now()
         activity = GroupActivityViewModel(session: session, groupId: groupId)
+        swapRequests = TurnSwapRequestsViewModel(session: session, groupId: groupId)
     }
 
     // MARK: - Loading
@@ -251,6 +272,7 @@ public final class GroupDetailViewModel: ErrorPresenting {
         let memberIds = Set(members.map(\.user.id))
         let now = referenceDate
         let calendar = session.platform.calendar
+        let today = LocalDate(now, calendar: calendar)
         let pending = tasks.filter { $0.status != .done && $0.hasRotation }
         return TaskSort.dueDate.sorted(pending).map { task in
             let handover = RotationHandover(after: task.rotation, turnUserId: task.turnUserId) { memberIds.contains($0) }
@@ -260,7 +282,9 @@ public final class GroupDetailViewModel: ErrorPresenting {
                 dueText: task.dueAt.map { DateText.relative($0, now: now, calendar: calendar) },
                 isOverdue: task.isOverdue(at: now),
                 current: task.turnUserId.map { directory.badge(of: $0, shortNames: shortNames) },
-                next: nextId.map { directory.badge(of: $0, shortNames: shortNames) }
+                next: nextId.map { directory.badge(of: $0, shortNames: shortNames) },
+                currentAwayText: directory.awayBadge(of: task.turnUserId, today: today),
+                nextAwayText: directory.awayBadge(of: nextId, today: today)
             )
         }
     }

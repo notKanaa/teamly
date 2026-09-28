@@ -3,7 +3,8 @@ import Observation
 
 /// Everything that lives as long as one user is signed in (docs/CONTRACTS.md §7): the `ChangeFeed` observed by
 /// the screens, the `RealtimeCoordinator` feeding it, and the ONE `AssignmentNotifier` and `ReminderSynchronizer`
-/// of this user in this process (also used by the background refresh).
+/// of this user in this process (also used by the background refresh). v3: the coordinator forwards the social
+/// events (nudges, swaps, reactions, comments) to `social`, which posts their local notifications.
 ///
 /// Created and owned by `AppModel` (one per signed-in user); every signed-in view model takes it as its
 /// dependency. `start()` begins listening, `stop()` tears everything down on sign-out.
@@ -42,6 +43,9 @@ public final class SessionModel: Identifiable {
     public let reminders: ReminderSynchronizer
     /// v2: the weekly recap notification (docs/CONTRACTS-V2.md §8), synchronized with the other notifications.
     public let weeklyRecap: WeeklyRecapNotifier
+    /// v3: the local notifications of the Realtime social events (nudges, swaps, reactions, comments), fed by
+    /// `realtime` (docs/CONTRACTS-V3.md §11).
+    public let social: SocialNotifier
     /// True between `start()` and `stop()`.
     public private(set) var isRunning = false
     /// True once `stop()` was called: the session no longer schedules anything.
@@ -76,6 +80,10 @@ public final class SessionModel: Identifiable {
         self.notifier = notifier
         reminders = ReminderSynchronizer(platform: platform)
         weeklyRecap = WeeklyRecapNotifier(platform: platform)
+        let social = SocialNotifier(
+            userId: user.id, groups: services.groups, tasks: services.tasks, scheduler: platform.notifications
+        )
+        self.social = social
         realtime = RealtimeCoordinator(
             realtime: services.realtime,
             userId: user.id,
@@ -85,6 +93,9 @@ public final class SessionModel: Identifiable {
             retryDelay: configuration.realtimeRetryDelay,
             onAssigned: { assignment in
                 _ = await notifier.handleRealtime(assignment)
+            },
+            onSocialEvent: { event in
+                _ = await social.handle(event)
             }
         )
     }

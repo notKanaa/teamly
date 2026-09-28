@@ -99,6 +99,9 @@ public final class MyTasksViewModel: ErrorPresenting {
     /// Tasks whose status change is being saved (their cards already show the new status).
     public private(set) var busyTaskIds: Set<UUID> = []
     public var error: ErrorState?
+    /// v3: the turns proposed to the user, in every group (« Accepter » / « Refuser » above the sections). The view
+    /// loads it: `.task(id: model.swapRequests.refreshKey) { await model.swapRequests.load() }`.
+    public let swapRequests: TurnSwapRequestsViewModel
 
     public let session: SessionModel
     private let runner = LoadRunner()
@@ -111,6 +114,7 @@ public final class MyTasksViewModel: ErrorPresenting {
     public init(session: SessionModel) {
         self.session = session
         referenceDate = session.platform.now()
+        swapRequests = TurnSwapRequestsViewModel(session: session)
     }
 
     /// `KeyValueStore` key of the user's « last seen » date.

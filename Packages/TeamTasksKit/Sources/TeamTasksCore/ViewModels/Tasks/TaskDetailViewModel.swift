@@ -23,6 +23,10 @@ public struct RotationEntry: Sendable, Hashable, Identifiable {
 /// (`recurrenceText`, the next dates `upcomingDueTexts`), and the rotation (`rotationEntries` from the current turn,
 /// `rotationText`).
 ///
+/// v3 (`TaskDetailViewModel+V3.swift`): « Relancer » (`nudge()`), « Échanger mon tour » (propose, cancel, and answer
+/// the proposal made to the user), the comments with their @mentions, and the photos (upload, signed URLs, delete, and
+/// « Ajouter une photo ? » after the user completed the task). Confirmations go to `toast`.
+///
 /// Reloads when the group's revision changes. View: `.task(id: model.refreshKey) { await model.load() }`;
 /// dismiss when `isGone` becomes true (deleted here or elsewhere, or no longer visible).
 @MainActor
@@ -38,7 +42,7 @@ public final class TaskDetailViewModel: ErrorPresenting {
 
     public let groupId: UUID
     public let taskId: UUID
-    public private(set) var task: TaskItem?
+    public internal(set) var task: TaskItem?
     public private(set) var members: [Membership] = []
     public private(set) var loadState: LoadState = .idle
     /// Deleted (here or by someone else) or no longer visible: dismiss.
@@ -63,11 +67,46 @@ public final class TaskDetailViewModel: ErrorPresenting {
     public private(set) var isAddingChecklistItem = false
     public var error: ErrorState?
 
+    // MARK: v3 state (TaskDetailViewModel+V3.swift)
+
+    /// v3: the task's comments, oldest first (read with the task; kept when that read fails).
+    public internal(set) var comments: [TaskComment] = []
+    /// v3: the task's turn swaps, the pending one included, oldest first (kept when that read fails).
+    public internal(set) var turnSwaps: [TurnSwap] = []
+    /// v3: the message of the comment composer (a refused text).
+    public internal(set) var commentError: String?
+    public internal(set) var isSendingComment = false
+    public internal(set) var deletingCommentIds: Set<UUID> = []
+    public internal(set) var isNudging = false
+    /// v3: the task was nudged from this screen (or the server said it already was today): the button says so.
+    public internal(set) var hasNudged = false
+    /// v3: a turn swap is being proposed, cancelled or answered.
+    public internal(set) var isChangingSwap = false
+    public internal(set) var isUploadingPhoto = false
+    public internal(set) var deletingPhotoIds: Set<UUID> = []
+    /// v3: the signed URLs already read, by photo id (`photoURL(for:)`).
+    public internal(set) var photoURLs: [UUID: URL] = [:]
+    /// v3: « Ajouter une photo ? », after the user completed the task here (with the rights to add one).
+    public internal(set) var showsPhotoPrompt = false
+    /// v3: the confirmation to show for a few seconds (« Relance envoyée à Inès »).
+    public var toast: ToastNotice?
+    /// v3: the comment composer (typing clears `commentError`).
+    public var commentDraft: String {
+        get { commentDraftValue }
+        set {
+            commentDraftValue = newValue
+            if commentError != nil { commentError = nil }
+        }
+    }
+
     public let session: SessionModel
     private let runner = LoadRunner()
     private var loadedRevision: Int?
     private var fetchingRevision: Int?
     private var newChecklistItemTitleValue = ""
+    var commentDraftValue = ""
+    /// When each URL of `photoURLs` was read (they are valid `Limits.photoURLLifetime` seconds).
+    var photoURLDates: [UUID: Date] = [:]
 
     /// - Parameter task: the task from the list, if known (shown before the first load). From « Mes tâches », its
     ///   group fields (`groupName`, `groupColor`, `groupEmoji`) are kept (`groupAppearance`).
@@ -109,7 +148,10 @@ public final class TaskDetailViewModel: ErrorPresenting {
         do {
             async let taskRequest = taskService.task(id: taskId)
             async let membersRequest = groupService.members(groupId: groupId)
+            // v3: the comments and the swaps are secondary: a failed read keeps what the screen shows.
+            async let socialRequest = Self.fetchSocial(taskService, taskId: taskId)
             let (task, members) = try await (taskRequest, membersRequest)
+            let social = await socialRequest
             guard task.groupId == groupId else {
                 // A link naming another group (`equipe://task/<group>/<task>`; a task never changes group): the
                 // rights, names and reloads would follow the wrong group.
@@ -119,6 +161,12 @@ public final class TaskDetailViewModel: ErrorPresenting {
             }
             self.task = merged(task)
             self.members = members
+            if let comments = social.comments {
+                self.comments = TaskComment.sorted(comments)
+            }
+            if let swaps = social.swaps {
+                turnSwaps = TurnSwap.sorted(swaps)
+            }
             referenceDate = session.platform.now()
             loadedRevision = revision
             loadState = .loaded
@@ -156,9 +204,19 @@ public final class TaskDetailViewModel: ErrorPresenting {
         return task
     }
 
-    private func markGone() {
+    func markGone() {
         isGone = true
         if loadState != .loaded { loadState = .loaded }
+    }
+
+    /// v3: the task's comments and swaps, nil for a read that failed.
+    nonisolated static func fetchSocial(
+        _ tasks: any TaskService,
+        taskId: UUID
+    ) async -> (comments: [TaskComment]?, swaps: [TurnSwap]?) {
+        async let comments = try? tasks.comments(taskId: taskId)
+        async let swaps = try? tasks.turnSwaps(taskId: taskId)
+        return await (comments, swaps)
     }
 
     // MARK: - Display
@@ -498,6 +556,9 @@ public final class TaskDetailViewModel: ErrorPresenting {
         do {
             let updated = try await session.services.tasks.setStatus(taskId: taskId, status: status)
             task = merged(updated)
+            // v3: « Ajouter une photo ? » once the user completed it, when they may add one and none was added yet.
+            showsPhotoPrompt = status == .done && updated.photos.isEmpty
+                && TaskPermissions.canAddPhoto(updated, userId: session.userId, role: myRole)
             session.feed.bump(groupId: groupId)
             session.feed.bumpMyTasks()
             return true

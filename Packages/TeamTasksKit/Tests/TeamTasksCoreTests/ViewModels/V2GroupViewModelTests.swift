@@ -208,31 +208,40 @@ import TeamTasksMocks
     typealias F = VMFixtures
     typealias T = VMFixtures.Tasks
 
-    /// The showcase feed: the events of the last 3 days, by day, in French, and the podium of the week.
+    /// The showcase feed: the events of the last 3 days, by day, in French (v3: the comments, the photo and the absence
+    /// included), and the podium of the week.
     @Test func feedAndRecap() async throws {
         let harness = VMHarness(.showcase)
         let model = GroupActivityViewModel(session: harness.makeSession(), groupId: F.lilas)
         await model.load()
         #expect(model.loadState == .loaded)
-        #expect(model.events.count == 10)
+        #expect(model.events.count == 14)
         let sections = model.sections
         #expect(sections.map(\.title) == ["Aujourd’hui", "Hier", "Mardi 22 septembre", "Lundi 21 septembre"])
-        #expect(sections.map(\.rows.count) == [5, 2, 1, 2])
+        #expect(sections.map(\.rows.count) == [8, 3, 1, 2])
         let today = sections[0].rows
         #expect(today.map(\.text.plainText) == [
             "Inès a terminé «\u{00A0}Arroser les plantes\u{00A0}»",
+            "Inès a commenté «\u{00A0}Faire les courses\u{00A0}»",
             "Lucas a terminé «\u{00A0}Descendre le verre\u{00A0}»",
             "Tu as coché «\u{00A0}Pâtes\u{00A0}» dans «\u{00A0}Faire les courses\u{00A0}»",
+            "Lucas a commenté «\u{00A0}Faire les courses\u{00A0}»",
             "Inès a terminé «\u{00A0}Passer l’aspirateur\u{00A0}»",
+            "Tu as ajouté une photo à «\u{00A0}Nettoyer le frigo\u{00A0}»",
             "Tu as terminé «\u{00A0}Nettoyer le frigo\u{00A0}»",
         ])
-        #expect(today.map(\.timeText) == ["09:00", "06:00", "05:00", "03:00", "00:00"])
+        #expect(today.map(\.timeText) == ["09:00", "07:00", "06:00", "05:00", "04:00", "03:00", "00:00", "00:00"])
         #expect(today[0].person?.shortName == "Inès")
         #expect(today[0].systemImage == "checkmark.circle.fill")
-        #expect(today[2].kind == .checklistItemDone)
-        #expect(today[2].taskId == T.faireCourses)
+        #expect(today[1].activityKind == .commentAdded)
+        #expect(today[1].detail == "«\u{00A0}Et des céréales pour le petit-déj, merci @Camille\u{00A0}!\u{00A0}»")
+        #expect(today[3].kind == .checklistItemDone)
+        #expect(today[3].taskId == T.faireCourses)
+        #expect(today[6].activityKind == .photoAdded)
+        #expect(today[6].systemImage == "camera")
         #expect(sections[1].rows.map(\.text.plainText) == [
             "Inès a terminé «\u{00A0}Faire la vaisselle\u{00A0}»",
+            "Inès a annoncé une absence du 28 septembre au 4 octobre",
             "Lucas a coché «\u{00A0}Lait\u{00A0}» dans «\u{00A0}Faire les courses\u{00A0}»",
         ])
         #expect(sections[2].rows.map(\.text.plainText) == ["Lucas a créé «\u{00A0}Faire les courses\u{00A0}»"])
