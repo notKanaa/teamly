@@ -3,7 +3,8 @@ import Foundation
 /// Computes the due-date reminders that should be pending (docs/CONTRACTS.md §7). Pure: no side effects.
 ///
 /// Rules: only tasks assigned to `userId`, not done, with a due date; the reminder fires at
-/// `dueAt - leadTime` and is kept only if that date is strictly after `now`; at most `maxPending`
+/// `dueAt - leadTime`, or (v3) at the end of the quiet hours when that time falls inside them
+/// (docs/CONTRACTS-V3.md §9), and is kept only if its fire date is strictly after `now`; at most `maxPending`
 /// reminders (iOS keeps 64 pending requests per app), the soonest first.
 /// Apply the result with `ReminderReconciler`.
 public struct ReminderPlanner: Sendable, Hashable {
@@ -38,12 +39,14 @@ public struct ReminderPlanner: Sendable, Hashable {
     /// - Parameters:
     ///   - tasks: typically `TaskService.myTasks(includeDone: false)`; other tasks are ignored.
     ///   - groupNames: fallback group names when `TaskItem.groupName` is nil or empty.
+    ///   - quietHours: v3: a reminder due to fire inside the window fires at its end (off by default).
     public func plan(
         tasks: [TaskItem],
         userId: UUID,
         leadTime: ReminderLeadTime,
         now: Date,
-        groupNames: [UUID: String] = [:]
+        groupNames: [UUID: String] = [:],
+        quietHours: QuietHours = QuietHours()
     ) -> [LocalNotification] {
         guard leadTime.isEnabled, maxPending > 0 else { return [] }
         let formatter = FrenchDateFormatter(timeZone: calendar.timeZone)
@@ -55,9 +58,12 @@ public struct ReminderPlanner: Sendable, Hashable {
                   let dueAt = task.dueAt,
                   task.isAssigned(to: userId),
                   seenTaskIds.insert(task.id).inserted,
-                  let fireDate = leadTime.fireDate(forDueAt: dueAt, calendar: calendar),
-                  fireDate > now
+                  let leadFireDate = leadTime.fireDate(forDueAt: dueAt, calendar: calendar)
             else { continue }
+            // Deferred first, then checked: a reminder deferred to the end of the window stays planned while the
+            // window lasts, even once its own time has passed.
+            let fireDate = quietHours.deferred(leadFireDate, calendar: calendar)
+            guard fireDate > now else { continue }
 
             let when = formatter.relativeDateTime(dueAt, relativeTo: fireDate)
             let body: String

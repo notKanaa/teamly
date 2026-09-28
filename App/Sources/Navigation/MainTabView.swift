@@ -8,12 +8,18 @@ import TeamTasksCore
 /// `Theme.background` (docs/DESIGN-V2.md §3).
 ///
 /// Environment provided to every screen below: `AppModel` and `Router` (from `RootView`), and `SessionModel`.
+///
+/// Also performs the home-screen quick actions (`QuickActionCenter`): « Mes tâches » opens the tab; « Rejoindre un
+/// groupe » opens « Groupes » and the join sheet; « Nouvelle tâche » opens the task editor of the only group, or asks
+/// for the group first (« Groupes » when there is none).
 struct MainTabView: View {
     let session: SessionModel
 
     @Environment(AppModel.self) private var appModel
     /// Owned here (and handed to the « Mes tâches » screen) so that the tab badge stays live on every tab.
     @State private var myTasks: MyTasksViewModel
+    /// The sheet of a quick action.
+    @State private var quickSheet: QuickActionSheet?
 
     init(session: SessionModel) {
         self.session = session
@@ -76,6 +82,68 @@ struct MainTabView: View {
         .task {
             guard !session.isNotificationPromptDeferred else { return }
             await session.requestNotificationAuthorizationIfNeeded()
+        }
+        // A quick action chosen before the tabs showed (launch, sign-in), or while they show.
+        .onChange(of: QuickActionCenter.shared.pending, initial: true) { _, pending in
+            guard pending != nil else { return }
+            Task {
+                await performQuickAction()
+            }
+        }
+        .sheet(item: $quickSheet) { sheet in
+            switch sheet {
+            case let .pickGroup(groups):
+                QuickNewTaskGroupPicker(groups: groups) { groupId in
+                    quickSheet = .newTask(groupId)
+                }
+            case let .newTask(groupId):
+                TaskEditorView(mode: .create(groupId: groupId), session: session) { task in
+                    appModel.router.showGroup(task.groupId)
+                }
+            case .joinGroup:
+                JoinGroupSheet(session: session) { groupId in
+                    quickSheet = nil
+                    appModel.router.showGroup(groupId)
+                }
+            }
+        }
+    }
+
+    private func performQuickAction() async {
+        guard let action = QuickActionCenter.shared.take() else { return }
+        let router = appModel.router
+        switch action {
+        case .myTasks:
+            router.showMyTasks()
+        case .joinGroup:
+            router.showGroups()
+            quickSheet = .joinGroup
+        case .newTask:
+            let groups = (try? await session.services.groups.myGroups()) ?? []
+            if let only = groups.first, groups.count == 1 {
+                quickSheet = .newTask(only.id)
+            } else if groups.isEmpty {
+                router.showGroups()
+            } else {
+                quickSheet = .pickGroup(groups)
+            }
+        }
+    }
+}
+
+/// The sheets of the quick actions.
+private enum QuickActionSheet: Identifiable, Hashable {
+    /// « Nouvelle tâche » with several groups: which one?
+    case pickGroup([GroupSummary])
+    /// The task editor of a group.
+    case newTask(UUID)
+    case joinGroup
+
+    var id: String {
+        switch self {
+        case .pickGroup: "pickGroup"
+        case let .newTask(groupId): "newTask-\(groupId.uuidString)"
+        case .joinGroup: "joinGroup"
         }
     }
 }

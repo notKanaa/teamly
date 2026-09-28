@@ -45,10 +45,15 @@ final class FlowTests: XCTestCase {
             expecting: UITestDemo.unknownInviteCodeDisplayed
         )
         let joinButton = ui.buttons(AccessibilityID.Groups.saveButton)
-        if !ui.waitUntilEnabled(joinButton, timeout: UITestTimeout.short) {
-            // The field re-formats its text after each key and may miss the last one while showing all 8 (a CI run:
-            // « ZZZZ-ZZZZ » shown, « Rejoindre » disabled): typing the last letter again hands it over.
-            ui.app.typeText(XCUIKeyboardKey.delete.rawValue + String(UITestDemo.unknownInviteCode.suffix(1)))
+        var retypes = 0
+        while !ui.waitUntilEnabled(joinButton, timeout: UITestTimeout.short), retypes < 3 {
+            retypes += 1
+            // The field re-formats its text after each key and may miss the last one while showing all 8 (CI runs:
+            // « ZZZZ-ZZZZ » shown, « Rejoindre » disabled, even after deleting and typing the last letter in one go):
+            // the last letter deleted, then typed again, each key once the field shows the previous one.
+            ui.app.typeText(XCUIKeyboardKey.delete.rawValue)
+            ui.waitForText(String(UITestDemo.unknownInviteCodeDisplayed.dropLast()), of: codeField)
+            ui.app.typeText(String(UITestDemo.unknownInviteCode.suffix(1)))
             ui.waitForText(UITestDemo.unknownInviteCodeDisplayed, of: codeField)
         }
         ui.tapWhenEnabled(joinButton, "« Rejoindre » of the sheet", until: .shows(ui.app.alerts))
@@ -125,8 +130,7 @@ final class FlowTests: XCTestCase {
     @MainActor
     func testSignOut() {
         let ui = EquipeApp.launch(.populated, for: self)
-        ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
-        ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the loaded settings")
+        ui.openSettings()
 
         ui.tap(ui.buttons(AccessibilityID.Settings.signOut), "« Se déconnecter »", timeout: UITestTimeout.short)
         ui.confirm("Se déconnecter", identifier: AccessibilityID.Settings.confirmSignOut, openedFrom: AccessibilityID.Settings.signOut)
@@ -148,13 +152,12 @@ final class FlowTests: XCTestCase {
         ui.waitForContent(ui.elements(AccessibilityID.Groups.emptyJoinButton), "« Rejoindre avec un code »")
     }
 
-    /// Réglages → the avatar row → « Ton avatar »: an emoji, « Enregistrer »; the sheet closes.
+    /// Réglages → the avatar of the profile card → « Mon profil »: an emoji, « Enregistrer »; the sheet closes.
     @MainActor
     func testEditAvatarFromSettings() {
         let ui = EquipeApp.launch(.populated, notifications: "authorized", for: self)
-        ui.openTab(AccessibilityID.Tabs.settingsTitle, identifier: AccessibilityID.Tabs.settings)
-        // The row opens the editor once the profile is loaded (with the display name field).
-        ui.waitForContent(ui.textFields(AccessibilityID.Settings.displayNameField), "the loaded settings")
+        // The avatar opens the editor once the profile is loaded (with the name of the profile card).
+        ui.openSettings()
 
         let save = ui.buttons(AccessibilityID.Settings.avatarSaveButton, orLabel: "Enregistrer")
         ui.tap(ui.buttons(AccessibilityID.Settings.avatarButton), "the avatar row", until: .shows(save))

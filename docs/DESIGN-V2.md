@@ -163,13 +163,33 @@ All data comes from the v2 view models (`D:\mobileApp\_wt\V2-CORE-API.md` and th
    - Qui s’en occupe ? The assignee picker, OR « À tour de rôle » (toggle) with the ordered list: number, avatar, name, « Commence » / « C’est ton tour » badge, drag handle.
    - Checklist (creation only).
    - Priorité (SegmentedPill).
-8. **Réglages:**
-   - The avatar row, which opens the avatar editor, and the name.
-   - The notifications section: reminders, ntfy, and « Récap du lundi » (toggle).
-   - The account section.
-   - Same content as v1, restyled with cards.
+8. **Réglages** (v3, the SettingsMain and SettingsAppearance mockups; docs/CONTRACTS-V3.md §8, §9):
+   - The profile card: the 72 pt avatar ringed in its soft color, the name, the e-mail, three figures (« tâches ce
+     mois » on the soft accent, « semaines de série » with a flame on amber, « groupes » on teal) and « Modifier mon
+     profil ». The avatar and that button open « Mon profil » (the name, then the avatar picker).
+   - Four quick tiles in a 2 × 2 grid (one column at accessibility sizes): Notifications (the permission; asks for it
+     or opens the iPhone's settings), Rappels (a menu of the lead times), Récap du lundi (a switch), Heures calmes (a
+     sheet: the switch, the start and end times).
+   - « Personnalisation »: « Apparence » (a pushed screen): Thème (three cards Auto / Clair / Sombre with a small
+     preview, applied to the whole app), Icône de l’app (A, B, C from their previews), Effets (Confettis, Vibrations).
+   - « Mes groupes » (tile, name, « Admin · 3 membres »; a row opens the group), « Compte » (Mot de passe, Notifications
+     push — the ntfy screen —, Se déconnecter), « Teamly » (Inviter des amis, Nouveautés, Aide et contact).
+   - « Supprimer mon compte » (red text on a card), then the footer: the logo and the version.
+9. **Shortcuts** (v3): swipe actions on the cards (`.cardSwipeActions`), also VoiceOver actions.
+   - Groupes: swipe right « Épingler » (pinned groups first, a pin badge on the card); swipe left « Supprimer »
+     (admins) or « Quitter » (members), confirmed; a long press: Ouvrir, Inviter and Apparence (admins), Épingler,
+     Quitter or Supprimer.
+   - Task cards (group screen, « Mes tâches »): swipe right « Terminer » / « Rouvrir »; swipe left « Supprimer »
+     (confirmed) and, in « Mes tâches », « Reporter » (the due date one day later).
+   - Home-screen quick actions (long press on the app icon): « Nouvelle tâche » (a group picker with several groups),
+     « Mes tâches », « Rejoindre un groupe ».
+   - Completing a task throws a burst of confetti (unless « Confettis » is off or Reduce Motion is on).
 
 ## 8. App icon
 The three options (A Trio, B Carte cochée, C Monogramme É) are on the design canvas and rendered as 1024 px PNGs, full
 bleed, RGB, without alpha. The user picks one. Its SVG becomes the source in `design/`. The iOS `AppIcon` gets the PNG;
 the Android adaptive icon is split into a background (gradient) and a foreground (motif).
+
+v3: B is the primary icon (`design/app-icon.svg`); A and C are alternate icons chosen in Réglages › Apparence
+(`design/app-icon-trio.svg`, `design/app-icon-monogramme.svg`, the `AppIconTrio` and `AppIconMonogramme` icon sets, and
+180 px previews `AppIconPreview…`). `node scripts/render-app-icon.mjs` renders them all.

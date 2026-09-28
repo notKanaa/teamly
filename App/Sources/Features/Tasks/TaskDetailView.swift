@@ -13,6 +13,8 @@ import TeamTasksCore
 struct TaskDetailView: View {
     @Environment(AppModel.self) private var appModel: AppModel?
     @Environment(\.dismiss) private var dismiss
+    /// Confetti when the user completes the task (Réglages › Apparence).
+    @Environment(\.celebrate) private var celebrate
     @State private var model: TaskDetailViewModel
     @State private var editorItem: TaskDetailEditorItem?
     @State private var presentedEditor: TaskEditorViewModel?
@@ -323,8 +325,11 @@ struct TaskDetailView: View {
     private func change(to status: TaskStatus) {
         pendingStatus = status
         Task {
-            await model.setStatus(status)
+            let saved = await model.setStatus(status)
             pendingStatus = nil
+            if saved && status == .done {
+                celebrate()
+            }
         }
     }
 
