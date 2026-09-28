@@ -1,7 +1,7 @@
 import Foundation
 
-// v3 « Mode absent » on « Membres » (docs/CONTRACTS-V3.md §2): the away badges of the members, and the entry of the
-// current user's own « Mode absent » (until Réglages has one).
+// v3 « Mode absent » on « Membres » (docs/CONTRACTS-V3.md §2): the away badges of the members. The user's own « Mode
+// absent » opens from Réglages (`AwayModeViewModel`).
 extension MembersViewModel {
     /// The date of the badges: today in the injected calendar.
     public var today: LocalDate { LocalDate(session.platform.now(), calendar: session.platform.calendar) }
@@ -14,10 +14,5 @@ extension MembersViewModel {
     /// The current user's badge, nil when they are not away.
     public var myAwayText: String? {
         members.first { isMe($0) }.flatMap { awayText(of: $0) }
-    }
-
-    /// The « Mode absent » sheet of the current user.
-    public func makeAwayModeModel() -> AwayModeViewModel {
-        AwayModeViewModel(session: session)
     }
 }

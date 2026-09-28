@@ -22,9 +22,9 @@ final class SocialFlowTests: XCTestCase {
         ui.waitForText(UITestSocial.nudgeDone, of: nudge)
     }
 
-    /// « Membres » shows Inès's absence; Camille's « Mode absent » previews that Lucas takes her « Sortir les
-    /// poubelles » of tonight (24-mode-absent), then « Activer » closes the sheet with a toast and her row shows the
-    /// absence.
+    /// « Membres » shows Inès's absence. Réglages › « Mode absent » previews that Lucas takes Camille's « Sortir les
+    /// poubelles » of tonight (24-mode-absent); « Activer » closes the sheet with a toast, then Réglages and « Membres »
+    /// show her absence.
     @MainActor
     func test24AwayMode() {
         let ui = EquipeApp.launch(.showcase, notifications: "authorized", for: self)
@@ -35,8 +35,9 @@ final class SocialFlowTests: XCTestCase {
             ui.elements(labelContaining: UITestDemo.inesName, UITestSocial.awayWord), "Inès away next week"
         )
 
+        ui.openSettings()
         let handovers = ui.elements(AccessibilityID.Social.awayHandovers)
-        ui.tap(ui.buttons(AccessibilityID.Social.awayModeButton), "« Mode absent »", until: .shows(handovers))
+        ui.tap(ui.buttons(AccessibilityID.Social.settingsAwayRow), "« Mode absent »", until: .shows(handovers))
         ui.waitForContent(
             ui.elements(labelContaining: UITestDemo.sortirPoubelles, UITestSocial.awayHandover),
             "Lucas takes « \(UITestDemo.sortirPoubelles) »"
@@ -48,6 +49,13 @@ final class SocialFlowTests: XCTestCase {
         ui.waitFor(
             ui.elements(AccessibilityID.Social.toast, labelContaining: UITestSocial.awayToast), "« Mode absent activé »"
         )
+        ui.waitFor(
+            ui.elements(AccessibilityID.Social.settingsAwayRow, labelContaining: UITestSocial.awayWord),
+            "Réglages: Camille away"
+        )
+
+        // « Membres » (still open in « Groupes ») shows it too.
+        ui.openTab(AccessibilityID.Tabs.groupsTitle, identifier: AccessibilityID.Tabs.groups)
         ui.waitFor(
             ui.elements(labelContaining: UITestDemo.camilleName, UITestSocial.awayWord), "Camille away on « Membres »"
         )

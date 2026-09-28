@@ -540,6 +540,7 @@ struct VMTaskService: TaskService {
     }
 
     func myCompletions(since: Date) async throws -> [TaskCompletion] {
+        faults.record(.myCompletions, date: since)
         try await faults.check(.myCompletions)
         return try await base.myCompletions(since: since)
     }

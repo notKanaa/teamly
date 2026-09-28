@@ -21,12 +21,12 @@ import TeamTasksMocks
         #expect(model.stats == PersonalStats(tasksThisMonth: 0, streakWeeks: 0))
         #expect(!model.needsRefresh)
         let now = session.platform.now()
-        #expect(harness.faults.recordedDates(.myTasks) == [PersonalStats.readStart(now: now, calendar: F.calendar)])
+        #expect(harness.faults.recordedDates(.myCompletions) == [PersonalStats.readStart(now: now, calendar: F.calendar)])
 
         // Camille completes « Sortir les poubelles »: counted once « Mes tâches » changed.
         _ = try await harness.services.tasks.setStatus(taskId: F.Tasks.sortirPoubelles, status: .done)
         await model.load()
-        #expect(harness.faults.calls(.myTasks) == 1)
+        #expect(harness.faults.calls(.myCompletions) == 1)
         session.feed.bumpMyTasks()
         #expect(model.needsRefresh)
         await model.load()
@@ -42,7 +42,7 @@ import TeamTasksMocks
         let harness = VMHarness()
         let session = harness.makeSession()
         let model = PersonalStatsViewModel(session: session)
-        harness.faults.fail(.myTasks, with: AppError.network)
+        harness.faults.fail(.myCompletions, with: AppError.network)
         await model.load()
         #expect(model.stats == nil)
         #expect(model.needsRefresh)
@@ -52,7 +52,7 @@ import TeamTasksMocks
         #expect(model.stats == PersonalStats(tasksThisMonth: 1, streakWeeks: 1))
 
         session.feed.bumpMyTasks()
-        harness.faults.fail(.myTasks, with: AppError.network)
+        harness.faults.fail(.myCompletions, with: AppError.network)
         await model.load()
         #expect(model.stats == PersonalStats(tasksThisMonth: 1, streakWeeks: 1))
         #expect(model.needsRefresh)

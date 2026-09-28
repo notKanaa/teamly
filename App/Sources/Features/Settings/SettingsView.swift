@@ -7,7 +7,8 @@ import UIKit
 ///   ce mois », « semaines de série », « groupes », docs/CONTRACTS-V3.md §8) and « Modifier mon profil »;
 /// - four quick tiles: Notifications (the permission: asks for it, or opens the iPhone's settings), Rappels (the lead
 ///   time), Récap du lundi (a switch), Heures calmes (a sheet, docs/CONTRACTS-V3.md §9);
-/// - Personnalisation › Apparence (theme, app icon, confetti, haptics);
+/// - Personnalisation › Apparence (theme, app icon, confetti, haptics), and (v3) « Mode absent » (`AwayModeSheet`, the
+///   current absence on its trailing side, docs/CONTRACTS-V3.md §2);
 /// - « Mes groupes » (each row opens the group), « Compte » (password, the ntfy push screen, sign-out), « Teamly »
 ///   (invite friends, what's new, help), « Supprimer mon compte » and the footer.
 ///
@@ -32,6 +33,9 @@ struct SettingsView: View {
     @State private var profileEditor: AvatarEditorViewModel?
     @State private var passwordModel: ChangePasswordViewModel?
     @State private var activeSheet: SettingsSheet?
+    /// v3: the « Mode absent » sheet, and its confirmation.
+    @State private var awayMode: AwayModeSheetItem?
+    @State private var toast: ToastNotice?
 
     init(session: SessionModel) {
         self.session = session
@@ -50,6 +54,8 @@ struct SettingsView: View {
                 quickTiles
                 SettingsSection("Personnalisation") {
                     appearanceRow
+                    SettingsDivider()
+                    awayModeRow
                 }
                 if !groups.groups.isEmpty {
                     groupsSection
@@ -131,6 +137,12 @@ struct SettingsView: View {
                 HelpSheet()
             }
         }
+        .sheet(item: $awayMode) { item in
+            AwayModeSheet(model: item.model) { message in
+                toast = ToastNotice(message, systemImage: "airplane")
+            }
+        }
+        .toast($toast)
     }
 
     /// False while a sheet or the ntfy screen shows the model's errors in its own alert.
@@ -424,6 +436,32 @@ struct SettingsView: View {
         .onAppear {
             preferences.refreshAppIcon()
         }
+    }
+
+    /// v3 « Mode absent »: the current absence (« Absent·e jusqu’au 12 oct. ») or what it does.
+    private var awayModeRow: some View {
+        Button {
+            awayMode = AwayModeSheetItem(model: AwayModeViewModel(session: session))
+        } label: {
+            SettingsRowLabel(
+                AwayModeViewModel.title,
+                subtitle: awayText == nil ? "Tes tours passent au suivant pendant ton absence" : nil,
+                systemImage: "airplane",
+                tone: ColorKey.blue.tone,
+                trailing: awayText,
+                trailingColor: ColorKey.blue.accent,
+                trailingWeight: .semibold,
+                showsChevron: true
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(AccessibilityID.Social.settingsAwayRow)
+    }
+
+    /// The badge of the user's absence, nil when none is set.
+    private var awayText: String? {
+        let calendar = session.platform.calendar
+        return model.profile.flatMap { AwayText.badge(for: $0, today: LocalDate(session.platform.now(), calendar: calendar)) }
     }
 
     // MARK: - Mes groupes

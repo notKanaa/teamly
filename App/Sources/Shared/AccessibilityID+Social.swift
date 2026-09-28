@@ -56,8 +56,8 @@ extension AccessibilityID {
         static let photoPromptDismiss = "social.photos.prompt.dismiss"
 
         // Mode absent
-        /// « Mode absent » on « Membres » (the current user's row).
-        static let awayModeButton = "social.away.open"
+        /// « Mode absent » in « Réglages » › Personnalisation.
+        static let settingsAwayRow = "social.away.settings"
         static let awaySheet = "social.away.sheet"
         static let awayFromPicker = "social.away.from"
         static let awayUntilPicker = "social.away.until"

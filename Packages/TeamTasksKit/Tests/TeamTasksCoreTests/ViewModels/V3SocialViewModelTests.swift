@@ -551,6 +551,8 @@ import TeamTasksMocks
         )
         let answer = try #require(await notifier.handle(declined))
         #expect(answer.title == "Échange refusé")
+        // Delivered at once: the quiet hours of the device silence it (docs/CONTRACTS-V3.md §9).
+        #expect(answer.fireDate == nil)
         #expect(answer.body == "Lucas ne peut pas prendre ton tour pour «\u{00A0}Ranger le matériel\u{00A0}»")
         // The user's own reaction, a comment neither mentioning nor concerning them, a v1 event: nothing.
         #expect(await notifier.handle(.reactionAdded(activityId: 1, groupId: F.lilas, userId: F.camille.id, emoji: .clap)) == nil)

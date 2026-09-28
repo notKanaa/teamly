@@ -697,7 +697,7 @@ background, and it is dimmed while disabled. A `Menu` takes it too: add `.menuSt
 | `Features/Tasks/TaskDetailSocial.swift` | the task screen's `TaskDetailSocialActions`, `TaskDetailPhotosSection`, `TaskDetailCommentsSection`, `TaskCommentBubble`, `TaskPhotoPromptCard` |
 | `Features/Tasks/TaskPhotoViews.swift` | `TaskPhotoImage` (signed URL, then an in-memory cache by photo id), `TaskPhotoViewer`, `.taskPhotoPicking(isChoosing:model:)`, `TaskPhotoEncoder` |
 | `Features/Groups/GroupActivityView.swift` | `ActivityReactionChips` (« 👏 2 », the user's on the soft accent) |
-| `Features/Members/AwayModeSheet.swift` | `AwayModeSheet`, standalone: it can open from Réglages as well as from « Membres » |
+| `Features/Members/AwayModeSheet.swift` | `AwayModeSheet`, standalone (opened from Réglages › Personnalisation) |
 
 - **Away badges:** « Absent·e jusqu’au 12 oct. » is a `Chip` with the `airplane` symbol, in `ColorKey.blue.tone`.
 - **Feed:** each v3 kind has its badge glyph and color (`ActivityKind.feedBadgeSymbol`, `feedBadgeFill`, `feedTone`):

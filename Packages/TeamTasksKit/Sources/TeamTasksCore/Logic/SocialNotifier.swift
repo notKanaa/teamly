@@ -10,8 +10,9 @@ import Foundation
 /// for a comment. A read that fails leaves « Quelqu’un » or no title. Nothing is posted while notifications are not
 /// authorized, nor for the user's own reactions and comments, nor for a comment that `SocialNotificationText.shouldNotify`
 /// refuses, nor for the repayment or the cancellation of a swap. Every notification carries the task (or the group, for
-/// a reaction to an event without task): a tap opens it. Quiet hours are the platform scheduler's business (it plays no
-/// sound during them).
+/// a reaction to an event without task): a tap opens it. Every notification is delivered at once (`fireDate` nil):
+/// during the quiet hours of the device (`QuietHours`, docs/CONTRACTS-V3.md §9) the iOS scheduler delivers it without
+/// sound, like the other live notifications.
 public actor SocialNotifier {
     private let userId: UUID
     private let groups: any GroupService

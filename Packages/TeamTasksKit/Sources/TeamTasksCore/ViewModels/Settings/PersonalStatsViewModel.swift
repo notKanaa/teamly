@@ -4,10 +4,8 @@ import Observation
 /// The figures of the « Réglages » profile card (docs/CONTRACTS-V3.md §8): « tâches ce mois » and « semaines de
 /// série » (`PersonalStats`). The number of groups comes from the groups list.
 ///
-/// Until the v3 read `tasks?completed_by=eq.<me>&completed_at=gte.<since>` exists, the tasks come from
-/// `TaskService.myTasks(doneSince: PersonalStats.readStart(…))` (the tasks assigned to the user) filtered on
-/// `completedBy == me`: a task the user completed without being one of its assignees is not counted yet.
-/// v3: switch the read of `fetch()` to the new service; `PersonalStats(completions:now:calendar:)` stays.
+/// The tasks are read with `TaskService.myCompletions(since: PersonalStats.readStart(…))`
+/// (`tasks?completed_by=eq.<me>&completed_at=gte.<since>`): every task the user completed, assigned to them or not.
 ///
 /// Reloads when « Mes tâches » may have changed (`ChangeFeed.myTasksRevision`: the user's own status changes, new
 /// assignments, return to foreground). The figures are optional: a failed read keeps the previous ones (nil before
@@ -47,11 +45,10 @@ public final class PersonalStatsViewModel {
         let now = session.platform.now()
         let calendar = session.platform.calendar
         do {
-            // v3: read the tasks completed by the user (docs/CONTRACTS-V3.md §8) instead.
-            let tasks = try await session.services.tasks.myTasks(
-                doneSince: PersonalStats.readStart(now: now, calendar: calendar)
+            let completions = try await session.services.tasks.myCompletions(
+                since: PersonalStats.readStart(now: now, calendar: calendar)
             )
-            stats = PersonalStats(tasks: tasks, userId: session.userId, now: now, calendar: calendar)
+            stats = PersonalStats(completions: completions.map { $0.completedAt }, now: now, calendar: calendar)
             loadedRevision = revision
         } catch {
             // Keep the figures already read; the next change signal reads again.
